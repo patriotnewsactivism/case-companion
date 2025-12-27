@@ -1,5 +1,6 @@
 import { Layout } from "@/components/Layout";
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -126,6 +127,7 @@ const initialFormData: CaseFormData = {
 };
 
 export default function Cases() {
+  const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
@@ -467,7 +469,7 @@ export default function Cases() {
             <motion.div variants={item} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {filteredCases.map((caseItem) => (
                 <motion.div key={caseItem.id} variants={item}>
-                  <Card className="glass-card h-full hover:shadow-lg transition-all cursor-pointer group">
+                  <Card className="glass-card h-full hover:shadow-lg transition-all cursor-pointer group" onClick={() => navigate(`/cases/${caseItem.id}`)}>
                     <CardHeader className="pb-3">
                       <div className="flex items-start justify-between">
                         <div className="flex items-center gap-3">
@@ -480,18 +482,18 @@ export default function Cases() {
                           </div>
                         </div>
                         <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
+                          <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
                             <Button variant="ghost" size="icon" className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity">
                               <MoreVertical className="h-4 w-4" />
                             </Button>
                           </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => handleEdit(caseItem)}>
+                          <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleEdit(caseItem); }}>
                               <Pencil className="h-4 w-4 mr-2" />
                               Edit Case
                             </DropdownMenuItem>
                             <DropdownMenuItem
-                              onClick={() => setDeleteId(caseItem.id)}
+                              onClick={(e) => { e.stopPropagation(); setDeleteId(caseItem.id); }}
                               className="text-destructive focus:text-destructive"
                             >
                               <Trash2 className="h-4 w-4 mr-2" />
@@ -529,7 +531,7 @@ export default function Cases() {
                           <Clock className="h-3 w-3" />
                           <span>{format(new Date(caseItem.updated_at), "MMM d, yyyy")}</span>
                         </div>
-                        <Button variant="ghost" size="sm" className="h-7 text-xs text-accent" onClick={() => handleEdit(caseItem)}>
+                        <Button variant="ghost" size="sm" className="h-7 text-xs text-accent" onClick={(e) => { e.stopPropagation(); navigate(`/cases/${caseItem.id}`); }}>
                           Open →
                         </Button>
                       </div>
