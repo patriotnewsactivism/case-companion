@@ -199,6 +199,33 @@ export default function CaseDetail() {
   // Delete document mutation
   const deleteDocMutation = useMutation({
     mutationFn: async (docId: string) => {
+      // First, get the document to find the file_url
+      const { data: doc, error: fetchError } = await supabase
+        .from("documents")
+        .select("file_url")
+        .eq("id", docId)
+        .single();
+
+      if (fetchError) throw fetchError;
+
+      // Delete from storage if file exists
+      if (doc?.file_url && user) {
+        // Extract the file path from the URL
+        const urlParts = doc.file_url.split('/');
+        const bucketIndex = urlParts.findIndex(part => part === 'case-documents');
+        if (bucketIndex !== -1) {
+          const filePath = urlParts.slice(bucketIndex + 1).join('/');
+          const { error: storageError } = await supabase.storage
+            .from('case-documents')
+            .remove([filePath]);
+
+          if (storageError) {
+            console.error("Failed to delete file from storage:", storageError);
+          }
+        }
+      }
+
+      // Delete the document record
       const { error } = await supabase.from("documents").delete().eq("id", docId);
       if (error) throw error;
     },
@@ -262,13 +289,44 @@ export default function CaseDetail() {
     setUploading(true);
 
     try {
-      // For now, just create the document record without file upload
-      // File storage can be added later with a storage bucket
+      let fileUrl: string | undefined;
+
+      // Upload file to Supabase Storage if a file is selected
+      if (docForm.file && user) {
+        const fileExt = docForm.file.name.split('.').pop();
+        const fileName = `${user.id}/${id}/${Date.now()}.${fileExt}`;
+
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('case-documents')
+          .upload(fileName, docForm.file, {
+            cacheControl: '3600',
+            upsert: false
+          });
+
+        if (uploadError) {
+          throw new Error(`Failed to upload file: ${uploadError.message}`);
+        }
+
+        // Get public URL for the uploaded file
+        const { data: { publicUrl } } = supabase.storage
+          .from('case-documents')
+          .getPublicUrl(uploadData.path);
+
+        fileUrl = publicUrl;
+      }
+
       await createDocMutation.mutateAsync({
         name: docForm.name,
         bates_number: docForm.bates_number || undefined,
+        file_url: fileUrl,
         file_type: docForm.file?.type,
         file_size: docForm.file?.size,
+      });
+    } catch (error) {
+      toast({
+        title: "Upload failed",
+        description: error instanceof Error ? error.message : "Failed to upload document",
+        variant: "destructive",
       });
     } finally {
       setUploading(false);
@@ -278,6 +336,20 @@ export default function CaseDetail() {
   const handleCreateEvent = (e: React.FormEvent) => {
     e.preventDefault();
     createEventMutation.mutate(eventForm);
+  };
+
+  const handleViewDocument = async (doc: Document) => {
+    if (!doc.file_url) {
+      toast({
+        title: "No file available",
+        description: "This document doesn't have an associated file.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Open the document in a new tab
+    window.open(doc.file_url, '_blank');
   };
 
   const getImportanceColor = (importance: string | null) => {
@@ -443,12 +515,12 @@ export default function CaseDetail() {
                             />
                           </div>
                           <div className="grid gap-2">
-                            <Label htmlFor="file">File (Optional)</Label>
+                            <Label htmlFor="file">File</Label>
                             <Input
                               id="file"
                               type="file"
                               onChange={(e) => setDocForm({ ...docForm, file: e.target.files?.[0] || null })}
-                              accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png"
+                              accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.gif"
                             />
                             <p className="text-xs text-muted-foreground">
                               PDF, Word, Text, or Image files up to 20MB
@@ -520,7 +592,13 @@ export default function CaseDetail() {
                             )}
                           </div>
                           <div className="flex items-center gap-2">
-                            <Button variant="ghost" size="icon" title="View">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              title="View"
+                              onClick={() => handleViewDocument(doc)}
+                              disabled={!doc.file_url}
+                            >
                               <Eye className="h-4 w-4" />
                             </Button>
                             <Button
