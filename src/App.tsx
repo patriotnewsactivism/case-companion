@@ -9,6 +9,7 @@ import Landing from "./pages/Landing";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Cases from "./pages/Cases";
+import CaseDetail from "./pages/CaseDetail";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -36,6 +37,14 @@ const App = () => (
               element={
                 <ProtectedRoute>
                   <Cases />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/cases/:id"
+              element={
+                <ProtectedRoute>
+                  <CaseDetail />
                 </ProtectedRoute>
               }
             />
