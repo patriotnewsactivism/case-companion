@@ -14,7 +14,209 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      cases: {
+        Row: {
+          case_theory: string | null
+          case_type: string
+          client_name: string
+          created_at: string
+          id: string
+          key_issues: string[] | null
+          name: string
+          next_deadline: string | null
+          notes: string | null
+          representation: Database["public"]["Enums"]["representation_type"]
+          status: Database["public"]["Enums"]["case_status"]
+          updated_at: string
+          user_id: string
+          winning_factors: string[] | null
+        }
+        Insert: {
+          case_theory?: string | null
+          case_type: string
+          client_name: string
+          created_at?: string
+          id?: string
+          key_issues?: string[] | null
+          name: string
+          next_deadline?: string | null
+          notes?: string | null
+          representation?: Database["public"]["Enums"]["representation_type"]
+          status?: Database["public"]["Enums"]["case_status"]
+          updated_at?: string
+          user_id: string
+          winning_factors?: string[] | null
+        }
+        Update: {
+          case_theory?: string | null
+          case_type?: string
+          client_name?: string
+          created_at?: string
+          id?: string
+          key_issues?: string[] | null
+          name?: string
+          next_deadline?: string | null
+          notes?: string | null
+          representation?: Database["public"]["Enums"]["representation_type"]
+          status?: Database["public"]["Enums"]["case_status"]
+          updated_at?: string
+          user_id?: string
+          winning_factors?: string[] | null
+        }
+        Relationships: []
+      }
+      documents: {
+        Row: {
+          action_items: string[] | null
+          adverse_findings: string[] | null
+          ai_analyzed: boolean | null
+          bates_number: string | null
+          case_id: string
+          created_at: string
+          favorable_findings: string[] | null
+          file_size: number | null
+          file_type: string | null
+          file_url: string | null
+          id: string
+          key_facts: string[] | null
+          name: string
+          summary: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          action_items?: string[] | null
+          adverse_findings?: string[] | null
+          ai_analyzed?: boolean | null
+          bates_number?: string | null
+          case_id: string
+          created_at?: string
+          favorable_findings?: string[] | null
+          file_size?: number | null
+          file_type?: string | null
+          file_url?: string | null
+          id?: string
+          key_facts?: string[] | null
+          name: string
+          summary?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          action_items?: string[] | null
+          adverse_findings?: string[] | null
+          ai_analyzed?: boolean | null
+          bates_number?: string | null
+          case_id?: string
+          created_at?: string
+          favorable_findings?: string[] | null
+          file_size?: number | null
+          file_type?: string | null
+          file_url?: string | null
+          id?: string
+          key_facts?: string[] | null
+          name?: string
+          summary?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "documents_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "cases"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      profiles: {
+        Row: {
+          avatar_url: string | null
+          created_at: string
+          firm_name: string | null
+          full_name: string | null
+          id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string
+          firm_name?: string | null
+          full_name?: string | null
+          id?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string
+          firm_name?: string | null
+          full_name?: string | null
+          id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      timeline_events: {
+        Row: {
+          case_id: string
+          created_at: string
+          description: string | null
+          event_date: string
+          event_type: string | null
+          id: string
+          importance: string | null
+          linked_document_id: string | null
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          case_id: string
+          created_at?: string
+          description?: string | null
+          event_date: string
+          event_type?: string | null
+          id?: string
+          importance?: string | null
+          linked_document_id?: string | null
+          title: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          case_id?: string
+          created_at?: string
+          description?: string | null
+          event_date?: string
+          event_type?: string | null
+          id?: string
+          importance?: string | null
+          linked_document_id?: string | null
+          title?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "timeline_events_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "timeline_events_linked_document_id_fkey"
+            columns: ["linked_document_id"]
+            isOneToOne: false
+            referencedRelation: "documents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -23,7 +225,20 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      [_ in never]: never
+      case_status:
+        | "active"
+        | "discovery"
+        | "pending"
+        | "review"
+        | "closed"
+        | "archived"
+      representation_type:
+        | "plaintiff"
+        | "defendant"
+        | "executor"
+        | "petitioner"
+        | "respondent"
+        | "other"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +365,23 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      case_status: [
+        "active",
+        "discovery",
+        "pending",
+        "review",
+        "closed",
+        "archived",
+      ],
+      representation_type: [
+        "plaintiff",
+        "defendant",
+        "executor",
+        "petitioner",
+        "respondent",
+        "other",
+      ],
+    },
   },
 } as const
