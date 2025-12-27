@@ -1,6 +1,7 @@
-import { Link, useLocation } from "react-router-dom";
-import { Logo } from "./Logo";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
+import { useAuth } from "@/hooks/useAuth";
+import { useToast } from "@/hooks/use-toast";
 import {
   LayoutDashboard,
   FolderOpen,
@@ -11,6 +12,7 @@ import {
   LogOut,
   Menu,
   X,
+  Scale,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
@@ -30,13 +32,30 @@ interface LayoutProps {
 
 export function Layout({ children }: LayoutProps) {
   const location = useLocation();
+  const navigate = useNavigate();
+  const { signOut } = useAuth();
+  const { toast } = useToast();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  const handleSignOut = async () => {
+    await signOut();
+    toast({
+      title: "Signed out",
+      description: "You have been signed out successfully.",
+    });
+    navigate("/login");
+  };
 
   return (
     <div className="min-h-screen bg-background">
       {/* Mobile header */}
       <header className="fixed top-0 left-0 right-0 z-50 flex h-16 items-center justify-between border-b border-border bg-card px-4 lg:hidden">
-        <Logo size="sm" />
+        <div className="flex items-center gap-3">
+          <div className="h-8 w-8 rounded-lg bg-primary/10 p-1 flex items-center justify-center">
+            <Scale className="h-full w-full text-primary" />
+          </div>
+          <span className="font-serif font-bold text-primary">CaseBuddy</span>
+        </div>
         <Button
           variant="ghost"
           size="icon"
@@ -97,15 +116,14 @@ export function Layout({ children }: LayoutProps) {
 
           {/* Footer */}
           <div className="border-t border-sidebar-border p-4">
-            <Link to="/login">
-              <Button
-                variant="ghost"
-                className="w-full justify-start gap-3 text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground"
-              >
-                <LogOut className="h-4 w-4" />
-                Sign Out
-              </Button>
-            </Link>
+            <Button
+              variant="ghost"
+              onClick={handleSignOut}
+              className="w-full justify-start gap-3 text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+            >
+              <LogOut className="h-4 w-4" />
+              Sign Out
+            </Button>
           </div>
         </div>
       </aside>
@@ -125,6 +143,3 @@ export function Layout({ children }: LayoutProps) {
     </div>
   );
 }
-
-// Need to export Scale for use in Layout
-import { Scale } from "lucide-react";
