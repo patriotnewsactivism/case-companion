@@ -1,34 +1,97 @@
-import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Logo } from "@/components/Logo";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
 import { motion } from "framer-motion";
-import { Lock, Mail, User, ArrowRight, Eye, EyeOff, ShieldCheck } from "lucide-react";
+import { Lock, Mail, User, ArrowRight, Eye, EyeOff, ShieldCheck, AlertCircle } from "lucide-react";
+import { z } from "zod";
+
+const authSchema = z.object({
+  email: z.string().email("Please enter a valid email address"),
+  password: z.string().min(6, "Password must be at least 6 characters"),
+  name: z.string().min(2, "Name must be at least 2 characters").optional(),
+});
 
 export default function Login() {
   const [isLogin, setIsLogin] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [formData, setFormData] = useState({ email: "", password: "", name: "" });
+  
   const navigate = useNavigate();
+  const location = useLocation();
   const { toast } = useToast();
+  const { signIn, signUp, user } = useAuth();
+
+  const from = (location.state as any)?.from?.pathname || "/dashboard";
+
+  // Redirect if already logged in
+  useEffect(() => {
+    if (user) {
+      navigate(from, { replace: true });
+    }
+  }, [user, navigate, from]);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    setError(null);
     setLoading(true);
 
-    // Simulate auth
-    setTimeout(() => {
-      setLoading(false);
-      toast({
-        title: isLogin ? "Welcome back!" : "Account created!",
-        description: "Redirecting to your dashboard...",
+    try {
+      // Validate form
+      const validation = authSchema.safeParse({
+        email: formData.email,
+        password: formData.password,
+        name: isLogin ? undefined : formData.name,
       });
-      navigate("/dashboard");
-    }, 1500);
+
+      if (!validation.success) {
+        setError(validation.error.errors[0].message);
+        setLoading(false);
+        return;
+      }
+
+      if (isLogin) {
+        const { error } = await signIn(formData.email, formData.password);
+        if (error) {
+          if (error.message.includes("Invalid login credentials")) {
+            setError("Invalid email or password. Please try again.");
+          } else {
+            setError(error.message);
+          }
+          setLoading(false);
+          return;
+        }
+        toast({
+          title: "Welcome back!",
+          description: "Redirecting to your dashboard...",
+        });
+      } else {
+        const { error } = await signUp(formData.email, formData.password, formData.name);
+        if (error) {
+          if (error.message.includes("already registered")) {
+            setError("This email is already registered. Please sign in instead.");
+          } else {
+            setError(error.message);
+          }
+          setLoading(false);
+          return;
+        }
+        toast({
+          title: "Account created!",
+          description: "Check your email to confirm your account, or sign in if auto-confirm is enabled.",
+        });
+      }
+    } catch (err) {
+      setError("An unexpected error occurred. Please try again.");
+      setLoading(false);
+    }
   };
 
   return (
@@ -109,6 +172,13 @@ export default function Login() {
               </CardDescription>
             </CardHeader>
             <CardContent>
+              {error && (
+                <div className="mb-4 flex items-center gap-2 rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
+                  <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                  <span>{error}</span>
+                </div>
+              )}
+
               <form onSubmit={handleSubmit} className="space-y-4">
                 {!isLogin && (
                   <div className="space-y-2">
@@ -119,7 +189,9 @@ export default function Login() {
                         id="name"
                         placeholder="John Smith"
                         className="pl-10"
-                        required
+                        value={formData.name}
+                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                        required={!isLogin}
                       />
                     </div>
                   </div>
@@ -134,6 +206,8 @@ export default function Login() {
                       type="email"
                       placeholder="you@lawfirm.com"
                       className="pl-10"
+                      value={formData.email}
+                      onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                       required
                     />
                   </div>
@@ -158,6 +232,8 @@ export default function Login() {
                       type={showPassword ? "text" : "password"}
                       placeholder="••••••••"
                       className="pl-10 pr-10"
+                      value={formData.password}
+                      onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                       required
                     />
                     <button
@@ -176,7 +252,9 @@ export default function Login() {
 
                 <Button type="submit" className="w-full gap-2" size="lg" disabled={loading}>
                   {loading ? (
-                    <span className="animate-pulse">Authenticating...</span>
+                    <span className="animate-pulse">
+                      {isLogin ? "Signing in..." : "Creating account..."}
+                    </span>
                   ) : (
                     <>
                       {isLogin ? "Sign In" : "Create Account"}
@@ -191,7 +269,10 @@ export default function Login() {
                   {isLogin ? "Don't have an account?" : "Already have an account?"}
                 </span>{" "}
                 <button
-                  onClick={() => setIsLogin(!isLogin)}
+                  onClick={() => {
+                    setIsLogin(!isLogin);
+                    setError(null);
+                  }}
                   className="text-accent font-medium hover:underline"
                 >
                   {isLogin ? "Sign up" : "Sign in"}
