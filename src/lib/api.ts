@@ -193,3 +193,29 @@ export async function updateProfile(updates: Partial<Profile>): Promise<Profile>
   if (error) throw error;
   return data;
 }
+
+// Video Room API
+export interface VideoRoom {
+  roomUrl: string;
+  roomName: string;
+  token: string;
+  expiresAt?: string;
+}
+
+export async function createVideoRoom(name: string, caseId?: string): Promise<VideoRoom> {
+  const { data, error } = await supabase.functions.invoke('create-video-room', {
+    body: { name, caseId, expiresInMinutes: 120 },
+  });
+
+  if (error) throw error;
+  return data;
+}
+
+export async function joinVideoRoom(roomName: string, userName?: string): Promise<VideoRoom> {
+  const { data, error } = await supabase.functions.invoke('join-video-room', {
+    body: { roomName, userName },
+  });
+
+  if (error) throw error;
+  return data;
+}
