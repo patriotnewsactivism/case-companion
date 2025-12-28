@@ -80,6 +80,9 @@ export type Database = {
           id: string
           key_facts: string[] | null
           name: string
+          ocr_page_count: number | null
+          ocr_processed_at: string | null
+          ocr_text: string | null
           summary: string | null
           updated_at: string
           user_id: string
@@ -98,6 +101,9 @@ export type Database = {
           id?: string
           key_facts?: string[] | null
           name: string
+          ocr_page_count?: number | null
+          ocr_processed_at?: string | null
+          ocr_text?: string | null
           summary?: string | null
           updated_at?: string
           user_id: string
@@ -116,6 +122,9 @@ export type Database = {
           id?: string
           key_facts?: string[] | null
           name?: string
+          ocr_page_count?: number | null
+          ocr_processed_at?: string | null
+          ocr_text?: string | null
           summary?: string | null
           updated_at?: string
           user_id?: string

@@ -48,10 +48,19 @@ import {
   AlertTriangle,
   CheckCircle,
   Lightbulb,
+  Link,
+  Scan,
+  Copy,
+  ExternalLink,
+  Brain,
 } from "lucide-react";
 import type { Tables } from "@/integrations/supabase/types";
 
-type Document = Tables<"documents">;
+type Document = Tables<"documents"> & {
+  ocr_text?: string | null;
+  ocr_page_count?: number | null;
+  ocr_processed_at?: string | null;
+};
 type TimelineEvent = Tables<"timeline_events">;
 type Case = Tables<"cases">;
 
@@ -87,6 +96,20 @@ const getStatusColor = (status: string) => {
   }
 };
 
+// Generate next Bates number
+const generateNextBatesNumber = (documents: Document[], casePrefix: string) => {
+  const existingNumbers = documents
+    .filter(d => d.bates_number)
+    .map(d => {
+      const match = d.bates_number?.match(/(\d+)$/);
+      return match ? parseInt(match[1], 10) : 0;
+    });
+  
+  const maxNumber = existingNumbers.length > 0 ? Math.max(...existingNumbers) : 0;
+  const nextNumber = maxNumber + 1;
+  return `${casePrefix}-${String(nextNumber).padStart(4, '0')}`;
+};
+
 export default function CaseDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -95,14 +118,23 @@ export default function CaseDetail() {
   const queryClient = useQueryClient();
 
   const [isUploadOpen, setIsUploadOpen] = useState(false);
+  const [isLinkImportOpen, setIsLinkImportOpen] = useState(false);
   const [isEventOpen, setIsEventOpen] = useState(false);
   const [deleteDocId, setDeleteDocId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [processingOcr, setProcessingOcr] = useState<string | null>(null);
+  const [selectedDoc, setSelectedDoc] = useState<Document | null>(null);
 
   const [docForm, setDocForm] = useState({
     name: "",
     bates_number: "",
     file: null as File | null,
+  });
+
+  const [linkForm, setLinkForm] = useState({
+    url: "",
+    name: "",
+    bates_number: "",
   });
 
   const [eventForm, setEventForm] = useState({
@@ -136,7 +168,7 @@ export default function CaseDetail() {
         .from("documents")
         .select("*")
         .eq("case_id", id)
-        .order("created_at", { ascending: false });
+        .order("bates_number", { ascending: true, nullsFirst: false });
       if (error) throw error;
       return data as Document[];
     },
@@ -160,7 +192,13 @@ export default function CaseDetail() {
 
   // Create document mutation
   const createDocMutation = useMutation({
-    mutationFn: async (input: { name: string; bates_number?: string; file_url?: string; file_type?: string; file_size?: number }) => {
+    mutationFn: async (input: { 
+      name: string; 
+      bates_number?: string; 
+      file_url?: string; 
+      file_type?: string; 
+      file_size?: number;
+    }) => {
       if (!user || !id) throw new Error("Not authenticated");
       const { data, error } = await supabase
         .from("documents")
@@ -178,14 +216,21 @@ export default function CaseDetail() {
       if (error) throw error;
       return data;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["documents", id] });
       setIsUploadOpen(false);
+      setIsLinkImportOpen(false);
       setDocForm({ name: "", bates_number: "", file: null });
+      setLinkForm({ url: "", name: "", bates_number: "" });
       toast({
-        title: "Document uploaded",
+        title: "Document added",
         description: "Your document has been added to the case.",
       });
+      
+      // Trigger OCR if there's a file URL
+      if (data.file_url) {
+        triggerOcr(data.id, data.file_url);
+      }
     },
     onError: (error: Error) => {
       toast({
@@ -196,10 +241,41 @@ export default function CaseDetail() {
     },
   });
 
+  // Trigger OCR processing
+  const triggerOcr = async (documentId: string, fileUrl: string) => {
+    setProcessingOcr(documentId);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("Not authenticated");
+
+      const response = await supabase.functions.invoke('ocr-document', {
+        body: { documentId, fileUrl },
+      });
+
+      if (response.error) {
+        throw new Error(response.error.message);
+      }
+
+      queryClient.invalidateQueries({ queryKey: ["documents", id] });
+      toast({
+        title: "Document analyzed",
+        description: "OCR and AI analysis complete.",
+      });
+    } catch (error) {
+      console.error("OCR error:", error);
+      toast({
+        title: "OCR processing failed",
+        description: error instanceof Error ? error.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setProcessingOcr(null);
+    }
+  };
+
   // Delete document mutation
   const deleteDocMutation = useMutation({
     mutationFn: async (docId: string) => {
-      // First, get the document to find the file_url
       const { data: doc, error: fetchError } = await supabase
         .from("documents")
         .select("file_url")
@@ -208,24 +284,15 @@ export default function CaseDetail() {
 
       if (fetchError) throw fetchError;
 
-      // Delete from storage if file exists
       if (doc?.file_url && user) {
-        // Extract the file path from the URL
         const urlParts = doc.file_url.split('/');
         const bucketIndex = urlParts.findIndex(part => part === 'case-documents');
         if (bucketIndex !== -1) {
           const filePath = urlParts.slice(bucketIndex + 1).join('/');
-          const { error: storageError } = await supabase.storage
-            .from('case-documents')
-            .remove([filePath]);
-
-          if (storageError) {
-            console.error("Failed to delete file from storage:", storageError);
-          }
+          await supabase.storage.from('case-documents').remove([filePath]);
         }
       }
 
-      // Delete the document record
       const { error } = await supabase.from("documents").delete().eq("id", docId);
       if (error) throw error;
     },
@@ -290,8 +357,8 @@ export default function CaseDetail() {
 
     try {
       let fileUrl: string | undefined;
+      const batesNumber = docForm.bates_number || generateNextBatesNumber(documents, caseData?.name?.substring(0, 3).toUpperCase() || 'DOC');
 
-      // Upload file to Supabase Storage if a file is selected
       if (docForm.file && user) {
         const fileExt = docForm.file.name.split('.').pop();
         const fileName = `${user.id}/${id}/${Date.now()}.${fileExt}`;
@@ -307,7 +374,6 @@ export default function CaseDetail() {
           throw new Error(`Failed to upload file: ${uploadError.message}`);
         }
 
-        // Get public URL for the uploaded file
         const { data: { publicUrl } } = supabase.storage
           .from('case-documents')
           .getPublicUrl(uploadData.path);
@@ -316,8 +382,8 @@ export default function CaseDetail() {
       }
 
       await createDocMutation.mutateAsync({
-        name: docForm.name,
-        bates_number: docForm.bates_number || undefined,
+        name: docForm.name || docForm.file?.name || 'Untitled Document',
+        bates_number: batesNumber,
         file_url: fileUrl,
         file_type: docForm.file?.type,
         file_size: docForm.file?.size,
@@ -331,6 +397,27 @@ export default function CaseDetail() {
     } finally {
       setUploading(false);
     }
+  };
+
+  const handleLinkImport = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    const batesNumber = linkForm.bates_number || generateNextBatesNumber(documents, caseData?.name?.substring(0, 3).toUpperCase() || 'DOC');
+    
+    // Determine file type from URL
+    const urlLower = linkForm.url.toLowerCase();
+    let fileType = 'application/octet-stream';
+    if (urlLower.includes('.pdf')) fileType = 'application/pdf';
+    else if (urlLower.includes('.doc')) fileType = 'application/msword';
+    else if (urlLower.match(/\.(jpg|jpeg)$/)) fileType = 'image/jpeg';
+    else if (urlLower.includes('.png')) fileType = 'image/png';
+    
+    await createDocMutation.mutateAsync({
+      name: linkForm.name || 'Linked Document',
+      bates_number: batesNumber,
+      file_url: linkForm.url,
+      file_type: fileType,
+    });
   };
 
   const handleCreateEvent = (e: React.FormEvent) => {
@@ -347,9 +434,47 @@ export default function CaseDetail() {
       });
       return;
     }
-
-    // Open the document in a new tab
     window.open(doc.file_url, '_blank');
+  };
+
+  const handleDownloadDocument = async (doc: Document) => {
+    if (!doc.file_url) {
+      toast({
+        title: "No file available",
+        description: "This document doesn't have an associated file.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      const response = await fetch(doc.file_url);
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = doc.name || 'document';
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      toast({
+        title: "Download failed",
+        description: "Could not download the document.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const copyDocumentLink = (doc: Document) => {
+    if (doc.file_url) {
+      navigator.clipboard.writeText(doc.file_url);
+      toast({
+        title: "Link copied",
+        description: "Document link copied to clipboard.",
+      });
+    }
   };
 
   const getImportanceColor = (importance: string | null) => {
@@ -451,6 +576,9 @@ export default function CaseDetail() {
               </CardHeader>
               <CardContent>
                 <p className="text-2xl font-bold">{documents.length}</p>
+                <p className="text-xs text-muted-foreground">
+                  {documents.filter(d => d.ai_analyzed).length} analyzed
+                </p>
               </CardContent>
             </Card>
           </motion.div>
@@ -475,76 +603,160 @@ export default function CaseDetail() {
 
               {/* Documents Tab */}
               <TabsContent value="documents" className="space-y-4">
-                <div className="flex justify-between items-center">
+                <div className="flex flex-wrap justify-between items-center gap-2">
                   <p className="text-sm text-muted-foreground">
                     Upload discovery documents, pleadings, and evidence
                   </p>
-                  <Dialog open={isUploadOpen} onOpenChange={setIsUploadOpen}>
-                    <DialogTrigger asChild>
-                      <Button className="gap-2">
-                        <Upload className="h-4 w-4" />
-                        Upload Document
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent>
-                      <form onSubmit={handleUpload}>
-                        <DialogHeader>
-                          <DialogTitle>Upload Document</DialogTitle>
-                          <DialogDescription>
-                            Add a document to this case for discovery analysis
-                          </DialogDescription>
-                        </DialogHeader>
-                        <div className="grid gap-4 py-4">
-                          <div className="grid gap-2">
-                            <Label htmlFor="doc_name">Document Name *</Label>
-                            <Input
-                              id="doc_name"
-                              placeholder="Deposition of John Doe"
-                              value={docForm.name}
-                              onChange={(e) => setDocForm({ ...docForm, name: e.target.value })}
-                              required
-                            />
+                  <div className="flex gap-2">
+                    {/* Link Import Dialog */}
+                    <Dialog open={isLinkImportOpen} onOpenChange={setIsLinkImportOpen}>
+                      <DialogTrigger asChild>
+                        <Button variant="outline" className="gap-2">
+                          <Link className="h-4 w-4" />
+                          Import from Link
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent>
+                        <form onSubmit={handleLinkImport}>
+                          <DialogHeader>
+                            <DialogTitle>Import Document from Link</DialogTitle>
+                            <DialogDescription>
+                              Paste a link from Google Drive, Dropbox, or any public file URL
+                            </DialogDescription>
+                          </DialogHeader>
+                          <div className="grid gap-4 py-4">
+                            <div className="grid gap-2">
+                              <Label htmlFor="link_url">Document URL *</Label>
+                              <Input
+                                id="link_url"
+                                placeholder="https://drive.google.com/..."
+                                value={linkForm.url}
+                                onChange={(e) => setLinkForm({ ...linkForm, url: e.target.value })}
+                                required
+                              />
+                              <p className="text-xs text-muted-foreground">
+                                Supports Google Drive, Dropbox, OneDrive, or direct file URLs
+                              </p>
+                            </div>
+                            <div className="grid gap-2">
+                              <Label htmlFor="link_name">Document Name</Label>
+                              <Input
+                                id="link_name"
+                                placeholder="Deposition of John Doe"
+                                value={linkForm.name}
+                                onChange={(e) => setLinkForm({ ...linkForm, name: e.target.value })}
+                              />
+                            </div>
+                            <div className="grid gap-2">
+                              <Label htmlFor="link_bates">Bates Number</Label>
+                              <Input
+                                id="link_bates"
+                                placeholder={generateNextBatesNumber(documents, caseData?.name?.substring(0, 3).toUpperCase() || 'DOC')}
+                                value={linkForm.bates_number}
+                                onChange={(e) => setLinkForm({ ...linkForm, bates_number: e.target.value })}
+                              />
+                              <p className="text-xs text-muted-foreground">
+                                Auto-generated if left blank
+                              </p>
+                            </div>
                           </div>
-                          <div className="grid gap-2">
-                            <Label htmlFor="bates">Bates Number</Label>
-                            <Input
-                              id="bates"
-                              placeholder="DOE-001"
-                              value={docForm.bates_number}
-                              onChange={(e) => setDocForm({ ...docForm, bates_number: e.target.value })}
-                            />
+                          <DialogFooter>
+                            <Button type="button" variant="outline" onClick={() => setIsLinkImportOpen(false)}>
+                              Cancel
+                            </Button>
+                            <Button type="submit" disabled={createDocMutation.isPending}>
+                              {createDocMutation.isPending ? (
+                                <>
+                                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                  Importing...
+                                </>
+                              ) : (
+                                "Import"
+                              )}
+                            </Button>
+                          </DialogFooter>
+                        </form>
+                      </DialogContent>
+                    </Dialog>
+
+                    {/* Upload Dialog */}
+                    <Dialog open={isUploadOpen} onOpenChange={setIsUploadOpen}>
+                      <DialogTrigger asChild>
+                        <Button className="gap-2">
+                          <Upload className="h-4 w-4" />
+                          Upload Document
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent>
+                        <form onSubmit={handleUpload}>
+                          <DialogHeader>
+                            <DialogTitle>Upload Document</DialogTitle>
+                            <DialogDescription>
+                              Add a document to this case for discovery analysis with OCR
+                            </DialogDescription>
+                          </DialogHeader>
+                          <div className="grid gap-4 py-4">
+                            <div className="grid gap-2">
+                              <Label htmlFor="file">File *</Label>
+                              <Input
+                                id="file"
+                                type="file"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0] || null;
+                                  setDocForm({ 
+                                    ...docForm, 
+                                    file,
+                                    name: docForm.name || file?.name || ''
+                                  });
+                                }}
+                                accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.gif,.webp"
+                                required
+                              />
+                              <p className="text-xs text-muted-foreground">
+                                PDF, Word, Text, or Image files up to 20MB
+                              </p>
+                            </div>
+                            <div className="grid gap-2">
+                              <Label htmlFor="doc_name">Document Name</Label>
+                              <Input
+                                id="doc_name"
+                                placeholder={docForm.file?.name || "Deposition of John Doe"}
+                                value={docForm.name}
+                                onChange={(e) => setDocForm({ ...docForm, name: e.target.value })}
+                              />
+                            </div>
+                            <div className="grid gap-2">
+                              <Label htmlFor="bates">Bates Number</Label>
+                              <Input
+                                id="bates"
+                                placeholder={generateNextBatesNumber(documents, caseData?.name?.substring(0, 3).toUpperCase() || 'DOC')}
+                                value={docForm.bates_number}
+                                onChange={(e) => setDocForm({ ...docForm, bates_number: e.target.value })}
+                              />
+                              <p className="text-xs text-muted-foreground">
+                                Auto-generated if left blank
+                              </p>
+                            </div>
                           </div>
-                          <div className="grid gap-2">
-                            <Label htmlFor="file">File</Label>
-                            <Input
-                              id="file"
-                              type="file"
-                              onChange={(e) => setDocForm({ ...docForm, file: e.target.files?.[0] || null })}
-                              accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.gif"
-                            />
-                            <p className="text-xs text-muted-foreground">
-                              PDF, Word, Text, or Image files up to 20MB
-                            </p>
-                          </div>
-                        </div>
-                        <DialogFooter>
-                          <Button type="button" variant="outline" onClick={() => setIsUploadOpen(false)}>
-                            Cancel
-                          </Button>
-                          <Button type="submit" disabled={uploading || createDocMutation.isPending}>
-                            {uploading || createDocMutation.isPending ? (
-                              <>
-                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                Uploading...
-                              </>
-                            ) : (
-                              "Upload"
-                            )}
-                          </Button>
-                        </DialogFooter>
-                      </form>
-                    </DialogContent>
-                  </Dialog>
+                          <DialogFooter>
+                            <Button type="button" variant="outline" onClick={() => setIsUploadOpen(false)}>
+                              Cancel
+                            </Button>
+                            <Button type="submit" disabled={uploading || createDocMutation.isPending}>
+                              {uploading || createDocMutation.isPending ? (
+                                <>
+                                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                  Uploading...
+                                </>
+                              ) : (
+                                "Upload & Analyze"
+                              )}
+                            </Button>
+                          </DialogFooter>
+                        </form>
+                      </DialogContent>
+                    </Dialog>
+                  </div>
                 </div>
 
                 {docsLoading ? (
@@ -557,58 +769,177 @@ export default function CaseDetail() {
                       <File className="h-12 w-12 text-muted-foreground mb-4" />
                       <h3 className="text-lg font-medium mb-2">No documents yet</h3>
                       <p className="text-sm text-muted-foreground mb-4">
-                        Upload discovery documents to get started
+                        Upload discovery documents to get started with AI analysis
                       </p>
-                      <Button onClick={() => setIsUploadOpen(true)}>
-                        <Upload className="h-4 w-4 mr-2" />
-                        Upload First Document
-                      </Button>
+                      <div className="flex gap-2">
+                        <Button variant="outline" onClick={() => setIsLinkImportOpen(true)}>
+                          <Link className="h-4 w-4 mr-2" />
+                          Import from Link
+                        </Button>
+                        <Button onClick={() => setIsUploadOpen(true)}>
+                          <Upload className="h-4 w-4 mr-2" />
+                          Upload File
+                        </Button>
+                      </div>
                     </CardContent>
                   </Card>
                 ) : (
                   <div className="grid gap-3">
                     {documents.map((doc) => (
                       <Card key={doc.id} className="glass-card hover:shadow-md transition-shadow">
-                        <CardContent className="flex items-center gap-4 p-4">
-                          <div className="rounded-lg bg-primary/10 p-3">
-                            <FileText className="h-5 w-5 text-primary" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <h4 className="font-medium truncate">{doc.name}</h4>
-                            <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1">
-                              {doc.bates_number && (
-                                <span className="font-mono bg-muted px-1.5 py-0.5 rounded">
-                                  {doc.bates_number}
-                                </span>
-                              )}
-                              {doc.file_type && <span>{doc.file_type}</span>}
-                              <span>{format(new Date(doc.created_at), "MMM d, yyyy")}</span>
+                        <CardContent className="p-4">
+                          <div className="flex items-start gap-4">
+                            <div className="rounded-lg bg-primary/10 p-3 shrink-0">
+                              <FileText className="h-5 w-5 text-primary" />
                             </div>
-                            {doc.ai_analyzed && (
-                              <div className="flex items-center gap-2 mt-2">
-                                <CheckCircle className="h-3 w-3 text-green-500" />
-                                <span className="text-xs text-green-600">AI Analyzed</span>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-start justify-between gap-2">
+                                <div>
+                                  <h4 className="font-medium truncate">{doc.name}</h4>
+                                  <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground mt-1">
+                                    {doc.bates_number && (
+                                      <span className="font-mono bg-muted px-1.5 py-0.5 rounded font-semibold">
+                                        {doc.bates_number}
+                                      </span>
+                                    )}
+                                    {doc.file_type && <span>{doc.file_type.split('/')[1]?.toUpperCase()}</span>}
+                                    <span>{format(new Date(doc.created_at), "MMM d, yyyy")}</span>
+                                    {doc.file_size && (
+                                      <span>{(doc.file_size / 1024).toFixed(0)} KB</span>
+                                    )}
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-1 shrink-0">
+                                  {doc.file_url && (
+                                    <>
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        title="Copy Link"
+                                        onClick={() => copyDocumentLink(doc)}
+                                      >
+                                        <Copy className="h-4 w-4" />
+                                      </Button>
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        title="View"
+                                        onClick={() => handleViewDocument(doc)}
+                                      >
+                                        <ExternalLink className="h-4 w-4" />
+                                      </Button>
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        title="Download"
+                                        onClick={() => handleDownloadDocument(doc)}
+                                      >
+                                        <Download className="h-4 w-4" />
+                                      </Button>
+                                      {!doc.ai_analyzed && processingOcr !== doc.id && (
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          title="Run OCR Analysis"
+                                          onClick={() => triggerOcr(doc.id, doc.file_url!)}
+                                        >
+                                          <Scan className="h-4 w-4" />
+                                        </Button>
+                                      )}
+                                    </>
+                                  )}
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    title="Delete"
+                                    onClick={() => setDeleteDocId(doc.id)}
+                                  >
+                                    <Trash2 className="h-4 w-4 text-destructive" />
+                                  </Button>
+                                </div>
                               </div>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              title="View"
-                              onClick={() => handleViewDocument(doc)}
-                              disabled={!doc.file_url}
-                            >
-                              <Eye className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              title="Delete"
-                              onClick={() => setDeleteDocId(doc.id)}
-                            >
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
+
+                              {/* Processing indicator */}
+                              {processingOcr === doc.id && (
+                                <div className="flex items-center gap-2 mt-3 text-sm text-primary">
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                  <span>Running OCR & AI analysis...</span>
+                                </div>
+                              )}
+
+                              {/* AI Analysis Results */}
+                              {doc.ai_analyzed && (
+                                <div className="mt-3 space-y-2">
+                                  <div className="flex items-center gap-2">
+                                    <Brain className="h-4 w-4 text-green-500" />
+                                    <span className="text-xs text-green-600 font-medium">AI Analyzed</span>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="text-xs h-6"
+                                      onClick={() => setSelectedDoc(selectedDoc?.id === doc.id ? null : doc)}
+                                    >
+                                      {selectedDoc?.id === doc.id ? "Hide Details" : "View Analysis"}
+                                    </Button>
+                                  </div>
+                                  
+                                  {selectedDoc?.id === doc.id && (
+                                    <div className="grid gap-3 mt-3 p-3 bg-muted/50 rounded-lg">
+                                      {doc.summary && (
+                                        <div>
+                                          <h5 className="text-xs font-semibold mb-1">Summary</h5>
+                                          <p className="text-sm text-muted-foreground">{doc.summary}</p>
+                                        </div>
+                                      )}
+                                      {doc.key_facts && doc.key_facts.length > 0 && (
+                                        <div>
+                                          <h5 className="text-xs font-semibold mb-1">Key Facts</h5>
+                                          <ul className="text-sm text-muted-foreground list-disc list-inside">
+                                            {doc.key_facts.map((fact, i) => (
+                                              <li key={i}>{fact}</li>
+                                            ))}
+                                          </ul>
+                                        </div>
+                                      )}
+                                      {doc.favorable_findings && doc.favorable_findings.length > 0 && (
+                                        <div>
+                                          <h5 className="text-xs font-semibold text-green-600 mb-1 flex items-center gap-1">
+                                            <CheckCircle className="h-3 w-3" /> Favorable
+                                          </h5>
+                                          <ul className="text-sm text-muted-foreground list-disc list-inside">
+                                            {doc.favorable_findings.map((finding, i) => (
+                                              <li key={i}>{finding}</li>
+                                            ))}
+                                          </ul>
+                                        </div>
+                                      )}
+                                      {doc.adverse_findings && doc.adverse_findings.length > 0 && (
+                                        <div>
+                                          <h5 className="text-xs font-semibold text-red-600 mb-1 flex items-center gap-1">
+                                            <AlertTriangle className="h-3 w-3" /> Adverse
+                                          </h5>
+                                          <ul className="text-sm text-muted-foreground list-disc list-inside">
+                                            {doc.adverse_findings.map((finding, i) => (
+                                              <li key={i}>{finding}</li>
+                                            ))}
+                                          </ul>
+                                        </div>
+                                      )}
+                                      {doc.action_items && doc.action_items.length > 0 && (
+                                        <div>
+                                          <h5 className="text-xs font-semibold text-blue-600 mb-1">Action Items</h5>
+                                          <ul className="text-sm text-muted-foreground list-disc list-inside">
+                                            {doc.action_items.map((item, i) => (
+                                              <li key={i}>{item}</li>
+                                            ))}
+                                          </ul>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
                           </div>
                         </CardContent>
                       </Card>
