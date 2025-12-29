@@ -255,6 +255,9 @@ export default function CaseDetail() {
 
       const response = await supabase.functions.invoke('ocr-document', {
         body: { documentId, fileUrl },
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
       });
 
       if (response.error) {
