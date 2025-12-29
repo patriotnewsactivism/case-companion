@@ -1,10 +1,22 @@
-project_id = "czrqlvvjrwizwdyefldo"
+project_id = "usyxikgqkcnlzobnqhtz"
 
 [functions.create-video-room]
-verify_jwt = true
+verify_jwt = false
 
 [functions.join-video-room]
-verify_jwt = true
+verify_jwt = false
 
 [functions.ocr-document]
-verify_jwt = true
+verify_jwt = false
+
+[functions.import-google-drive]
+verify_jwt = false
+
+[functions.recording-webhook]
+verify_jwt = false
+
+[functions.transcribe-media]
+verify_jwt = false
+
+[functions.transcribe-recording]
+verify_jwt = false
