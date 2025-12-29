@@ -20,9 +20,9 @@ serve(async (req) => {
 
   try {
     // Validate environment variables
-    validateEnvVars(['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'LOVABLE_API_KEY']);
+    validateEnvVars(['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'GOOGLE_AI_API_KEY']);
 
-    const lovableApiKey = Deno.env.get('LOVABLE_API_KEY')!;
+    const googleApiKey = Deno.env.get('GOOGLE_AI_API_KEY')!
 
     // Verify authentication
     const authResult = await verifyAuth(req);
@@ -119,20 +119,16 @@ serve(async (req) => {
 
       console.log(`Image size: ${sizeInMB}MB, MIME: ${mimeType}`);
 
-      const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+      const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${googleApiKey}`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${lovableApiKey}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'google/gemini-flash-1.5',
-          messages: [
+          contents: [
             {
-              role: 'user',
-              content: [
+              parts: [
                 {
-                  type: 'text',
                   text: `You are a professional legal document OCR system. Extract ALL text from this image with maximum accuracy.
 
 EXTRACTION REQUIREMENTS:
@@ -156,16 +152,18 @@ OUTPUT FORMAT:
 Extract now:`
                 },
                 {
-                  type: 'image_url',
-                  image_url: {
-                    url: `data:${mimeType};base64,${base64}`
+                  inline_data: {
+                    mime_type: mimeType,
+                    data: base64
                   }
                 }
               ]
             }
           ],
-          max_tokens: 16000,
-          temperature: 0.1,
+          generationConfig: {
+            temperature: 0.1,
+            maxOutputTokens: 8192,
+          }
         }),
       });
 
@@ -176,7 +174,7 @@ Extract now:`
       }
 
       const aiData = await aiResponse.json();
-      extractedText = aiData.choices[0]?.message?.content || '';
+      extractedText = aiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
       console.log(`Extracted ${extractedText.length} characters from image`);
 
     } else if (contentType.includes('pdf') || fileUrl.match(/\.pdf$/i)) {
@@ -189,20 +187,16 @@ Extract now:`
 
       console.log(`PDF size: ${sizeInMB}MB`);
 
-      const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+      const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${googleApiKey}`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${lovableApiKey}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'google/gemini-flash-1.5',
-          messages: [
+          contents: [
             {
-              role: 'user',
-              content: [
+              parts: [
                 {
-                  type: 'text',
                   text: `You are a professional legal document OCR system. Extract ALL text from this PDF with maximum accuracy.
 
 EXTRACTION REQUIREMENTS:
@@ -227,16 +221,18 @@ OUTPUT FORMAT:
 Extract now:`
                 },
                 {
-                  type: 'image_url',
-                  image_url: {
-                    url: `data:application/pdf;base64,${base64}`
+                  inline_data: {
+                    mime_type: 'application/pdf',
+                    data: base64
                   }
                 }
               ]
             }
           ],
-          max_tokens: 16000,
-          temperature: 0.1,
+          generationConfig: {
+            temperature: 0.1,
+            maxOutputTokens: 8192,
+          }
         }),
       });
 
@@ -247,7 +243,7 @@ Extract now:`
       }
 
       const aiData = await aiResponse.json();
-      extractedText = aiData.choices[0]?.message?.content || '';
+      extractedText = aiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
       console.log(`Extracted ${extractedText.length} characters from PDF`);
 
     } else if (contentType.includes('text') || fileUrl.match(/\.(txt|doc|docx)$/i)) {
@@ -269,22 +265,19 @@ Extract now:`
     if (extractedText && extractedText.length > 50 && !extractedText.startsWith('[File type')) {
       console.log('Analyzing extracted text with AI...');
 
-      const analysisResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+      const analysisResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${googleApiKey}`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${lovableApiKey}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'google/gemini-flash-1.5',
-          messages: [
+          contents: [
             {
-              role: 'system',
-              content: `You are an expert legal document analyst specializing in litigation support. Analyze documents with precision and identify strategic insights for case preparation.`
-            },
-            {
-              role: 'user',
-              content: `Analyze this legal document and provide a JSON response with comprehensive legal analysis.
+              parts: [
+                {
+                  text: `You are an expert legal document analyst specializing in litigation support. Analyze documents with precision and identify strategic insights for case preparation.
+
+Analyze this legal document and provide a JSON response with comprehensive legal analysis.
 
 ANALYSIS REQUIREMENTS:
 1. SUMMARY: 2-4 sentence executive summary of the document's content and significance
@@ -306,16 +299,21 @@ Respond ONLY with valid JSON in this exact format:
 
 Document text:
 ${extractedText.substring(0, 20000)}`
+                }
+              ]
             }
           ],
-          max_tokens: 3000,
-          temperature: 0.2,
+          generationConfig: {
+            temperature: 0.2,
+            maxOutputTokens: 2048,
+            responseMimeType: 'application/json',
+          }
         }),
       });
 
       if (analysisResponse.ok) {
         const analysisData = await analysisResponse.json();
-        const content = analysisData.choices[0]?.message?.content || '';
+        const content = analysisData.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
         try {
           // Try to parse JSON from the response
