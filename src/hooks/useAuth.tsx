@@ -29,7 +29,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     );
 
     // THEN check for existing session
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      // If there's an error getting the session (e.g., invalid JWT from wrong project),
+      // clear the local storage and sign out to force re-authentication
+      if (error) {
+        console.error('Session validation error:', error);
+        supabase.auth.signOut();
+        setSession(null);
+        setUser(null);
+        setLoading(false);
+        return;
+      }
+
       setSession(session);
       setUser(session?.user ?? null);
       setLoading(false);

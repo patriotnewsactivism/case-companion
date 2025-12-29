@@ -44,9 +44,17 @@ export function useVideoRoom() {
       toast.success('Video room created successfully');
       return data;
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to create video room';
+      let errorMessage = err instanceof Error ? err.message : 'Failed to create video room';
+
+      // Handle authentication errors specifically
+      if (errorMessage.includes('401') || errorMessage.toLowerCase().includes('unauthorized') || errorMessage.toLowerCase().includes('invalid jwt')) {
+        errorMessage = 'Authentication error. Please log out and log back in to continue.';
+        toast.error(errorMessage, { duration: 5000 });
+      } else {
+        toast.error(errorMessage);
+      }
+
       setError(errorMessage);
-      toast.error(errorMessage);
       throw err;
     } finally {
       setIsLoading(false);
@@ -72,9 +80,17 @@ export function useVideoRoom() {
       toast.success('Joining video room...');
       return data;
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to join video room';
+      let errorMessage = err instanceof Error ? err.message : 'Failed to join video room';
+
+      // Handle authentication errors specifically
+      if (errorMessage.includes('401') || errorMessage.toLowerCase().includes('unauthorized') || errorMessage.toLowerCase().includes('invalid jwt')) {
+        errorMessage = 'Authentication error. Please log out and log back in to continue.';
+        toast.error(errorMessage, { duration: 5000 });
+      } else {
+        toast.error(errorMessage);
+      }
+
       setError(errorMessage);
-      toast.error(errorMessage);
       throw err;
     } finally {
       setIsLoading(false);
