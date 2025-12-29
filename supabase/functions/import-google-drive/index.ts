@@ -1,10 +1,13 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+import {
+  corsHeaders,
+  createErrorResponse,
+  validateEnvVars,
+  validateRequestBody,
+  withErrorHandling,
+  checkRateLimit,
+} from '../_shared/errorHandler.ts';
 
 interface ImportRequest {
   folderId: string;
@@ -23,103 +26,161 @@ interface DriveFile {
   webContentLink?: string;
 }
 
-serve(async (req) => {
-  // Handle CORS preflight
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+const handler = async (req: Request): Promise<Response> => {
+  // Validate environment variables
+  validateEnvVars(['SUPABASE_URL', 'SUPABASE_ANON_KEY']);
+
+  const supabase = createClient(
+    Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SUPABASE_ANON_KEY')!,
+    {
+      global: {
+        headers: { Authorization: req.headers.get('Authorization')! },
+      },
+    }
+  );
+
+  // Verify user is authenticated
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return new Response(
+      JSON.stringify({ error: 'Unauthorized', message: 'User authentication required' }),
+      {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      }
+    );
   }
 
-  try {
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+  // Rate limiting: max 5 imports per minute per user
+  const rateLimitCheck = checkRateLimit(`import:${user.id}`, 5, 60000);
+  if (!rateLimitCheck.allowed) {
+    return new Response(
+      JSON.stringify({
+        error: 'Rate limit exceeded',
+        message: 'Too many import requests. Please wait before starting another import.',
+        retryAfter: Math.ceil((rateLimitCheck.resetAt - Date.now()) / 1000),
+      }),
       {
-        global: {
-          headers: { Authorization: req.headers.get('Authorization')! },
+        status: 429,
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'application/json',
+          'Retry-After': String(Math.ceil((rateLimitCheck.resetAt - Date.now()) / 1000)),
         },
       }
     );
+  }
 
-    // Verify user is authenticated
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
+  // Parse and validate request body
+  let requestBody: any;
+  try {
+    requestBody = await req.json();
+  } catch (error) {
+    return createErrorResponse(
+      new Error('Invalid JSON in request body'),
+      400,
+      'import-google-drive'
+    );
+  }
 
-    if (authError || !user) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
+  validateRequestBody<ImportRequest>(requestBody, [
+    'folderId',
+    'folderName',
+    'folderPath',
+    'caseId',
+    'accessToken',
+  ]);
 
-    const { folderId, folderName, folderPath, caseId, accessToken }: ImportRequest = await req.json();
+  const { folderId, folderName, folderPath, caseId, accessToken } = requestBody as ImportRequest;
 
-    // Create import job record
-    const { data: importJob, error: jobError } = await supabase
-      .from('import_jobs')
-      .insert({
-        case_id: caseId,
-        user_id: user.id,
-        source_type: 'google_drive',
-        source_folder_id: folderId,
-        source_folder_name: folderName,
-        source_folder_path: folderPath,
-        status: 'processing',
-        started_at: new Date().toISOString(),
-      })
-      .select()
-      .single();
+  // Validate case access
+  const { data: caseData, error: caseError } = await supabase
+    .from('cases')
+    .select('id')
+    .eq('id', caseId)
+    .eq('user_id', user.id)
+    .single();
 
-    if (jobError) {
-      throw jobError;
-    }
-
-    console.log(`Created import job ${importJob.id} for folder ${folderId}`);
-
-    // Start background processing (don't await - respond immediately)
-    processGoogleDriveFolder(
-      supabase,
-      importJob.id,
-      folderId,
-      folderPath,
-      caseId,
-      user.id,
-      accessToken
-    ).catch(async (error) => {
-      console.error('Import job failed:', error);
-      await supabase
-        .from('import_jobs')
-        .update({
-          status: 'failed',
-          error_message: error.message,
-          completed_at: new Date().toISOString(),
-        })
-        .eq('id', importJob.id);
-    });
-
+  if (caseError || !caseData) {
     return new Response(
       JSON.stringify({
-        success: true,
-        importJobId: importJob.id,
-        message: 'Import started. You can monitor progress in the import jobs section.',
+        error: 'Forbidden',
+        message: 'Case not found or access denied',
       }),
       {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      }
-    );
-  } catch (error) {
-    console.error('Error in import-google-drive function:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    return new Response(
-      JSON.stringify({ error: errorMessage }),
-      {
-        status: 500,
+        status: 403,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       }
     );
   }
-});
+
+  // Create import job record
+  const { data: importJob, error: jobError } = await supabase
+    .from('import_jobs')
+    .insert({
+      case_id: caseId,
+      user_id: user.id,
+      source_type: 'google_drive',
+      source_folder_id: folderId,
+      source_folder_name: folderName,
+      source_folder_path: folderPath,
+      status: 'processing',
+      started_at: new Date().toISOString(),
+    })
+    .select()
+    .single();
+
+  if (jobError) {
+    console.error('Failed to create import job:', jobError);
+    return createErrorResponse(
+      new Error(`Failed to create import job: ${jobError.message}`),
+      500,
+      'import-google-drive'
+    );
+  }
+
+  console.log(`Created import job ${importJob.id} for folder ${folderId} (user: ${user.id})`);
+
+  // Start background processing (don't await - respond immediately)
+  processGoogleDriveFolder(
+    supabase,
+    importJob.id,
+    folderId,
+    folderPath,
+    caseId,
+    user.id,
+    accessToken
+  ).catch(async (error) => {
+    console.error(`Import job ${importJob.id} failed:`, error);
+    await supabase
+      .from('import_jobs')
+      .update({
+        status: 'failed',
+        error_message: error instanceof Error ? error.message : 'Unknown error',
+        completed_at: new Date().toISOString(),
+      })
+      .eq('id', importJob.id);
+  });
+
+  return new Response(
+    JSON.stringify({
+      success: true,
+      importJobId: importJob.id,
+      message: 'Import started. You can monitor progress in the import jobs section.',
+    }),
+    {
+      status: 202, // Accepted
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    }
+  );
+};
+
+serve(withErrorHandling(handler, 'import-google-drive'));
 
 /**
  * Recursively process all files in a Google Drive folder
@@ -141,63 +202,76 @@ async function processGoogleDriveFolder(
     failedFiles: [] as Array<{ filename: string; error: string }>,
   };
 
-  // Recursively collect all files from folder and subfolders
-  const allFiles = await collectAllFiles(folderId, currentPath, accessToken);
-  stats.total = allFiles.length;
+  try {
+    // Recursively collect all files from folder and subfolders
+    const allFiles = await collectAllFiles(folderId, currentPath, accessToken);
+    stats.total = allFiles.length;
 
-  console.log(`Found ${stats.total} files in folder ${folderId}`);
+    console.log(`Found ${stats.total} files in folder ${folderId}`);
 
-  // Update job with total count
-  await supabase
-    .from('import_jobs')
-    .update({ total_files: stats.total })
-    .eq('id', importJobId);
+    // Update job with total count
+    await supabase
+      .from('import_jobs')
+      .update({ total_files: stats.total })
+      .eq('id', importJobId);
 
-  // Process files in batches to avoid overwhelming the system
-  const BATCH_SIZE = 5;
-  for (let i = 0; i < allFiles.length; i += BATCH_SIZE) {
-    const batch = allFiles.slice(i, i + BATCH_SIZE);
+    // Process files in batches to avoid overwhelming the system
+    const BATCH_SIZE = 3; // Reduced from 5 for better stability
+    for (let i = 0; i < allFiles.length; i += BATCH_SIZE) {
+      const batch = allFiles.slice(i, i + BATCH_SIZE);
 
-    await Promise.all(
-      batch.map(async (file) => {
-        try {
-          await processFile(supabase, file, caseId, userId, accessToken, importJobId);
-          stats.successful++;
-        } catch (error) {
-          console.error(`Failed to process file ${file.name}:`, error);
-          stats.failed++;
-          stats.failedFiles.push({
-            filename: file.name,
-            error: error instanceof Error ? error.message : 'Unknown error',
-          });
-        } finally {
-          stats.processed++;
+      await Promise.all(
+        batch.map(async (file) => {
+          try {
+            await processFile(supabase, file, caseId, userId, accessToken, importJobId);
+            stats.successful++;
+          } catch (error) {
+            console.error(`Failed to process file ${file.name}:`, error);
+            stats.failed++;
+            stats.failedFiles.push({
+              filename: file.name,
+              error: error instanceof Error ? error.message : 'Unknown error',
+            });
+          } finally {
+            stats.processed++;
 
-          // Update progress every file
-          await supabase
-            .from('import_jobs')
-            .update({
-              processed_files: stats.processed,
-              successful_files: stats.successful,
-              failed_files: stats.failed,
-              failed_file_details: stats.failedFiles,
-            })
-            .eq('id', importJobId);
-        }
+            // Update progress every file
+            await supabase
+              .from('import_jobs')
+              .update({
+                processed_files: stats.processed,
+                successful_files: stats.successful,
+                failed_files: stats.failed,
+                failed_file_details: stats.failedFiles,
+              })
+              .eq('id', importJobId);
+          }
+        })
+      );
+    }
+
+    // Mark job as completed
+    await supabase
+      .from('import_jobs')
+      .update({
+        status: stats.failed === stats.total ? 'failed' : 'completed',
+        completed_at: new Date().toISOString(),
       })
-    );
+      .eq('id', importJobId);
+
+    console.log(`Import job ${importJobId} completed: ${stats.successful}/${stats.total} successful`);
+  } catch (error) {
+    console.error(`Fatal error in import job ${importJobId}:`, error);
+    await supabase
+      .from('import_jobs')
+      .update({
+        status: 'failed',
+        error_message: error instanceof Error ? error.message : 'Unknown error',
+        completed_at: new Date().toISOString(),
+      })
+      .eq('id', importJobId);
+    throw error;
   }
-
-  // Mark job as completed
-  await supabase
-    .from('import_jobs')
-    .update({
-      status: stats.failed === stats.total ? 'failed' : 'completed',
-      completed_at: new Date().toISOString(),
-    })
-    .eq('id', importJobId);
-
-  console.log(`Import job ${importJobId} completed: ${stats.successful}/${stats.total} successful`);
 }
 
 /**
@@ -244,8 +318,13 @@ async function collectAllFiles(
     'video/x-flv',
   ]);
 
-  while (foldersToProcess.length > 0) {
+  const MAX_FILES = 1000; // Safety limit
+  const MAX_DEPTH = 10; // Safety limit for folder depth
+
+  let depth = 0;
+  while (foldersToProcess.length > 0 && depth < MAX_DEPTH) {
     const { id: currentFolderId, path } = foldersToProcess.shift()!;
+    depth++;
 
     // List all items in current folder
     let pageToken: string | undefined;
@@ -265,7 +344,8 @@ async function collectAllFiles(
       });
 
       if (!response.ok) {
-        throw new Error(`Google Drive API error: ${response.statusText}`);
+        const errorText = await response.text();
+        throw new Error(`Google Drive API error: ${response.status} ${response.statusText} - ${errorText}`);
       }
 
       const data = await response.json();
@@ -283,11 +363,21 @@ async function collectAllFiles(
             ...item,
             path: `${path}/${item.name}`,
           });
+
+          // Safety check
+          if (files.length >= MAX_FILES) {
+            console.warn(`Reached maximum file limit (${MAX_FILES}). Stopping collection.`);
+            return files;
+          }
         }
       }
 
       pageToken = data.nextPageToken;
     } while (pageToken);
+  }
+
+  if (depth >= MAX_DEPTH) {
+    console.warn(`Reached maximum folder depth (${MAX_DEPTH}). Some nested folders may not be processed.`);
   }
 
   return files;
@@ -306,69 +396,88 @@ async function processFile(
 ): Promise<void> {
   console.log(`Processing file: ${file.name} (${file.mimeType})`);
 
-  // Download file from Google Drive
+  // File size limit: 100MB
+  const MAX_FILE_SIZE = 100 * 1024 * 1024;
+  const fileSize = parseInt(file.size || '0');
+
+  if (fileSize > MAX_FILE_SIZE) {
+    throw new Error(`File too large: ${(fileSize / 1024 / 1024).toFixed(2)}MB (max 100MB)`);
+  }
+
+  // Download file from Google Drive with timeout
   const downloadUrl = `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`;
-  const response = await fetch(downloadUrl, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-    },
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 120000); // 2 minute timeout
 
-  if (!response.ok) {
-    throw new Error(`Failed to download file: ${response.statusText}`);
-  }
-
-  const fileBlob = await response.blob();
-
-  // Determine media type
-  let mediaType = 'document';
-  if (file.mimeType.startsWith('audio/')) {
-    mediaType = 'audio';
-  } else if (file.mimeType.startsWith('video/')) {
-    mediaType = 'video';
-  } else if (file.mimeType.startsWith('image/')) {
-    mediaType = 'image';
-  }
-
-  // Generate storage path
-  const fileExtension = file.name.split('.').pop() || '';
-  const timestamp = Date.now();
-  const storagePath = `${userId}/${caseId}/${timestamp}.${fileExtension}`;
-
-  // Upload to Supabase Storage
-  const { data: uploadData, error: uploadError } = await supabase.storage
-    .from('case-documents')
-    .upload(storagePath, fileBlob, {
-      contentType: file.mimeType,
-      upsert: false,
+  try {
+    const response = await fetch(downloadUrl, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+      signal: controller.signal,
     });
 
-  if (uploadError) {
-    throw new Error(`Storage upload failed: ${uploadError.message}`);
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      throw new Error(`Failed to download file: ${response.status} ${response.statusText}`);
+    }
+
+    const fileBlob = await response.blob();
+
+    // Determine media type
+    let mediaType = 'document';
+    if (file.mimeType.startsWith('audio/')) {
+      mediaType = 'audio';
+    } else if (file.mimeType.startsWith('video/')) {
+      mediaType = 'video';
+    } else if (file.mimeType.startsWith('image/')) {
+      mediaType = 'image';
+    }
+
+    // Generate storage path
+    const fileExtension = file.name.split('.').pop() || 'bin';
+    const timestamp = Date.now();
+    const storagePath = `${userId}/${caseId}/${timestamp}.${fileExtension}`;
+
+    // Upload to Supabase Storage
+    const { error: uploadError } = await supabase.storage
+      .from('case-documents')
+      .upload(storagePath, fileBlob, {
+        contentType: file.mimeType,
+        upsert: false,
+      });
+
+    if (uploadError) {
+      throw new Error(`Storage upload failed: ${uploadError.message}`);
+    }
+
+    // Get public URL
+    const { data: urlData } = supabase.storage
+      .from('case-documents')
+      .getPublicUrl(storagePath);
+
+    // Create document record
+    const { error: docError } = await supabase.from('documents').insert({
+      case_id: caseId,
+      user_id: userId,
+      name: file.name,
+      file_url: urlData.publicUrl,
+      file_type: file.mimeType,
+      file_size: fileSize,
+      media_type: mediaType,
+      drive_file_id: file.id,
+      drive_file_path: file.path,
+      import_job_id: importJobId,
+    });
+
+    if (docError) {
+      throw new Error(`Failed to create document record: ${docError.message}`);
+    }
+
+    console.log(`Successfully processed: ${file.name}`);
+  } catch (error) {
+    clearTimeout(timeout);
+    throw error;
   }
-
-  // Get public URL
-  const { data: urlData } = supabase.storage
-    .from('case-documents')
-    .getPublicUrl(storagePath);
-
-  // Create document record
-  const { error: docError } = await supabase.from('documents').insert({
-    case_id: caseId,
-    user_id: userId,
-    name: file.name,
-    file_url: urlData.publicUrl,
-    file_type: file.mimeType,
-    file_size: parseInt(file.size || '0'),
-    media_type: mediaType,
-    drive_file_id: file.id,
-    drive_file_path: file.path,
-    import_job_id: importJobId,
-  });
-
-  if (docError) {
-    throw new Error(`Failed to create document record: ${docError.message}`);
-  }
-
-  console.log(`Successfully processed: ${file.name}`);
 }
