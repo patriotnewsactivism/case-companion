@@ -2,7 +2,12 @@
   "permissions": {
     "allow": [
       "Bash(npm run dev:*)",
-      "Bash(NODE_OPTIONS=\"--max-old-space-size=4096\" npm run build:*)"
+      "Bash(git push:*)",
+      "Bash(git pull:*)",
+      "Bash(git stash:*)",
+      "Bash(git stash pop:*)",
+      "Bash(npx supabase migration:*)",
+      "Bash(npx supabase:*)"
     ]
   }
 }

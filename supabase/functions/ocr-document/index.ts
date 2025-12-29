@@ -1,40 +1,91 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+import {
+  getCorsHeaders,
+  createErrorResponse,
+  validateEnvVars,
+  validateRequestBody,
+  checkRateLimit,
+} from '../_shared/errorHandler.ts';
+import { verifyAuth, forbiddenResponse } from '../_shared/auth.ts';
+import { validateUUID, validateURL } from '../_shared/validation.ts';
 
 serve(async (req) => {
+  const corsHeaders = getCorsHeaders(req);
+
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+    return new Response('ok', { headers: corsHeaders });
   }
 
   try {
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    // Validate environment variables
+    validateEnvVars(['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'LOVABLE_API_KEY']);
+
     const lovableApiKey = Deno.env.get('LOVABLE_API_KEY')!;
 
-    // Get auth header from request
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
-      throw new Error('Missing authorization header');
+    // Verify authentication
+    const authResult = await verifyAuth(req);
+    if (!authResult.authorized || !authResult.user || !authResult.supabase) {
+      return createErrorResponse(
+        new Error(authResult.error || 'Unauthorized'),
+        401,
+        'ocr-document'
+      );
     }
 
-    // Create Supabase client with user's auth
-    const supabase = createClient(supabaseUrl, supabaseKey);
-    
-    const { documentId, fileUrl } = await req.json();
+    const { user, supabase } = authResult;
 
-    if (!documentId || !fileUrl) {
-      throw new Error('Missing documentId or fileUrl');
+    // Rate limiting: 10 OCR operations per minute per user
+    const rateLimitCheck = checkRateLimit(`ocr:${user.id}`, 10, 60000);
+    if (!rateLimitCheck.allowed) {
+      return new Response(
+        JSON.stringify({
+          error: 'Rate limit exceeded',
+          resetAt: new Date(rateLimitCheck.resetAt).toISOString(),
+        }),
+        {
+          status: 429,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      );
     }
+
+    // Parse and validate request body
+    const requestBody = await req.json();
+    validateRequestBody(requestBody, ['documentId', 'fileUrl']);
+
+    const documentId = validateUUID(requestBody.documentId, 'documentId');
+    const fileUrl = validateURL(requestBody.fileUrl);
 
     console.log(`Processing OCR for document: ${documentId}`);
-    console.log(`File URL: ${fileUrl}`);
+
+    // Verify user owns this document by checking the associated case
+    const { data: documentData, error: docError } = await supabase
+      .from('documents')
+      .select('case_id, cases!inner(user_id)')
+      .eq('id', documentId)
+      .single();
+
+    if (docError || !documentData) {
+      console.error('Document not found:', docError);
+      return createErrorResponse(
+        new Error('Document not found'),
+        404,
+        'ocr-document'
+      );
+    }
+
+    // Check if user owns the case
+    if ((documentData.cases as any).user_id !== user.id) {
+      console.error('User does not own this document');
+      return forbiddenResponse(
+        'You do not have access to this document',
+        corsHeaders
+      );
+    }
+
+    console.log(`User verified as owner of document ${documentId}`);
 
     // Fetch the file content
     const fileResponse = await fetch(fileUrl);
@@ -251,15 +302,6 @@ ${extractedText.substring(0, 15000)}`
 
   } catch (error) {
     console.error('OCR Error:', error);
-    return new Response(
-      JSON.stringify({ 
-        error: error instanceof Error ? error.message : 'Unknown error',
-        success: false 
-      }),
-      { 
-        status: 500, 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
-      }
-    );
+    return createErrorResponse(error, 500, 'ocr-document');
   }
 });

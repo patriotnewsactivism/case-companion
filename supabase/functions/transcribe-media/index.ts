@@ -1,63 +1,89 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+import {
+  getCorsHeaders,
+  createErrorResponse,
+  validateEnvVars,
+  validateRequestBody,
+  checkRateLimit,
+} from '../_shared/errorHandler.ts';
+import { verifyAuth, forbiddenResponse } from '../_shared/auth.ts';
+import { validateUUID, validateFileSize } from '../_shared/validation.ts';
 
 interface TranscribeRequest {
   documentId: string;
 }
 
 serve(async (req) => {
+  const corsHeaders = getCorsHeaders(req);
+
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
 
   try {
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '' // Use service role for full access
-    );
+    // Validate environment variables
+    validateEnvVars(['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'OPENAI_API_KEY']);
 
-    // Verify user is authenticated
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+    // Verify authentication
+    const authResult = await verifyAuth(req);
+    if (!authResult.authorized || !authResult.user || !authResult.supabase) {
+      return createErrorResponse(
+        new Error(authResult.error || 'Unauthorized'),
+        401,
+        'transcribe-media'
+      );
     }
 
-    const { data: { user }, error: authError } = await supabase.auth.getUser(
-      authHeader.replace('Bearer ', '')
-    );
+    const { user, supabase } = authResult;
 
-    if (authError || !user) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+    // Rate limiting: 5 transcriptions per minute per user (transcription is resource-intensive)
+    const rateLimitCheck = checkRateLimit(`transcribe:${user.id}`, 5, 60000);
+    if (!rateLimitCheck.allowed) {
+      return new Response(
+        JSON.stringify({
+          error: 'Rate limit exceeded',
+          resetAt: new Date(rateLimitCheck.resetAt).toISOString(),
+        }),
+        {
+          status: 429,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      );
     }
 
-    const { documentId }: TranscribeRequest = await req.json();
+    // Parse and validate request body
+    const requestBody = await req.json();
+    validateRequestBody<TranscribeRequest>(requestBody, ['documentId']);
 
-    // Get document record
+    const documentId = validateUUID(requestBody.documentId, 'documentId');
+
+    // Get document record and verify ownership
     const { data: document, error: docError } = await supabase
       .from('documents')
-      .select('*')
+      .select('*, cases!inner(user_id)')
       .eq('id', documentId)
-      .eq('user_id', user.id)
       .single();
 
     if (docError || !document) {
-      return new Response(JSON.stringify({ error: 'Document not found' }), {
-        status: 404,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      console.error('Document not found:', docError);
+      return createErrorResponse(
+        new Error('Document not found'),
+        404,
+        'transcribe-media'
+      );
     }
+
+    // Check if user owns the case
+    if ((document.cases as any).user_id !== user.id) {
+      console.error('User does not own this document');
+      return forbiddenResponse(
+        'You do not have access to this document',
+        corsHeaders
+      );
+    }
+
+    console.log(`User verified as owner of document ${documentId}`);
 
     // Check if document is audio or video
     if (!document.media_type || !['audio', 'video'].includes(document.media_type)) {
@@ -96,27 +122,14 @@ serve(async (req) => {
     // Convert blob to File object for OpenAI API
     const file = new File([fileBlob], document.name, { type: document.file_type || 'audio/mpeg' });
 
-    // Check file size (Whisper API has a 25MB limit)
-    const maxSize = 25 * 1024 * 1024; // 25MB
-    if (file.size > maxSize) {
-      // For large files, we would need to implement chunking or compression
-      // For now, return an error
-      return new Response(
-        JSON.stringify({
-          error: `File too large for transcription. Maximum size: 25MB, file size: ${Math.round(file.size / 1024 / 1024)}MB`,
-        }),
-        {
-          status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        }
-      );
+    // Validate file size (Whisper API has a 25MB limit)
+    try {
+      validateFileSize(file.size, 25); // 25MB max for Whisper API
+    } catch (sizeError) {
+      return createErrorResponse(sizeError, 400, 'transcribe-media');
     }
 
-    // Transcribe using OpenAI Whisper API
-    const openaiApiKey = Deno.env.get('OPENAI_API_KEY');
-    if (!openaiApiKey) {
-      throw new Error('OpenAI API key not configured');
-    }
+    const openaiApiKey = Deno.env.get('OPENAI_API_KEY')!;
 
     const formData = new FormData();
     formData.append('file', file);
@@ -174,13 +187,6 @@ serve(async (req) => {
     );
   } catch (error) {
     console.error('Error in transcribe-media function:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    return new Response(
-      JSON.stringify({ error: errorMessage }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      }
-    );
+    return createErrorResponse(error, 500, 'transcribe-media');
   }
 });

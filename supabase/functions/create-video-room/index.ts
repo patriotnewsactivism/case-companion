@@ -1,10 +1,13 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+import {
+  getCorsHeaders,
+  createErrorResponse,
+  validateEnvVars,
+  validateRequestBody,
+  checkRateLimit,
+} from '../_shared/errorHandler.ts';
+import { verifyAuth, forbiddenResponse } from '../_shared/auth.ts';
+import { validateUUID, sanitizeString, validateInteger } from '../_shared/validation.ts';
 
 interface CreateRoomRequest {
   name: string;
@@ -16,61 +19,56 @@ interface CreateRoomRequest {
 }
 
 serve(async (req) => {
+  const corsHeaders = getCorsHeaders(req);
+
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+    return new Response('ok', { headers: corsHeaders });
   }
 
   try {
-    // Security: Verify user is authenticated
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
-      return new Response(
-        JSON.stringify({ error: 'Unauthorized' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    // Validate environment variables
+    validateEnvVars(['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'DAILY_API_KEY']);
+
+    const DAILY_API_KEY = Deno.env.get('DAILY_API_KEY')!;
+
+    // Verify authentication
+    const authResult = await verifyAuth(req);
+    if (!authResult.authorized || !authResult.user || !authResult.supabase) {
+      return createErrorResponse(
+        new Error(authResult.error || 'Unauthorized'),
+        401,
+        'create-video-room'
       );
     }
 
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const { user, supabase } = authResult;
 
-    // Get authenticated user
-    const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: userError } = await supabase.auth.getUser(token);
-
-    if (userError || !user) {
+    // Rate limiting: 20 room creations per hour per user
+    const rateLimitCheck = checkRateLimit(`create-room:${user.id}`, 20, 3600000);
+    if (!rateLimitCheck.allowed) {
       return new Response(
-        JSON.stringify({ error: 'Unauthorized' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({
+          error: 'Rate limit exceeded',
+          resetAt: new Date(rateLimitCheck.resetAt).toISOString(),
+        }),
+        {
+          status: 429,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
       );
     }
 
-    const DAILY_API_KEY = Deno.env.get('DAILY_API_KEY');
+    // Parse and validate request body
+    const requestBody = await req.json();
+    validateRequestBody<CreateRoomRequest>(requestBody, ['name', 'caseId']);
 
-    if (!DAILY_API_KEY) {
-      console.error('DAILY_API_KEY is not set');
-      return new Response(
-        JSON.stringify({ error: 'Video service not configured' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    const {
-      name,
-      caseId,
-      description,
-      expiresInMinutes = 240, // 4 hours default
-      enableRecording = true,
-      maxParticipants = 10
-    } = await req.json() as CreateRoomRequest;
-
-    if (!name || !caseId) {
-      return new Response(
-        JSON.stringify({ error: 'Room name and case ID are required' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+    const name = sanitizeString(requestBody.name, 'name', 200);
+    const caseId = validateUUID(requestBody.caseId, 'caseId');
+    const description = requestBody.description ? sanitizeString(requestBody.description, 'description', 1000) : undefined;
+    const expiresInMinutes = requestBody.expiresInMinutes ? validateInteger(requestBody.expiresInMinutes, 'expiresInMinutes', 1, 1440) : 240;
+    const enableRecording = requestBody.enableRecording ?? true;
+    const maxParticipants = requestBody.maxParticipants ? validateInteger(requestBody.maxParticipants, 'maxParticipants', 2, 50) : 10;
 
     // Security: Verify user owns the case
     const { data: caseData, error: caseError } = await supabase
@@ -81,11 +79,11 @@ serve(async (req) => {
       .single();
 
     if (caseError || !caseData) {
-      return new Response(
-        JSON.stringify({ error: 'Case not found or access denied' }),
-        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      console.error('Case verification failed:', caseError);
+      return forbiddenResponse('Case not found or access denied', corsHeaders);
     }
+
+    console.log(`User verified as owner of case ${caseId}`);
 
     // Calculate expiration time
     const exp = Math.floor(Date.now() / 1000) + (expiresInMinutes * 60);
@@ -214,11 +212,7 @@ serve(async (req) => {
     );
 
   } catch (error) {
-    console.error('Error:', error);
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    return new Response(
-      JSON.stringify({ error: message }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    console.error('Error creating video room:', error);
+    return createErrorResponse(error, 500, 'create-video-room');
   }
 });

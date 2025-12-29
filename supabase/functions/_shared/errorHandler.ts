@@ -9,6 +9,35 @@ export interface ErrorResponse {
   timestamp: string;
 }
 
+// Phase 1D: CORS Hardening
+const ALLOWED_ORIGINS = [
+  'https://usyxikgqkcnlzobnqhtz.lovableproject.com', // Production
+  'http://localhost:8080', // Development
+  'http://localhost:5173', // Vite dev server alternative port
+];
+
+/**
+ * Get CORS headers based on request origin
+ * Returns allowed origin only if it's in the whitelist
+ */
+export function getCorsHeaders(req: Request): Record<string, string> {
+  const origin = req.headers.get('Origin') || '';
+  const environment = Deno.env.get('ENVIRONMENT') || 'production';
+
+  // In development, allow localhost
+  const isAllowedOrigin = ALLOWED_ORIGINS.includes(origin) ||
+    (environment === 'development' && origin.startsWith('http://localhost'));
+
+  return {
+    'Access-Control-Allow-Origin': isAllowedOrigin ? origin : ALLOWED_ORIGINS[0],
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
+    'Access-Control-Max-Age': '86400', // 24 hours
+    'Access-Control-Allow-Credentials': 'true',
+  };
+}
+
+// Legacy export for backward compatibility (will be removed)
 export const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
