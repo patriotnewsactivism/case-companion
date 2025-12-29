@@ -119,7 +119,7 @@ serve(async (req) => {
 
       console.log(`Image size: ${sizeInMB}MB, MIME: ${mimeType}`);
 
-      const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${googleApiKey}`, {
+      const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-thinking-exp:generateContent?key=${googleApiKey}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -162,7 +162,7 @@ Extract now:`
           ],
           generationConfig: {
             temperature: 0.1,
-            maxOutputTokens: 16384,
+            maxOutputTokens: 32768,
           }
         }),
       });
@@ -187,7 +187,7 @@ Extract now:`
 
       console.log(`PDF size: ${sizeInMB}MB`);
 
-      const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${googleApiKey}`, {
+      const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-thinking-exp:generateContent?key=${googleApiKey}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -231,7 +231,7 @@ Extract now:`
           ],
           generationConfig: {
             temperature: 0.1,
-            maxOutputTokens: 16384,
+            maxOutputTokens: 32768,
           }
         }),
       });
