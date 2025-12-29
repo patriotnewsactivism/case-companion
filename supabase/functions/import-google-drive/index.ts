@@ -125,7 +125,6 @@ const handler = async (req: Request): Promise<Response> => {
     .insert({
       case_id: caseId,
       user_id: user.id,
-      source_type: 'google_drive',
       source_folder_id: folderId,
       source_folder_name: folderName,
       source_folder_path: folderPath,
@@ -465,10 +464,6 @@ async function processFile(
       file_url: urlData.publicUrl,
       file_type: file.mimeType,
       file_size: fileSize,
-      media_type: mediaType,
-      drive_file_id: file.id,
-      drive_file_path: file.path,
-      import_job_id: importJobId,
     });
 
     if (docError) {
