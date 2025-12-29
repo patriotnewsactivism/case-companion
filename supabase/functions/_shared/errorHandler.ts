@@ -11,7 +11,8 @@ export interface ErrorResponse {
 
 // Phase 1D: CORS Hardening
 const ALLOWED_ORIGINS = [
-  'https://usyxikgqkcnlzobnqhtz.lovableproject.com', // Production
+  'https://usyxikgqkcnlzobnqhtz.lovableproject.com', // Lovable project URL
+  'https://casebuddypro.lovable.app', // Production domain
   'http://localhost:8080', // Development
   'http://localhost:5173', // Vite dev server alternative port
 ];
