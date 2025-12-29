@@ -42,19 +42,30 @@ export function GoogleDriveFolderImport({ caseId, onImportStarted }: GoogleDrive
   } | null>(null);
   const [isCountingFiles, setIsCountingFiles] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [isApiLoading, setIsApiLoading] = useState(false);
+  const [apiError, setApiError] = useState<string | null>(null);
   const { toast } = useToast();
 
   // Load Google API when dialog opens
   useEffect(() => {
     if (isOpen) {
-      loadGoogleAPI().catch((error) => {
-        console.error('Failed to load Google API:', error);
-        toast({
-          title: 'Error',
-          description: 'Failed to load Google Drive integration. Please refresh and try again.',
-          variant: 'destructive',
+      setIsApiLoading(true);
+      setApiError(null);
+      loadGoogleAPI()
+        .then(() => {
+          setIsApiLoading(false);
+        })
+        .catch((error) => {
+          console.error('Failed to load Google API:', error);
+          setIsApiLoading(false);
+          const errorMessage = error instanceof Error ? error.message : 'Failed to load Google Drive integration';
+          setApiError(errorMessage);
+          toast({
+            title: 'Error',
+            description: errorMessage,
+            variant: 'destructive',
+          });
         });
-      });
     }
   }, [isOpen, toast]);
 
@@ -159,6 +170,7 @@ export function GoogleDriveFolderImport({ caseId, onImportStarted }: GoogleDrive
     setSelectedFolder(null);
     setFileCounts(null);
     setAccessToken(null);
+    setApiError(null);
     setIsOpen(false);
   };
 
@@ -181,24 +193,33 @@ export function GoogleDriveFolderImport({ caseId, onImportStarted }: GoogleDrive
         <div className="space-y-4 py-4">
           {!selectedFolder ? (
             <div className="space-y-4">
-              <Alert>
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>
-                  This will recursively import all supported files from the selected folder and its subfolders.
-                  Supported: PDFs, Word docs, images, audio (MP3, WAV, M4A), and video (MP4, MOV, AVI).
-                </AlertDescription>
-              </Alert>
+              {apiError ? (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    {apiError}
+                  </AlertDescription>
+                </Alert>
+              ) : (
+                <Alert>
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    This will recursively import all supported files from the selected folder and its subfolders.
+                    Supported: PDFs, Word docs, images, audio (MP3, WAV, M4A), and video (MP4, MOV, AVI).
+                  </AlertDescription>
+                </Alert>
+              )}
 
               <Button
                 onClick={handleSelectFolder}
-                disabled={isLoading}
+                disabled={isLoading || isApiLoading || apiError !== null}
                 className="w-full gap-2"
                 size="lg"
               >
-                {isLoading ? (
+                {isLoading || isApiLoading ? (
                   <>
                     <Loader2 className="h-5 w-5 animate-spin" />
-                    Loading...
+                    {isApiLoading ? 'Loading Google API...' : 'Loading...'}
                   </>
                 ) : (
                   <>
