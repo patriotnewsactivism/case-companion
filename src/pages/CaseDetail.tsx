@@ -253,16 +253,24 @@ export default function CaseDetail() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error("Not authenticated");
 
-      const response = await supabase.functions.invoke('ocr-document', {
-        body: { documentId, fileUrl },
+      // Use direct fetch to bypass CORS issues with supabase.functions.invoke
+      const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ocr-document`;
+
+      const response = await fetch(functionUrl, {
+        method: 'POST',
         headers: {
-          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
         },
+        body: JSON.stringify({ documentId, fileUrl }),
       });
 
-      if (response.error) {
-        throw new Error(response.error.message);
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(errorData.error || `HTTP ${response.status}`);
       }
+
+      const data = await response.json();
 
       queryClient.invalidateQueries({ queryKey: ["documents", id] });
       toast({
