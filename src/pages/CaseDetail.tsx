@@ -253,21 +253,25 @@ export default function CaseDetail() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error("Not authenticated");
 
-      // Use direct fetch to bypass CORS issues with supabase.functions.invoke
+      // Use direct fetch with mode: 'cors' to handle CORS properly
       const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ocr-document`;
 
       const response = await fetch(functionUrl, {
         method: 'POST',
+        mode: 'cors',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${session.access_token}`,
+          'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
         },
         body: JSON.stringify({ documentId, fileUrl }),
       });
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-        throw new Error(errorData.error || `HTTP ${response.status}`);
+        const errorText = await response.text();
+        console.error('OCR function error:', errorText);
+        throw new Error(errorText || `HTTP ${response.status}`);
       }
 
       const data = await response.json();

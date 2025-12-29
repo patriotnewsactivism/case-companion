@@ -7,7 +7,9 @@
       "Bash(git stash:*)",
       "Bash(git stash pop:*)",
       "Bash(npx supabase migration:*)",
-      "Bash(npx supabase:*)"
+      "Bash(npx supabase:*)",
+      "Bash(grep:*)",
+      "Bash(curl:*)"
     ]
   }
 }
