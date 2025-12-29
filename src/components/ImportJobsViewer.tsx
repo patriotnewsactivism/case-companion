@@ -22,6 +22,11 @@ import {
 } from '@/components/ui/collapsible';
 import { ChevronDown } from 'lucide-react';
 
+interface FailedFileDetail {
+  filename: string;
+  error: string;
+}
+
 interface ImportJob {
   id: string;
   source_folder_name: string;
@@ -32,7 +37,7 @@ interface ImportJob {
   successful_files: number;
   failed_files: number;
   error_message: string | null;
-  failed_file_details: Array<{ filename: string; error: string }> | null;
+  failed_file_details: FailedFileDetail[] | null;
   created_at: string;
   started_at: string | null;
   completed_at: string | null;
@@ -55,7 +60,10 @@ export function ImportJobsViewer({ caseId }: ImportJobsViewerProps) {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      return data as ImportJob[];
+      return (data || []).map((job) => ({
+        ...job,
+        failed_file_details: (job.failed_file_details as unknown) as FailedFileDetail[] | null,
+      })) as ImportJob[];
     },
     refetchInterval: (query) => {
       // Auto-refresh every 3 seconds if there are active jobs
