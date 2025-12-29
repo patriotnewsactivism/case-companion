@@ -124,7 +124,7 @@ const App = () => (
                 path="/settings"
                 element={
                   <ProtectedRoute>
-                    <Dashboard />
+                    <Settings />
                   </ProtectedRoute>
                 }
               />

@@ -154,7 +154,7 @@ npx supabase db execute --sql "\\d import_jobs"
 1. **Regenerate TypeScript types:**
 
 ```bash
-npx supabase gen types typescript --project-id usyxikgqkcnlzobnqhtz > src/integrations/supabase/types.ts
+npx supabase gen types typescript --project-id plcvjadartxntnurhcua > src/integrations/supabase/types.ts
 ```
 
 2. **Deploy updated Edge Functions:**

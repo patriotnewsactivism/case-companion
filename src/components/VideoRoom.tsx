@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -40,9 +40,13 @@ interface DailyCallObject {
   stopScreenShare: () => void;
   startRecording: () => Promise<void>;
   stopRecording: () => Promise<void>;
-  participants: () => Record<string, any>;
-  on: (event: string, callback: (event?: any) => void) => void;
-  off: (event: string, callback: (event?: any) => void) => void;
+  participants: () => Record<string, unknown>;
+  on: (event: string, callback: (event?: unknown) => void) => void;
+  off: (event: string, callback: (event?: unknown) => void) => void;
+}
+
+interface DailyErrorEvent {
+  errorMsg?: string;
 }
 
 declare global {
@@ -68,6 +72,11 @@ export function VideoRoom({ caseId, roomName, roomId, onLeave }: VideoRoomProps)
   const [isOwner, setIsOwner] = useState(false);
   const [sessionDuration, setSessionDuration] = useState(0);
   const [joinTime, setJoinTime] = useState<Date | null>(null);
+  const enableRecordingRef = useRef(enableRecording);
+
+  useEffect(() => {
+    enableRecordingRef.current = enableRecording;
+  }, [enableRecording]);
 
   // Load Daily.co script
   useEffect(() => {
@@ -88,9 +97,11 @@ export function VideoRoom({ caseId, roomName, roomId, onLeave }: VideoRoomProps)
       if (callObjectRef.current) {
         callObjectRef.current.destroy();
       }
-      document.body.removeChild(script);
+      if (document.body.contains(script)) {
+        document.body.removeChild(script);
+      }
     };
-  }, []);
+  }, [initializeRoom]);
 
   // Session duration timer
   useEffect(() => {
@@ -105,7 +116,52 @@ export function VideoRoom({ caseId, roomName, roomId, onLeave }: VideoRoomProps)
     }
   }, [joinTime]);
 
-  const initializeRoom = async () => {
+  const updateParticipantCount = useCallback(() => {
+    if (callObjectRef.current) {
+      const participants = callObjectRef.current.participants();
+      setParticipantCount(Object.keys(participants).length);
+    }
+  }, []);
+
+  const handleJoinedMeeting = useCallback(() => {
+    console.log('Joined meeting');
+    setIsJoined(true);
+    updateParticipantCount();
+    toast.success('Connected to video room');
+  }, [updateParticipantCount]);
+
+  const handleLeftMeeting = useCallback(() => {
+    console.log('Left meeting');
+    setIsJoined(false);
+    if (onLeave) {
+      onLeave();
+    }
+  }, [onLeave]);
+
+  const handleParticipantUpdate = useCallback(() => {
+    updateParticipantCount();
+  }, [updateParticipantCount]);
+
+  const handleRecordingStarted = useCallback(() => {
+    console.log('Recording started');
+    setIsRecording(true);
+    toast.info('Recording started');
+  }, []);
+
+  const handleRecordingStopped = useCallback(() => {
+    console.log('Recording stopped');
+    setIsRecording(false);
+    toast.info('Recording stopped');
+  }, []);
+
+  const handleError = useCallback((error: DailyErrorEvent | Error) => {
+    const message =
+      error instanceof Error ? error.message : error?.errorMsg || 'Unknown error';
+    console.error('Daily.co error:', error);
+    toast.error(`Video call error: ${message}`);
+  }, []);
+
+  const initializeRoom = useCallback(async () => {
     try {
       setIsLoading(true);
       setError(null);
@@ -141,7 +197,7 @@ export function VideoRoom({ caseId, roomName, roomId, onLeave }: VideoRoomProps)
           body: {
             name: roomName,
             caseId,
-            enableRecording: enableRecording,
+            enableRecording: enableRecordingRef.current,
             expiresInMinutes: 240,
           },
         });
@@ -155,30 +211,30 @@ export function VideoRoom({ caseId, roomName, roomId, onLeave }: VideoRoomProps)
         recordingEnabled = data.enableRecording;
       }
 
-      setRoomUrl(url);
-      setIsOwner(owner);
-      setEnableRecording(recordingEnabled);
+        setRoomUrl(url);
+        setIsOwner(owner);
+        setEnableRecording(recordingEnabled);
 
-      // Create Daily call object
-      if (window.DailyIframe) {
-        const callObject = window.DailyIframe.createCallObject();
-        callObjectRef.current = callObject;
+        // Create Daily call object
+        if (window.DailyIframe) {
+          const callObject = window.DailyIframe.createCallObject();
+          callObjectRef.current = callObject;
 
-        // Set up event listeners
-        callObject.on('joined-meeting', handleJoinedMeeting);
-        callObject.on('left-meeting', handleLeftMeeting);
-        callObject.on('participant-joined', handleParticipantUpdate);
-        callObject.on('participant-left', handleParticipantUpdate);
-        callObject.on('recording-started', handleRecordingStarted);
-        callObject.on('recording-stopped', handleRecordingStopped);
-        callObject.on('error', handleError);
+          // Set up event listeners
+          callObject.on('joined-meeting', handleJoinedMeeting);
+          callObject.on('left-meeting', handleLeftMeeting);
+          callObject.on('participant-joined', handleParticipantUpdate);
+          callObject.on('participant-left', handleParticipantUpdate);
+          callObject.on('recording-started', handleRecordingStarted);
+          callObject.on('recording-stopped', handleRecordingStopped);
+          callObject.on('error', handleError);
 
-        // Join the room
-        await callObject.join({ url, token });
-        setJoinTime(new Date());
-      } else {
-        throw new Error('Daily.co library not loaded');
-      }
+          // Join the room
+          await callObject.join({ url, token });
+          setJoinTime(new Date());
+        } else {
+          throw new Error('Daily.co library not loaded');
+        }
 
       setIsLoading(false);
     } catch (err) {
@@ -187,50 +243,17 @@ export function VideoRoom({ caseId, roomName, roomId, onLeave }: VideoRoomProps)
       setIsLoading(false);
       toast.error('Failed to join video room');
     }
-  };
-
-  const handleJoinedMeeting = () => {
-    console.log('Joined meeting');
-    setIsJoined(true);
-    updateParticipantCount();
-    toast.success('Connected to video room');
-  };
-
-  const handleLeftMeeting = () => {
-    console.log('Left meeting');
-    setIsJoined(false);
-    if (onLeave) {
-      onLeave();
-    }
-  };
-
-  const handleParticipantUpdate = () => {
-    updateParticipantCount();
-  };
-
-  const handleRecordingStarted = () => {
-    console.log('Recording started');
-    setIsRecording(true);
-    toast.info('Recording started');
-  };
-
-  const handleRecordingStopped = () => {
-    console.log('Recording stopped');
-    setIsRecording(false);
-    toast.info('Recording stopped');
-  };
-
-  const handleError = (error: any) => {
-    console.error('Daily.co error:', error);
-    toast.error('Video call error: ' + (error.errorMsg || 'Unknown error'));
-  };
-
-  const updateParticipantCount = () => {
-    if (callObjectRef.current) {
-      const participants = callObjectRef.current.participants();
-      setParticipantCount(Object.keys(participants).length);
-    }
-  };
+  }, [
+    caseId,
+    handleError,
+    handleJoinedMeeting,
+    handleLeftMeeting,
+    handleParticipantUpdate,
+    handleRecordingStarted,
+    handleRecordingStopped,
+    roomId,
+    roomName,
+  ]);
 
   const toggleVideo = () => {
     if (callObjectRef.current) {
