@@ -1,6 +1,8 @@
 import { Layout } from "@/components/Layout";
 import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { GoogleDriveFolderImport } from "@/components/GoogleDriveFolderImport";
+import { ImportJobsViewer } from "@/components/ImportJobsViewer";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -53,6 +55,7 @@ import {
   Copy,
   ExternalLink,
   Brain,
+  Music,
 } from "lucide-react";
 import type { Tables } from "@/integrations/supabase/types";
 
@@ -123,6 +126,7 @@ export default function CaseDetail() {
   const [deleteDocId, setDeleteDocId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [processingOcr, setProcessingOcr] = useState<string | null>(null);
+  const [transcribing, setTranscribing] = useState<string | null>(null);
   const [selectedDoc, setSelectedDoc] = useState<Document | null>(null);
 
   const [docForm, setDocForm] = useState({
@@ -270,6 +274,38 @@ export default function CaseDetail() {
       });
     } finally {
       setProcessingOcr(null);
+    }
+  };
+
+  // Trigger transcription for audio/video files
+  const triggerTranscription = async (documentId: string) => {
+    setTranscribing(documentId);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("Not authenticated");
+
+      const response = await supabase.functions.invoke('transcribe-media', {
+        body: { documentId },
+      });
+
+      if (response.error) {
+        throw new Error(response.error.message);
+      }
+
+      queryClient.invalidateQueries({ queryKey: ["documents", id] });
+      toast({
+        title: "Transcription complete",
+        description: "Audio/video has been transcribed successfully.",
+      });
+    } catch (error) {
+      console.error("Transcription error:", error);
+      toast({
+        title: "Transcription failed",
+        description: error instanceof Error ? error.message : "Unknown error",
+        variant: "destructive",
+      });
+    } finally {
+      setTranscribing(null);
     }
   };
 
@@ -608,6 +644,18 @@ export default function CaseDetail() {
                     Upload discovery documents, pleadings, and evidence
                   </p>
                   <div className="flex gap-2">
+                    {/* Google Drive Folder Import */}
+                    <GoogleDriveFolderImport
+                      caseId={id!}
+                      onImportStarted={(importJobId) => {
+                        toast({
+                          title: "Import Started",
+                          description: `Import job ${importJobId} has been started.`,
+                        });
+                        queryClient.invalidateQueries({ queryKey: ['documents', id] });
+                      }}
+                    />
+
                     {/* Link Import Dialog */}
                     <Dialog open={isLinkImportOpen} onOpenChange={setIsLinkImportOpen}>
                       <DialogTrigger asChild>
@@ -709,11 +757,11 @@ export default function CaseDetail() {
                                     name: docForm.name || file?.name || ''
                                   });
                                 }}
-                                accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.gif,.webp"
+                                accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.gif,.webp,.mp3,.wav,.m4a,.mp4,.mov,.avi"
                                 required
                               />
                               <p className="text-xs text-muted-foreground">
-                                PDF, Word, Text, or Image files up to 20MB
+                                Documents, images, audio (MP3, WAV, M4A), or video (MP4, MOV, AVI) up to 500MB
                               </p>
                             </div>
                             <div className="grid gap-2">
@@ -758,6 +806,9 @@ export default function CaseDetail() {
                     </Dialog>
                   </div>
                 </div>
+
+                {/* Import Jobs Viewer */}
+                <ImportJobsViewer caseId={id!} />
 
                 {docsLoading ? (
                   <div className="flex items-center justify-center py-8">
@@ -846,6 +897,17 @@ export default function CaseDetail() {
                                           <Scan className="h-4 w-4" />
                                         </Button>
                                       )}
+                                      {(doc.file_type?.startsWith('audio/') || doc.file_type?.startsWith('video/')) &&
+                                       !doc.transcription_text && transcribing !== doc.id && (
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          title="Transcribe Audio/Video"
+                                          onClick={() => triggerTranscription(doc.id)}
+                                        >
+                                          <Music className="h-4 w-4" />
+                                        </Button>
+                                      )}
                                     </>
                                   )}
                                   <Button
@@ -859,11 +921,17 @@ export default function CaseDetail() {
                                 </div>
                               </div>
 
-                              {/* Processing indicator */}
+                              {/* Processing indicators */}
                               {processingOcr === doc.id && (
                                 <div className="flex items-center gap-2 mt-3 text-sm text-primary">
                                   <Loader2 className="h-4 w-4 animate-spin" />
                                   <span>Running OCR & AI analysis...</span>
+                                </div>
+                              )}
+                              {transcribing === doc.id && (
+                                <div className="flex items-center gap-2 mt-3 text-sm text-primary">
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                  <span>Transcribing audio/video...</span>
                                 </div>
                               )}
 
