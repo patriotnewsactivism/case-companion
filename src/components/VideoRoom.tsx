@@ -69,42 +69,6 @@ export function VideoRoom({ caseId, roomName, roomId, onLeave }: VideoRoomProps)
   const [sessionDuration, setSessionDuration] = useState(0);
   const [joinTime, setJoinTime] = useState<Date | null>(null);
 
-  // Load Daily.co script
-  useEffect(() => {
-    const script = document.createElement('script');
-    script.src = 'https://unpkg.com/@daily-co/daily-js';
-    script.async = true;
-    script.onload = () => {
-      console.log('Daily.co script loaded');
-      initializeRoom();
-    };
-    script.onerror = () => {
-      setError('Failed to load video conferencing library');
-      setIsLoading(false);
-    };
-    document.body.appendChild(script);
-
-    return () => {
-      if (callObjectRef.current) {
-        callObjectRef.current.destroy();
-      }
-      document.body.removeChild(script);
-    };
-  }, [initializeRoom]);
-
-  // Session duration timer
-  useEffect(() => {
-    if (joinTime) {
-      const interval = setInterval(() => {
-        const now = new Date();
-        const duration = Math.floor((now.getTime() - joinTime.getTime()) / 1000);
-        setSessionDuration(duration);
-      }, 1000);
-
-      return () => clearInterval(interval);
-    }
-  }, [joinTime]);
-
   const initializeRoom = useCallback(async () => {
     try {
       setIsLoading(true);
@@ -188,6 +152,43 @@ export function VideoRoom({ caseId, roomName, roomId, onLeave }: VideoRoomProps)
       toast.error('Failed to join video room');
     }
   }, [roomId, roomName, caseId, enableRecording]);
+
+  // Load Daily.co script
+  useEffect(() => {
+    const script = document.createElement('script');
+    script.src = 'https://unpkg.com/@daily-co/daily-js';
+    script.async = true;
+    script.onload = () => {
+      console.log('Daily.co script loaded');
+      initializeRoom();
+    };
+    script.onerror = () => {
+      setError('Failed to load video conferencing library');
+      setIsLoading(false);
+    };
+    document.body.appendChild(script);
+
+    return () => {
+      if (callObjectRef.current) {
+        callObjectRef.current.destroy();
+      }
+      document.body.removeChild(script);
+    };
+  }, [initializeRoom]);
+
+  // Session duration timer
+  useEffect(() => {
+    if (joinTime) {
+      const interval = setInterval(() => {
+        const now = new Date();
+        const duration = Math.floor((now.getTime() - joinTime.getTime()) / 1000);
+        setSessionDuration(duration);
+      }, 1000);
+
+      return () => clearInterval(interval);
+    }
+  }, [joinTime]);
+
 
   const handleJoinedMeeting = () => {
     console.log('Joined meeting');
