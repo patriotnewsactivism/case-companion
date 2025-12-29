@@ -27,10 +27,12 @@ export function getCorsHeaders(req: Request): Record<string, string> {
 
   // In development, allow localhost
   const isAllowedOrigin = ALLOWED_ORIGINS.includes(origin) ||
-    (environment === 'development' && origin.startsWith('http://localhost'));
+    (environment === 'development' && origin.startsWith('http://localhost')) ||
+    origin.includes('.lovable.app') || // Allow all Lovable domains
+    origin.includes('.lovableproject.com'); // Allow all Lovable project domains
 
   return {
-    'Access-Control-Allow-Origin': isAllowedOrigin ? origin : ALLOWED_ORIGINS[0],
+    'Access-Control-Allow-Origin': isAllowedOrigin ? origin : '*',
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
     'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
     'Access-Control-Max-Age': '86400', // 24 hours
