@@ -8,7 +8,7 @@ Migrations in this directory are automatically applied when deploying to Supabas
 ### Manual Application
 If you need to apply migrations manually:
 
-1. Go to your Supabase Dashboard: https://app.supabase.com/project/usyxikgqkcnlzobnqhtz
+1. Go to your Supabase Dashboard: https://app.supabase.com/project/plcvjadartxntnurhcua
 2. Navigate to the SQL Editor
 3. Open the migration file you want to run
 4. Copy and paste the SQL into the editor
