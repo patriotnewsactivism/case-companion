@@ -33,6 +33,21 @@ export interface GoogleDriveFolder {
  */
 export async function loadGoogleAPI(): Promise<void> {
   return new Promise((resolve, reject) => {
+    // Validate that Google API credentials are configured
+    if (!GOOGLE_API_KEY || GOOGLE_API_KEY.trim() === '') {
+      reject(new Error(
+        'Google Drive integration is not configured. Please add VITE_GOOGLE_API_KEY to your .env file. See GOOGLE_DRIVE_SETUP.md for setup instructions.'
+      ));
+      return;
+    }
+
+    if (!GOOGLE_CLIENT_ID || GOOGLE_CLIENT_ID.trim() === '') {
+      reject(new Error(
+        'Google Drive integration is not configured. Please add VITE_GOOGLE_CLIENT_ID to your .env file. See GOOGLE_DRIVE_SETUP.md for setup instructions.'
+      ));
+      return;
+    }
+
     // Check if already loaded
     if (window.gapi && window.google) {
       resolve();
@@ -77,6 +92,14 @@ export async function getGoogleAccessToken(): Promise<string> {
   return new Promise((resolve, reject) => {
     if (!window.google) {
       reject(new Error('Google API not loaded'));
+      return;
+    }
+
+    // Validate that Google Client ID is configured
+    if (!GOOGLE_CLIENT_ID || GOOGLE_CLIENT_ID.trim() === '') {
+      reject(new Error(
+        'Google Drive integration is not configured. Please add VITE_GOOGLE_CLIENT_ID to your .env file. See GOOGLE_DRIVE_SETUP.md for setup instructions.'
+      ));
       return;
     }
 
