@@ -128,7 +128,9 @@ export async function verifyResourceOwnership(
     };
   }
 
-  if (data[userColumn] !== userId) {
+  // deno-lint-ignore no-explicit-any
+  const record = data as any;
+  if (record?.[userColumn] !== userId) {
     return {
       authorized: false,
       error: 'You do not have access to this resource',

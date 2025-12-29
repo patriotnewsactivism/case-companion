@@ -101,30 +101,20 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         name: dailyRoomName,
-        privacy: 'private', // Security: Private rooms only
+        privacy: 'private',
         properties: {
           exp,
           enable_chat: true,
           enable_screenshare: true,
-          enable_recording: enableRecording ? 'cloud' : 'local', // Recording controlled by param
-          enable_recording_ui: enableRecording, // Show recording controls only if enabled
+          enable_recording: enableRecording ? 'cloud' : 'local',
           max_participants: maxParticipants,
           start_video_off: false,
           start_audio_off: false,
           owner_only_broadcast: false,
-          enable_prejoin_ui: true, // Security: Prejoin screen for verification
+          enable_prejoin_ui: true,
           enable_network_ui: true,
-          enable_knocking: true, // Security: Require approval to join
+          enable_knocking: true,
           lang: 'en',
-          // Security: End-to-end encryption for sensitive legal conversations
-          enable_mesh_sfu: true,
-          sfu_switchover: 0.5,
-          // Recording settings
-          recording_bucket: {
-            bucket_name: 'daily-recordings',
-            region: 'us-west-2',
-            assume_role_arn: '', // Configure if using custom S3
-          },
         },
       }),
     });
