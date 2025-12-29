@@ -28,61 +28,151 @@ export interface GoogleDriveFolder {
   path: string;
 }
 
+// Track loading state to prevent duplicate requests
+let isLoadingGoogleAPI = false;
+let loadingPromise: Promise<void> | null = null;
+
 /**
  * Load Google API libraries
  */
 export async function loadGoogleAPI(): Promise<void> {
-  return new Promise((resolve, reject) => {
-    // Validate that Google API credentials are configured
-    if (!GOOGLE_API_KEY || GOOGLE_API_KEY.trim() === '') {
-      reject(new Error(
-        'Google Drive integration is not configured. Please add VITE_GOOGLE_API_KEY to your .env file. See GOOGLE_DRIVE_SETUP.md for setup instructions.'
-      ));
-      return;
-    }
+  // Validate that Google API credentials are configured
+  if (!GOOGLE_API_KEY || GOOGLE_API_KEY.trim() === '') {
+    throw new Error(
+      'Google Drive integration is not configured. Please add VITE_GOOGLE_API_KEY to your .env file. See GOOGLE_DRIVE_SETUP.md for setup instructions.'
+    );
+  }
 
-    if (!GOOGLE_CLIENT_ID || GOOGLE_CLIENT_ID.trim() === '') {
-      reject(new Error(
-        'Google Drive integration is not configured. Please add VITE_GOOGLE_CLIENT_ID to your .env file. See GOOGLE_DRIVE_SETUP.md for setup instructions.'
-      ));
-      return;
-    }
+  if (!GOOGLE_CLIENT_ID || GOOGLE_CLIENT_ID.trim() === '') {
+    throw new Error(
+      'Google Drive integration is not configured. Please add VITE_GOOGLE_CLIENT_ID to your .env file. See GOOGLE_DRIVE_SETUP.md for setup instructions.'
+    );
+  }
 
-    // Check if already loaded
-    if (window.gapi && window.google) {
-      resolve();
-      return;
-    }
+  // Check if already loaded and fully initialized
+  if (window.gapi?.client && window.google?.accounts) {
+    return Promise.resolve();
+  }
 
-    // Load gapi script
-    const gapiScript = document.createElement('script');
-    gapiScript.src = 'https://apis.google.com/js/api.js';
-    gapiScript.async = true;
-    gapiScript.defer = true;
-    gapiScript.onload = () => {
-      window.gapi.load('client:picker', async () => {
+  // Return existing loading promise if already loading
+  if (isLoadingGoogleAPI && loadingPromise) {
+    return loadingPromise;
+  }
+
+  // Mark as loading and create new promise
+  isLoadingGoogleAPI = true;
+  loadingPromise = new Promise((resolve, reject) => {
+    const SCRIPT_LOAD_TIMEOUT = 15000; // 15 seconds
+
+    // Set timeout for script loading
+    const timeoutId: NodeJS.Timeout = setTimeout(() => {
+      cleanup();
+      reject(new Error('Timeout loading Google APIs. Please check your internet connection and try again.'));
+    }, SCRIPT_LOAD_TIMEOUT);
+
+    const cleanup = () => {
+      clearTimeout(timeoutId);
+      isLoadingGoogleAPI = false;
+    };
+
+    // Check if gapi script already exists in DOM
+    const existingGapiScript = document.querySelector('script[src="https://apis.google.com/js/api.js"]');
+
+    if (existingGapiScript && window.gapi) {
+      // Script exists but might not be initialized
+      initializeGapi(resolve, reject, cleanup, timeoutId);
+    } else {
+      // Load gapi script
+      const gapiScript = document.createElement('script');
+      gapiScript.src = 'https://apis.google.com/js/api.js';
+      gapiScript.async = true;
+      gapiScript.defer = true;
+      gapiScript.onload = () => {
+        initializeGapi(resolve, reject, cleanup, timeoutId);
+      };
+      gapiScript.onerror = () => {
+        cleanup();
+        reject(new Error('Failed to load Google API script. Please check your internet connection.'));
+      };
+      document.body.appendChild(gapiScript);
+    }
+  });
+
+  return loadingPromise;
+}
+
+/**
+ * Initialize Google API client and load Google Identity Services
+ */
+function initializeGapi(
+  resolve: () => void,
+  reject: (error: Error) => void,
+  cleanup: () => void,
+  timeoutId: NodeJS.Timeout
+): void {
+  if (!window.gapi) {
+    cleanup();
+    reject(new Error('Google API object not available'));
+    return;
+  }
+
+  try {
+    window.gapi.load('client:picker', {
+      callback: async () => {
         try {
+          // Initialize the client
           await window.gapi.client.init({
             apiKey: GOOGLE_API_KEY,
             discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'],
           });
 
-          // Load Google Identity Services
-          const gisScript = document.createElement('script');
-          gisScript.src = 'https://accounts.google.com/gsi/client';
-          gisScript.async = true;
-          gisScript.defer = true;
-          gisScript.onload = () => resolve();
-          gisScript.onerror = () => reject(new Error('Failed to load Google Identity Services'));
-          document.body.appendChild(gisScript);
+          // Check if GIS script already exists
+          const existingGisScript = document.querySelector('script[src="https://accounts.google.com/gsi/client"]');
+
+          if (existingGisScript && window.google?.accounts) {
+            cleanup();
+            resolve();
+          } else {
+            // Load Google Identity Services
+            const gisScript = document.createElement('script');
+            gisScript.src = 'https://accounts.google.com/gsi/client';
+            gisScript.async = true;
+            gisScript.defer = true;
+            gisScript.onload = () => {
+              // Verify google.accounts is available
+              if (window.google?.accounts) {
+                cleanup();
+                resolve();
+              } else {
+                cleanup();
+                reject(new Error('Google Identity Services loaded but not initialized properly'));
+              }
+            };
+            gisScript.onerror = () => {
+              cleanup();
+              reject(new Error('Failed to load Google Identity Services script'));
+            };
+            document.body.appendChild(gisScript);
+          }
         } catch (error) {
-          reject(error);
+          cleanup();
+          reject(error instanceof Error ? error : new Error('Failed to initialize Google API client'));
         }
-      });
-    };
-    gapiScript.onerror = () => reject(new Error('Failed to load Google API'));
-    document.body.appendChild(gapiScript);
-  });
+      },
+      onerror: () => {
+        cleanup();
+        reject(new Error('Failed to load Google API client libraries'));
+      },
+      timeout: 10000, // 10 second timeout for gapi.load
+      ontimeout: () => {
+        cleanup();
+        reject(new Error('Timeout loading Google API client libraries'));
+      },
+    });
+  } catch (error) {
+    cleanup();
+    reject(error instanceof Error ? error : new Error('Error loading Google API'));
+  }
 }
 
 /**
