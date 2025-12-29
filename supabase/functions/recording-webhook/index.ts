@@ -1,10 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+import { getCorsHeaders } from '../_shared/errorHandler.ts';
 
 interface DailyRecordingWebhook {
   type: string; // 'recording.ready', 'recording.started', 'recording.finished'
@@ -19,7 +15,7 @@ interface DailyRecordingWebhook {
 serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+    return new Response(null, { headers: getCorsHeaders(req) });
   }
 
   try {
@@ -28,16 +24,58 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     // Security: Verify webhook authenticity
-    // Daily.co sends webhooks - in production, verify the signature
+    // Daily.co sends webhooks with HMAC signature
     const webhookSecret = Deno.env.get('DAILY_WEBHOOK_SECRET');
+    let payload: DailyRecordingWebhook;
+
     if (webhookSecret) {
       const signature = req.headers.get('x-daily-signature');
-      // TODO: Implement signature verification for production
-      // For now, we'll trust the webhook
-    }
+      if (!signature) {
+        console.error('Missing x-daily-signature header');
+        return new Response(
+          JSON.stringify({ error: 'Missing webhook signature' }),
+          { status: 401, headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' } }
+        );
+      }
 
-    const payload = await req.json() as DailyRecordingWebhook;
-    console.log('Recording webhook received:', payload);
+      // Read request body for signature verification
+      const body = await req.text();
+
+      // Compute HMAC SHA-256 signature
+      const encoder = new TextEncoder();
+      const key = await crypto.subtle.importKey(
+        'raw',
+        encoder.encode(webhookSecret),
+        { name: 'HMAC', hash: 'SHA-256' },
+        false,
+        ['sign']
+      );
+      const signatureBytes = await crypto.subtle.sign(
+        'HMAC',
+        key,
+        encoder.encode(body)
+      );
+      const expectedSignature = Array.from(new Uint8Array(signatureBytes))
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('');
+
+      if (signature !== expectedSignature) {
+        console.error('Invalid webhook signature');
+        return new Response(
+          JSON.stringify({ error: 'Invalid webhook signature' }),
+          { status: 401, headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // Parse the body after verification
+      payload = JSON.parse(body) as DailyRecordingWebhook;
+      console.log('Recording webhook received (verified):', payload);
+    } else {
+      // If no webhook secret is configured, parse normally but log warning
+      console.warn('DAILY_WEBHOOK_SECRET not configured - webhook signature verification disabled');
+      payload = await req.json() as DailyRecordingWebhook;
+      console.log('Recording webhook received (unverified):', payload);
+    }
 
     const { type, room, recording_id, download_link, duration, start_ts, status } = payload;
 
@@ -52,7 +90,7 @@ serve(async (req) => {
       console.error('Video room not found:', room);
       return new Response(
         JSON.stringify({ error: 'Video room not found' }),
-        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 404, headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' } }
       );
     }
 
@@ -153,7 +191,7 @@ serve(async (req) => {
 
     return new Response(
       JSON.stringify({ success: true, message: 'Webhook processed' }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      { headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' } }
     );
 
   } catch (error) {
@@ -161,7 +199,7 @@ serve(async (req) => {
     const message = error instanceof Error ? error.message : 'Unknown error';
     return new Response(
       JSON.stringify({ error: message }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      { status: 500, headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' } }
     );
   }
 });

@@ -11,7 +11,7 @@ export interface ErrorResponse {
 
 // Phase 1D: CORS Hardening
 const ALLOWED_ORIGINS = [
-  'https://usyxikgqkcnlzobnqhtz.lovableproject.com', // Lovable project URL
+  'https://plcvjadartxntnurhcua.lovableproject.com', // Lovable project URL (current)
   'https://casebuddypro.lovable.app', // Production domain
   'http://localhost:8080', // Development
   'http://localhost:5173', // Vite dev server alternative port
@@ -134,7 +134,7 @@ export function withErrorHandling(
   return async (req: Request): Promise<Response> => {
     // Handle CORS preflight
     if (req.method === 'OPTIONS') {
-      return new Response('ok', { headers: corsHeaders });
+      return new Response('ok', { headers: getCorsHeaders(req) });
     }
 
     try {

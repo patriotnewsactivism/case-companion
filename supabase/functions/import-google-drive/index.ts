@@ -1,7 +1,7 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import {
-  corsHeaders,
+  getCorsHeaders,
   createErrorResponse,
   validateEnvVars,
   validateRequestBody,
@@ -51,7 +51,7 @@ const handler = async (req: Request): Promise<Response> => {
       JSON.stringify({ error: 'Unauthorized', message: 'User authentication required' }),
       {
         status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
       }
     );
   }
@@ -68,7 +68,7 @@ const handler = async (req: Request): Promise<Response> => {
       {
         status: 429,
         headers: {
-          ...corsHeaders,
+          ...getCorsHeaders(req),
           'Content-Type': 'application/json',
           'Retry-After': String(Math.ceil((rateLimitCheck.resetAt - Date.now()) / 1000)),
         },
@@ -114,7 +114,7 @@ const handler = async (req: Request): Promise<Response> => {
       }),
       {
         status: 403,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
       }
     );
   }
@@ -174,7 +174,7 @@ const handler = async (req: Request): Promise<Response> => {
     }),
     {
       status: 202, // Accepted
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
     }
   );
 };

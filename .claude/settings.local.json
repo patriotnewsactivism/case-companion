@@ -9,7 +9,19 @@
       "Bash(npx supabase migration:*)",
       "Bash(npx supabase:*)",
       "Bash(grep:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(npx tsc:*)",
+      "Bash(ls:*)",
+      "Bash(find:*)",
+      "Bash(npm ls:*)",
+      "Bash(test:*)",
+      "Bash(npm outdated:*)",
+      "Bash(findstr:*)",
+      "Bash(npm run lint)"
     ]
-  }
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "supabase"
+  ]
 }

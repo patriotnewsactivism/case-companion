@@ -24,6 +24,7 @@ const Calendar = lazy(() => import("./pages/Calendar"));
 const Research = lazy(() => import("./pages/Research"));
 const TrialPrep = lazy(() => import("./pages/TrialPrep"));
 const Video = lazy(() => import("./pages/Video"));
+const Settings = lazy(() => import("./pages/Settings"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 // Optimized React Query configuration for better performance
