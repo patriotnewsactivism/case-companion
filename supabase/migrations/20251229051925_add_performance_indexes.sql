@@ -29,9 +29,9 @@ BEGIN
     WHERE ai_analyzed = true;
 
     -- Full-text search index for document OCR text
+    -- Note: COALESCE handles NULL values, no WHERE clause needed
     CREATE INDEX IF NOT EXISTS idx_documents_ocr_text_search
-    ON documents USING gin(to_tsvector('english', COALESCE(ocr_text, '')))
-    WHERE ocr_text IS NOT NULL;
+    ON documents USING gin(to_tsvector('english', COALESCE(ocr_text, '')));
 
     RAISE NOTICE 'Created documents table indexes';
   END IF;
@@ -55,9 +55,9 @@ BEGIN
     WHERE next_deadline IS NOT NULL;
 
     -- Full-text search index for case notes
+    -- Note: COALESCE handles NULL values, no WHERE clause needed
     CREATE INDEX IF NOT EXISTS idx_cases_notes_search
-    ON cases USING gin(to_tsvector('english', COALESCE(notes, '')))
-    WHERE notes IS NOT NULL;
+    ON cases USING gin(to_tsvector('english', COALESCE(notes, '')));
 
     RAISE NOTICE 'Created cases table indexes';
   END IF;
@@ -72,9 +72,9 @@ BEGIN
     ON timeline_events(case_id, event_date DESC);
 
     -- Index for upcoming events
+    -- Note: Removed WHERE clause with CURRENT_DATE (not immutable)
     CREATE INDEX IF NOT EXISTS idx_timeline_upcoming
-    ON timeline_events(case_id, event_date)
-    WHERE event_date >= CURRENT_DATE;
+    ON timeline_events(case_id, event_date);
 
     -- Index for important events
     CREATE INDEX IF NOT EXISTS idx_timeline_important
