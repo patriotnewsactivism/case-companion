@@ -8,6 +8,7 @@ import {
   Calendar,
   BookOpen,
   Gavel,
+  Video,
   Settings,
   LogOut,
   Menu,
@@ -23,6 +24,7 @@ const navItems = [
   { path: "/calendar", label: "Calendar", icon: Calendar },
   { path: "/research", label: "Research", icon: BookOpen },
   { path: "/trial-prep", label: "Trial Prep", icon: Gavel },
+  { path: "/video", label: "Video Conference", icon: Video },
   { path: "/settings", label: "Settings", icon: Settings },
 ];
 

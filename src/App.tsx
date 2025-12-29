@@ -10,6 +10,10 @@ import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Cases from "./pages/Cases";
 import CaseDetail from "./pages/CaseDetail";
+import Calendar from "./pages/Calendar";
+import Research from "./pages/Research";
+import TrialPrep from "./pages/TrialPrep";
+import Video from "./pages/Video";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -52,7 +56,7 @@ const App = () => (
               path="/calendar"
               element={
                 <ProtectedRoute>
-                  <Dashboard />
+                  <Calendar />
                 </ProtectedRoute>
               }
             />
@@ -60,7 +64,7 @@ const App = () => (
               path="/research"
               element={
                 <ProtectedRoute>
-                  <Dashboard />
+                  <Research />
                 </ProtectedRoute>
               }
             />
@@ -68,7 +72,15 @@ const App = () => (
               path="/trial-prep"
               element={
                 <ProtectedRoute>
-                  <Dashboard />
+                  <TrialPrep />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/video"
+              element={
+                <ProtectedRoute>
+                  <Video />
                 </ProtectedRoute>
               }
             />
