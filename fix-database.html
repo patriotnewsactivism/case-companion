@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fix CaseBuddy Database - Add case_type Column</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            border-radius: 8px;
+            padding: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-top: 0;
+        }
+        .status {
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+            font-weight: 500;
+        }
+        .info {
+            background: #e3f2fd;
+            color: #1976d2;
+            border-left: 4px solid #1976d2;
+        }
+        .success {
+            background: #e8f5e9;
+            color: #388e3c;
+            border-left: 4px solid #388e3c;
+        }
+        .error {
+            background: #ffebee;
+            color: #c62828;
+            border-left: 4px solid #c62828;
+        }
+        button {
+            background: #1976d2;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 4px;
+            font-size: 16px;
+            cursor: pointer;
+            font-weight: 500;
+        }
+        button:hover {
+            background: #1565c0;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        pre {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-size: 14px;
+        }
+        .step {
+            margin: 15px 0;
+            padding-left: 25px;
+            position: relative;
+        }
+        .step::before {
+            content: '✓';
+            position: absolute;
+            left: 0;
+            color: #388e3c;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 Fix CaseBuddy Database</h1>
+        <p>This tool will add the missing <code>case_type</code> column to your cases table.</p>
+
+        <div class="status info">
+            <strong>Before you start:</strong>
+            <ul>
+                <li>Make sure you're connected to the internet</li>
+                <li>This will only take a few seconds</li>
+                <li>Your data will not be affected</li>
+            </ul>
+        </div>
+
+        <button id="fixButton" onclick="fixDatabase()">Fix Database Now</button>
+
+        <div id="output"></div>
+    </div>
+
+    <script>
+        const SUPABASE_URL = 'https://usyxikgqkcnlzobnqhtz.supabase.co';
+        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVzeXhpa2dxa2NubHpvYm5xaHR6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY4NTEzMjUsImV4cCI6MjA4MjQyNzMyNX0.30Sx9VSYwePrCXnDXaGIKiXb9ukiF9wS5W_6vdtQPtU';
+
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        async function fixDatabase() {
+            const button = document.getElementById('fixButton');
+            const output = document.getElementById('output');
+
+            button.disabled = true;
+            button.textContent = 'Fixing...';
+            output.innerHTML = '';
+
+            try {
+                // Log in first if needed (this assumes you have an active session)
+                const { data: { session } } = await supabase.auth.getSession();
+
+                if (!session) {
+                    output.innerHTML = `
+                        <div class="status error">
+                            <strong>Not logged in!</strong>
+                            <p>Please log in to CaseBuddy first, then come back to this page and try again.</p>
+                            <p>Steps:</p>
+                            <ol>
+                                <li>Open CaseBuddy in another tab and log in</li>
+                                <li>Come back to this tab</li>
+                                <li>Click "Fix Database Now" again</li>
+                            </ol>
+                        </div>
+                    `;
+                    button.disabled = false;
+                    button.textContent = 'Fix Database Now';
+                    return;
+                }
+
+                output.innerHTML = '<div class="status info">Adding case_type column to database...</div>';
+
+                // Use the Supabase RPC to execute SQL
+                const { data, error } = await supabase.rpc('exec_sql', {
+                    query: `
+                        DO $$
+                        BEGIN
+                            IF NOT EXISTS (
+                                SELECT 1
+                                FROM information_schema.columns
+                                WHERE table_schema = 'public'
+                                AND table_name = 'cases'
+                                AND column_name = 'case_type'
+                            ) THEN
+                                ALTER TABLE public.cases ADD COLUMN case_type TEXT;
+                                RAISE NOTICE 'case_type column added successfully';
+                            ELSE
+                                RAISE NOTICE 'case_type column already exists';
+                            END IF;
+                        END $$;
+                    `
+                });
+
+                if (error) {
+                    // If RPC doesn't exist, show manual instructions
+                    if (error.message.includes('could not find function') || error.code === '42883') {
+                        output.innerHTML = `
+                            <div class="status error">
+                                <strong>Cannot execute SQL directly from browser</strong>
+                                <p>Please use the Supabase SQL Editor instead:</p>
+                            </div>
+                            <div class="status info">
+                                <strong>Manual Fix Steps:</strong>
+                                <div class="step">Go to <a href="https://supabase.com/dashboard/project/usyxikgqkcnlzobnqhtz/sql/new" target="_blank">Supabase SQL Editor</a></div>
+                                <div class="step">Copy and paste this SQL:</div>
+                                <pre>ALTER TABLE public.cases ADD COLUMN IF NOT EXISTS case_type TEXT;</pre>
+                                <div class="step">Click "Run" button</div>
+                                <div class="step">Refresh your CaseBuddy app</div>
+                            </div>
+                        `;
+                    } else {
+                        throw error;
+                    }
+                } else {
+                    output.innerHTML = `
+                        <div class="status success">
+                            <strong>✓ Success!</strong>
+                            <p>The case_type column has been added to your database.</p>
+                            <p>You can now:</p>
+                            <ul>
+                                <li>Close this page</li>
+                                <li>Refresh your CaseBuddy app</li>
+                                <li>Create new cases without errors</li>
+                            </ul>
+                        </div>
+                    `;
+                }
+
+            } catch (err) {
+                output.innerHTML = `
+                    <div class="status error">
+                        <strong>Error:</strong>
+                        <p>${err.message}</p>
+                        <p>Please try the manual method:</p>
+                    </div>
+                    <div class="status info">
+                        <strong>Manual Fix Steps:</strong>
+                        <div class="step">Go to <a href="https://supabase.com/dashboard/project/usyxikgqkcnlzobnqhtz/sql/new" target="_blank">Supabase SQL Editor</a></div>
+                        <div class="step">Copy and paste this SQL:</div>
+                        <pre>ALTER TABLE public.cases ADD COLUMN IF NOT EXISTS case_type TEXT;</pre>
+                        <div class="step">Click "Run" button</div>
+                        <div class="step">Refresh your CaseBuddy app</div>
+                    </div>
+                `;
+            } finally {
+                button.disabled = false;
+                button.textContent = 'Try Again';
+            }
+        }
+    </script>
+</body>
+</html>

@@ -3,18 +3,31 @@
 ## Problem
 The `case_type` column is missing from the `cases` table in the database, causing errors when creating new cases.
 
-## Solution
-Run the SQL migration to add the missing column.
+## ⚡ Quick Fix (Easiest)
 
-### Option 1: Using Supabase SQL Editor (Recommended)
+### Option 1: Open the HTML Fix Tool
 
-1. Go to your Supabase Dashboard: https://supabase.com/dashboard/project/usyxikgqkcnlzobnqhtz
-2. Navigate to the **SQL Editor**
-3. Create a new query and paste the contents of `add-case-type-column.sql`
-4. Click "Run" to execute the SQL
-5. Verify the output shows "case_type column added successfully"
+1. Open `fix-database.html` in your web browser
+2. Log in to CaseBuddy in another tab (if not already logged in)
+3. Come back to the fix-database.html tab
+4. Click "Fix Database Now"
+5. Wait for confirmation
+6. Refresh your CaseBuddy app and try creating a case!
 
-### Option 2: Apply All Pending Migrations
+### Option 2: Use Supabase SQL Editor (Recommended)
+
+1. Go to [Supabase SQL Editor](https://supabase.com/dashboard/project/usyxikgqkcnlzobnqhtz/sql/new)
+2. Paste this single line of SQL:
+   ```sql
+   ALTER TABLE public.cases ADD COLUMN IF NOT EXISTS case_type TEXT;
+   ```
+3. Click "Run" (or press Ctrl/Cmd + Enter)
+4. You should see "Success. No rows returned"
+5. Refresh your CaseBuddy app - the error should be gone!
+
+## Alternative Methods
+
+### Option 3: Apply All Pending Migrations
 
 If you have the Supabase CLI installed locally:
 
@@ -29,9 +42,9 @@ supabase link --project-ref usyxikgqkcnlzobnqhtz
 supabase db push
 ```
 
-### Option 3: Manual SQL Execution
+### Option 4: Using the Detailed Migration Script
 
-Copy and run this SQL in the Supabase SQL Editor:
+If you want to add ALL missing columns (not just case_type), copy and run the contents of `add-case-type-column.sql` in the Supabase SQL Editor:
 
 ```sql
 -- Add case_type column if it doesn't exist
