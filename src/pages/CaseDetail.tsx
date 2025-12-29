@@ -63,16 +63,60 @@ import {
   Search,
   Filter,
 } from "lucide-react";
-import type { Tables } from "@/integrations/supabase/types";
-
-type Document = Tables<"documents"> & {
-  ocr_text?: string | null;
-  ocr_page_count?: number | null;
-  ocr_processed_at?: string | null;
+// Define types locally to avoid type mismatch with auto-generated types
+interface Document {
+  id: string;
+  case_id: string;
+  user_id: string;
+  name: string;
+  file_url: string | null;
+  file_type: string | null;
+  file_size: number | null;
+  bates_number: string | null;
+  summary: string | null;
+  key_facts: string[] | null;
+  favorable_findings: string[] | null;
+  adverse_findings: string[] | null;
+  action_items: string[] | null;
+  ai_analyzed: boolean | null;
+  ocr_text: string | null;
+  ocr_page_count: number | null;
+  ocr_processed_at: string | null;
   transcription_text?: string | null;
-};
-type TimelineEvent = Tables<"timeline_events">;
-type Case = Tables<"cases">;
+  created_at: string;
+  updated_at: string;
+}
+
+interface TimelineEvent {
+  id: string;
+  case_id: string;
+  user_id: string;
+  title: string;
+  description: string | null;
+  event_date: string;
+  event_type: string | null;
+  linked_document_id: string | null;
+  importance: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface Case {
+  id: string;
+  user_id: string;
+  name: string;
+  case_type: string;
+  client_name: string;
+  status: string;
+  representation: string;
+  case_theory: string | null;
+  key_issues: string[] | null;
+  winning_factors: string[] | null;
+  next_deadline: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
 
 const container = {
   hidden: { opacity: 0 },
@@ -589,7 +633,7 @@ export default function CaseDetail() {
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div className="flex items-center gap-3">
                 <Badge variant="outline" className="font-mono text-xs">
-                  {caseData.case_number || `CV-${new Date(caseData.created_at).getFullYear()}-${caseData.id.substring(0, 5).toUpperCase()}`}
+                  {`CV-${new Date(caseData.created_at).getFullYear()}-${caseData.id.substring(0, 5).toUpperCase()}`}
                 </Badge>
                 <Badge className={getStatusColor(caseData.status)}>{caseData.status}</Badge>
                 <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
@@ -623,8 +667,8 @@ export default function CaseDetail() {
             {/* Case title and description */}
             <div>
               <h1 className="text-2xl lg:text-3xl font-serif font-bold">{caseData.name}</h1>
-              {caseData.description && (
-                <p className="text-muted-foreground mt-1">{caseData.description}</p>
+              {caseData.notes && (
+                <p className="text-muted-foreground mt-1">{caseData.notes}</p>
               )}
             </div>
           </motion.div>
