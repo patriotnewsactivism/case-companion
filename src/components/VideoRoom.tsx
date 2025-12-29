@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -90,7 +90,7 @@ export function VideoRoom({ caseId, roomName, roomId, onLeave }: VideoRoomProps)
       }
       document.body.removeChild(script);
     };
-  }, []);
+  }, [initializeRoom]);
 
   // Session duration timer
   useEffect(() => {
@@ -105,7 +105,7 @@ export function VideoRoom({ caseId, roomName, roomId, onLeave }: VideoRoomProps)
     }
   }, [joinTime]);
 
-  const initializeRoom = async () => {
+  const initializeRoom = useCallback(async () => {
     try {
       setIsLoading(true);
       setError(null);
@@ -187,7 +187,7 @@ export function VideoRoom({ caseId, roomName, roomId, onLeave }: VideoRoomProps)
       setIsLoading(false);
       toast.error('Failed to join video room');
     }
-  };
+  }, [roomId, roomName, caseId, enableRecording]);
 
   const handleJoinedMeeting = () => {
     console.log('Joined meeting');

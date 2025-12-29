@@ -127,7 +127,7 @@ Required in `.env` (see `.env.example`):
 - `VITE_GOOGLE_API_KEY` - Google API key for Drive integration
 - `OPENAI_API_KEY` - For Whisper transcription (edge functions only)
 
-Current project ID: `usyxikgqkcnlzobnqhtz`
+Current project ID: `plcvjadartxntnurhcua`
 
 ## Common Development Workflows
 
