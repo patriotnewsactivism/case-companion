@@ -56,6 +56,12 @@ import {
   ExternalLink,
   Brain,
   Music,
+  MessageSquare,
+  Video,
+  Gavel,
+  Sparkles,
+  Search,
+  Filter,
 } from "lucide-react";
 import type { Tables } from "@/integrations/supabase/types";
 
@@ -129,6 +135,8 @@ export default function CaseDetail() {
   const [processingOcr, setProcessingOcr] = useState<string | null>(null);
   const [transcribing, setTranscribing] = useState<string | null>(null);
   const [selectedDoc, setSelectedDoc] = useState<Document | null>(null);
+
+  const [searchQuery, setSearchQuery] = useState("");
 
   const [docForm, setDocForm] = useState({
     name: "",
@@ -575,90 +583,102 @@ export default function CaseDetail() {
           animate="show"
           className="max-w-6xl mx-auto space-y-6"
         >
-          {/* Back Button & Header */}
-          <motion.div variants={item} className="flex items-start gap-4">
-            <Button variant="ghost" size="icon" onClick={() => navigate("/cases")}>
-              <ArrowLeft className="h-5 w-5" />
-            </Button>
-            <div className="flex-1">
-              <div className="flex items-center gap-3 mb-2">
-                <h1 className="text-2xl lg:text-3xl font-serif font-bold">{caseData.name}</h1>
+          {/* Header with case number, status, and actions */}
+          <motion.div variants={item} className="space-y-4">
+            {/* Top row with badges and actions */}
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <Badge variant="outline" className="font-mono text-xs">
+                  {caseData.case_number || `CV-${new Date(caseData.created_at).getFullYear()}-${caseData.id.substring(0, 5).toUpperCase()}`}
+                </Badge>
                 <Badge className={getStatusColor(caseData.status)}>{caseData.status}</Badge>
+                <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                  <span className="h-2 w-2 rounded-full bg-green-500" />
+                  Only you
+                </div>
               </div>
-              <p className="text-muted-foreground">
-                {caseData.case_type} • {caseData.client_name} • {caseData.representation}
-              </p>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" className="gap-2">
+                  <MessageSquare className="h-4 w-4" />
+                  Chat
+                </Button>
+                <Button variant="outline" size="sm" className="gap-2">
+                  <Video className="h-4 w-4" />
+                  Video Call
+                </Button>
+                <Button size="sm" className="gap-2 bg-amber-500 hover:bg-amber-600">
+                  <Plus className="h-4 w-4" />
+                  Add Evidence
+                </Button>
+                <Button variant="outline" size="sm" className="gap-2">
+                  <Download className="h-4 w-4" />
+                  Export
+                </Button>
+                <Button variant="outline" size="icon" className="h-8 w-8 text-destructive hover:text-destructive">
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+
+            {/* Case title and description */}
+            <div>
+              <h1 className="text-2xl lg:text-3xl font-serif font-bold">{caseData.name}</h1>
+              {caseData.description && (
+                <p className="text-muted-foreground mt-1">{caseData.description}</p>
+              )}
             </div>
           </motion.div>
 
-          {/* Case Info Cards */}
-          <motion.div variants={item} className="grid gap-4 sm:grid-cols-3">
-            {caseData.case_theory && (
-              <Card className="glass-card">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    <Lightbulb className="h-4 w-4" />
-                    Case Theory
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm text-muted-foreground">{caseData.case_theory}</p>
-                </CardContent>
-              </Card>
-            )}
-            {caseData.next_deadline && (
-              <Card className="glass-card">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    <Clock className="h-4 w-4" />
-                    Next Deadline
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm font-medium">{format(new Date(caseData.next_deadline), "PPP")}</p>
-                </CardContent>
-              </Card>
-            )}
-            <Card className="glass-card">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <FileText className="h-4 w-4" />
-                  Documents
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-2xl font-bold">{documents.length}</p>
-                <p className="text-xs text-muted-foreground">
-                  {documents.filter(d => d.ai_analyzed).length} analyzed
-                </p>
-              </CardContent>
-            </Card>
-          </motion.div>
-
-          {/* Tabs for Documents, Timeline, Notes */}
+          {/* Tabs for Discovery, Timeline, Trial Prep, Briefs, AI */}
           <motion.div variants={item}>
-            <Tabs defaultValue="documents" className="w-full">
-              <TabsList className="mb-4">
-                <TabsTrigger value="documents" className="gap-2">
-                  <FileText className="h-4 w-4" />
-                  Documents ({documents.length})
+            <Tabs defaultValue="discovery" className="w-full">
+              <TabsList className="mb-4 bg-transparent border-b border-border rounded-none w-full justify-start h-auto p-0 gap-0">
+                <TabsTrigger value="discovery" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none px-4 pb-3 gap-2">
+                  <Search className="h-4 w-4" />
+                  Discovery
                 </TabsTrigger>
-                <TabsTrigger value="timeline" className="gap-2">
+                <TabsTrigger value="timeline" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none px-4 pb-3 gap-2">
                   <Calendar className="h-4 w-4" />
-                  Timeline ({timelineEvents.length})
+                  Timeline
                 </TabsTrigger>
-                <TabsTrigger value="notes" className="gap-2">
-                  <Lightbulb className="h-4 w-4" />
-                  Notes
+                <TabsTrigger value="trial-prep" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none px-4 pb-3 gap-2">
+                  <Gavel className="h-4 w-4" />
+                  Trial Prep
+                </TabsTrigger>
+                <TabsTrigger value="briefs" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none px-4 pb-3 gap-2">
+                  <FileText className="h-4 w-4" />
+                  Briefs
+                </TabsTrigger>
+                <TabsTrigger value="ai" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none px-4 pb-3 gap-2">
+                  <Sparkles className="h-4 w-4" />
+                  AI
                 </TabsTrigger>
               </TabsList>
 
-              {/* Documents Tab */}
-              <TabsContent value="documents" className="space-y-4">
-                <div className="flex flex-wrap justify-between items-center gap-2">
-                  <p className="text-sm text-muted-foreground">
-                    Upload discovery documents, pleadings, and evidence
-                  </p>
+              {/* Discovery Tab */}
+              <TabsContent value="discovery" className="space-y-4">
+                {/* Search and Filter Bar */}
+                <Card className="glass-card">
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-4">
+                      <div className="relative flex-1">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          placeholder="Search Bates, files..."
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          className="pl-10"
+                        />
+                      </div>
+                      <Button variant="outline" className="gap-2">
+                        <Filter className="h-4 w-4" />
+                        Filters
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <div className="flex flex-wrap justify-end items-center gap-2">
                   <div className="flex gap-2">
                     {/* Google Drive Folder Import */}
                     <GoogleDriveFolderImport
@@ -826,210 +846,127 @@ export default function CaseDetail() {
                 {/* Import Jobs Viewer */}
                 <ImportJobsViewer caseId={id!} />
 
-                {docsLoading ? (
-                  <div className="flex items-center justify-center py-8">
-                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                  </div>
-                ) : documents.length === 0 ? (
-                  <Card className="glass-card">
-                    <CardContent className="flex flex-col items-center justify-center py-12">
-                      <File className="h-12 w-12 text-muted-foreground mb-4" />
-                      <h3 className="text-lg font-medium mb-2">No documents yet</h3>
-                      <p className="text-sm text-muted-foreground mb-4">
-                        Upload discovery documents to get started with AI analysis
-                      </p>
-                      <div className="flex gap-2">
-                        <Button variant="outline" onClick={() => setIsLinkImportOpen(true)}>
-                          <Link className="h-4 w-4 mr-2" />
-                          Import from Link
-                        </Button>
-                        <Button onClick={() => setIsUploadOpen(true)}>
-                          <Upload className="h-4 w-4 mr-2" />
-                          Upload File
-                        </Button>
+                {/* Filter documents based on search */}
+                {(() => {
+                  const filteredDocs = documents.filter(doc => {
+                    if (!searchQuery) return true;
+                    const query = searchQuery.toLowerCase();
+                    return (
+                      doc.name?.toLowerCase().includes(query) ||
+                      doc.bates_number?.toLowerCase().includes(query) ||
+                      doc.summary?.toLowerCase().includes(query)
+                    );
+                  });
+
+                  if (docsLoading) {
+                    return (
+                      <div className="flex items-center justify-center py-8">
+                        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                       </div>
-                    </CardContent>
-                  </Card>
-                ) : (
-                  <div className="grid gap-3">
-                    {documents.map((doc) => (
-                      <Card key={doc.id} className="glass-card hover:shadow-md transition-shadow">
-                        <CardContent className="p-4">
-                          <div className="flex items-start gap-4">
-                            <div className="rounded-lg bg-primary/10 p-3 shrink-0">
-                              <FileText className="h-5 w-5 text-primary" />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-start justify-between gap-2">
-                                <div>
-                                  <h4 className="font-medium truncate">{doc.name}</h4>
-                                  <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground mt-1">
-                                    {doc.bates_number && (
-                                      <span className="font-mono bg-muted px-1.5 py-0.5 rounded font-semibold">
-                                        {doc.bates_number}
-                                      </span>
-                                    )}
-                                    {doc.file_type && <span>{doc.file_type.split('/')[1]?.toUpperCase()}</span>}
-                                    <span>{format(new Date(doc.created_at), "MMM d, yyyy")}</span>
-                                    {doc.file_size && (
-                                      <span>{(doc.file_size / 1024).toFixed(0)} KB</span>
-                                    )}
-                                  </div>
-                                </div>
-                                <div className="flex items-center gap-1 shrink-0">
-                                  {doc.file_url && (
-                                    <>
-                                      <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        title="Copy Link"
-                                        onClick={() => copyDocumentLink(doc)}
-                                      >
-                                        <Copy className="h-4 w-4" />
-                                      </Button>
-                                      <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        title="View"
-                                        onClick={() => handleViewDocument(doc)}
-                                      >
-                                        <ExternalLink className="h-4 w-4" />
-                                      </Button>
-                                      <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        title="Download"
-                                        onClick={() => handleDownloadDocument(doc)}
-                                      >
-                                        <Download className="h-4 w-4" />
-                                      </Button>
-                                      {!doc.ai_analyzed && processingOcr !== doc.id && (
-                                        <Button
-                                          variant="ghost"
-                                          size="icon"
-                                          title="Run OCR Analysis"
-                                          onClick={() => triggerOcr(doc.id, doc.file_url!)}
-                                        >
-                                          <Scan className="h-4 w-4" />
-                                        </Button>
-                                      )}
-                                      {(doc.file_type?.startsWith('audio/') || doc.file_type?.startsWith('video/')) &&
-                                       !doc.transcription_text && transcribing !== doc.id && (
-                                        <Button
-                                          variant="ghost"
-                                          size="icon"
-                                          title="Transcribe Audio/Video"
-                                          onClick={() => triggerTranscription(doc.id)}
-                                        >
-                                          <Music className="h-4 w-4" />
-                                        </Button>
-                                      )}
-                                    </>
-                                  )}
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    title="Delete"
-                                    onClick={() => setDeleteDocId(doc.id)}
-                                  >
-                                    <Trash2 className="h-4 w-4 text-destructive" />
-                                  </Button>
-                                </div>
-                              </div>
+                    );
+                  }
 
-                              {/* Processing indicators */}
-                              {processingOcr === doc.id && (
-                                <div className="flex items-center gap-2 mt-3 text-sm text-primary">
-                                  <Loader2 className="h-4 w-4 animate-spin" />
-                                  <span>Running OCR & AI analysis...</span>
-                                </div>
-                              )}
-                              {transcribing === doc.id && (
-                                <div className="flex items-center gap-2 mt-3 text-sm text-primary">
-                                  <Loader2 className="h-4 w-4 animate-spin" />
-                                  <span>Transcribing audio/video...</span>
-                                </div>
-                              )}
-
-                              {/* AI Analysis Results */}
-                              {doc.ai_analyzed && (
-                                <div className="mt-3 space-y-2">
-                                  <div className="flex items-center gap-2">
-                                    <Brain className="h-4 w-4 text-green-500" />
-                                    <span className="text-xs text-green-600 font-medium">AI Analyzed</span>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      className="text-xs h-6"
-                                      onClick={() => setSelectedDoc(selectedDoc?.id === doc.id ? null : doc)}
-                                    >
-                                      {selectedDoc?.id === doc.id ? "Hide Details" : "View Analysis"}
-                                    </Button>
-                                  </div>
-                                  
-                                  {selectedDoc?.id === doc.id && (
-                                    <div className="grid gap-3 mt-3 p-3 bg-muted/50 rounded-lg">
-                                      {doc.summary && (
-                                        <div>
-                                          <h5 className="text-xs font-semibold mb-1">Summary</h5>
-                                          <p className="text-sm text-muted-foreground">{doc.summary}</p>
-                                        </div>
-                                      )}
-                                      {doc.key_facts && doc.key_facts.length > 0 && (
-                                        <div>
-                                          <h5 className="text-xs font-semibold mb-1">Key Facts</h5>
-                                          <ul className="text-sm text-muted-foreground list-disc list-inside">
-                                            {doc.key_facts.map((fact, i) => (
-                                              <li key={i}>{fact}</li>
-                                            ))}
-                                          </ul>
-                                        </div>
-                                      )}
-                                      {doc.favorable_findings && doc.favorable_findings.length > 0 && (
-                                        <div>
-                                          <h5 className="text-xs font-semibold text-green-600 mb-1 flex items-center gap-1">
-                                            <CheckCircle className="h-3 w-3" /> Favorable
-                                          </h5>
-                                          <ul className="text-sm text-muted-foreground list-disc list-inside">
-                                            {doc.favorable_findings.map((finding, i) => (
-                                              <li key={i}>{finding}</li>
-                                            ))}
-                                          </ul>
-                                        </div>
-                                      )}
-                                      {doc.adverse_findings && doc.adverse_findings.length > 0 && (
-                                        <div>
-                                          <h5 className="text-xs font-semibold text-red-600 mb-1 flex items-center gap-1">
-                                            <AlertTriangle className="h-3 w-3" /> Adverse
-                                          </h5>
-                                          <ul className="text-sm text-muted-foreground list-disc list-inside">
-                                            {doc.adverse_findings.map((finding, i) => (
-                                              <li key={i}>{finding}</li>
-                                            ))}
-                                          </ul>
-                                        </div>
-                                      )}
-                                      {doc.action_items && doc.action_items.length > 0 && (
-                                        <div>
-                                          <h5 className="text-xs font-semibold text-blue-600 mb-1">Action Items</h5>
-                                          <ul className="text-sm text-muted-foreground list-disc list-inside">
-                                            {doc.action_items.map((item, i) => (
-                                              <li key={i}>{item}</li>
-                                            ))}
-                                          </ul>
-                                        </div>
-                                      )}
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                            </div>
+                  if (documents.length === 0) {
+                    return (
+                      <Card className="glass-card">
+                        <CardContent className="flex flex-col items-center justify-center py-12">
+                          <File className="h-12 w-12 text-muted-foreground mb-4" />
+                          <h3 className="text-lg font-medium mb-2">No discovery files yet. Add evidence to get started.</h3>
+                          <div className="flex gap-2 mt-4">
+                            <Button variant="outline" onClick={() => setIsLinkImportOpen(true)}>
+                              <Link className="h-4 w-4 mr-2" />
+                              Import from Link
+                            </Button>
+                            <Button onClick={() => setIsUploadOpen(true)}>
+                              <Upload className="h-4 w-4 mr-2" />
+                              Upload File
+                            </Button>
                           </div>
                         </CardContent>
                       </Card>
-                    ))}
-                  </div>
-                )}
+                    );
+                  }
+
+                  return (
+                    <Card className="glass-card overflow-hidden">
+                      {/* Table Header */}
+                      <div className="grid grid-cols-12 gap-4 px-4 py-3 border-b border-border bg-muted/30 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                        <div className="col-span-1">Type</div>
+                        <div className="col-span-2">Bates Number</div>
+                        <div className="col-span-4">File Name / Summary</div>
+                        <div className="col-span-2">Source</div>
+                        <div className="col-span-1">Tags</div>
+                        <div className="col-span-2 text-right">Actions</div>
+                      </div>
+
+                      {/* Table Body */}
+                      <div className="divide-y divide-border">
+                        {filteredDocs.map((doc) => (
+                          <div key={doc.id} className="grid grid-cols-12 gap-4 px-4 py-3 items-center hover:bg-muted/30 transition-colors">
+                            {/* Type */}
+                            <div className="col-span-1">
+                              <div className="rounded bg-muted p-1.5 w-8 h-8 flex items-center justify-center">
+                                <FileText className="h-4 w-4 text-muted-foreground" />
+                              </div>
+                            </div>
+
+                            {/* Bates Number */}
+                            <div className="col-span-2">
+                              {doc.bates_number ? (
+                                <span className="font-mono text-xs bg-muted px-2 py-1 rounded">
+                                  {doc.bates_number}
+                                </span>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">-</span>
+                              )}
+                            </div>
+
+                            {/* File Name / Summary */}
+                            <div className="col-span-4 min-w-0">
+                              <p className="text-sm font-medium truncate">{doc.name}</p>
+                              {doc.summary && (
+                                <p className="text-xs text-muted-foreground truncate mt-0.5">{doc.summary}</p>
+                              )}
+                            </div>
+
+                            {/* Source */}
+                            <div className="col-span-2">
+                              <span className="text-xs text-muted-foreground">
+                                {doc.file_type?.split('/')[1]?.toUpperCase() || 'File'}
+                              </span>
+                            </div>
+
+                            {/* Tags */}
+                            <div className="col-span-1">
+                              {doc.ai_analyzed && (
+                                <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-green-50 text-green-700 border-green-200">
+                                  AI
+                                </Badge>
+                              )}
+                            </div>
+
+                            {/* Actions */}
+                            <div className="col-span-2 flex items-center justify-end gap-1">
+                              {doc.file_url && (
+                                <>
+                                  <Button variant="ghost" size="icon" className="h-7 w-7" title="View" onClick={() => handleViewDocument(doc)}>
+                                    <ExternalLink className="h-3.5 w-3.5" />
+                                  </Button>
+                                  <Button variant="ghost" size="icon" className="h-7 w-7" title="Download" onClick={() => handleDownloadDocument(doc)}>
+                                    <Download className="h-3.5 w-3.5" />
+                                  </Button>
+                                </>
+                              )}
+                              <Button variant="ghost" size="icon" className="h-7 w-7" title="Delete" onClick={() => setDeleteDocId(doc.id)}>
+                                <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </Card>
+                  );
+                })()}
               </TabsContent>
 
               {/* Timeline Tab */}
@@ -1180,56 +1117,105 @@ export default function CaseDetail() {
                 )}
               </TabsContent>
 
-              {/* Notes Tab */}
-              <TabsContent value="notes" className="space-y-4">
+              {/* Trial Prep Tab */}
+              <TabsContent value="trial-prep" className="space-y-4">
+                <Card className="glass-card">
+                  <CardContent className="flex flex-col items-center justify-center py-12">
+                    <Gavel className="h-12 w-12 text-muted-foreground mb-4" />
+                    <h3 className="text-lg font-medium mb-2">Trial Preparation</h3>
+                    <p className="text-sm text-muted-foreground mb-4 text-center max-w-md">
+                      Organize witnesses, exhibits, and prepare your trial strategy for this case
+                    </p>
+                    <Button>
+                      <Plus className="h-4 w-4 mr-2" />
+                      Start Trial Prep
+                    </Button>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              {/* Briefs Tab */}
+              <TabsContent value="briefs" className="space-y-4">
+                <Card className="glass-card">
+                  <CardContent className="flex flex-col items-center justify-center py-12">
+                    <FileText className="h-12 w-12 text-muted-foreground mb-4" />
+                    <h3 className="text-lg font-medium mb-2">Legal Briefs</h3>
+                    <p className="text-sm text-muted-foreground mb-4 text-center max-w-md">
+                      Draft and manage legal briefs, motions, and court filings
+                    </p>
+                    <Button>
+                      <Plus className="h-4 w-4 mr-2" />
+                      Create Brief
+                    </Button>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              {/* AI Tab */}
+              <TabsContent value="ai" className="space-y-4">
                 <Card className="glass-card">
                   <CardHeader>
-                    <CardTitle className="text-lg">Case Notes</CardTitle>
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <Sparkles className="h-5 w-5 text-amber-500" />
+                      AI Case Assistant
+                    </CardTitle>
+                    <CardDescription>
+                      Get AI-powered insights and analysis for your case
+                    </CardDescription>
                   </CardHeader>
-                  <CardContent>
-                    {caseData.notes ? (
-                      <p className="text-muted-foreground whitespace-pre-wrap">{caseData.notes}</p>
-                    ) : (
-                      <p className="text-muted-foreground italic">No notes added to this case yet.</p>
+                  <CardContent className="space-y-4">
+                    {caseData.case_theory && (
+                      <div>
+                        <h4 className="text-sm font-semibold mb-2">Case Theory</h4>
+                        <p className="text-sm text-muted-foreground">{caseData.case_theory}</p>
+                      </div>
+                    )}
+
+                    {caseData.key_issues && caseData.key_issues.length > 0 && (
+                      <div>
+                        <h4 className="text-sm font-semibold mb-2 flex items-center gap-2">
+                          <AlertTriangle className="h-4 w-4 text-amber-500" />
+                          Key Issues
+                        </h4>
+                        <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground">
+                          {caseData.key_issues.map((issue, i) => (
+                            <li key={i}>{issue}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {caseData.winning_factors && caseData.winning_factors.length > 0 && (
+                      <div>
+                        <h4 className="text-sm font-semibold mb-2 flex items-center gap-2">
+                          <CheckCircle className="h-4 w-4 text-green-500" />
+                          Winning Factors
+                        </h4>
+                        <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground">
+                          {caseData.winning_factors.map((factor, i) => (
+                            <li key={i}>{factor}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {caseData.notes && (
+                      <div>
+                        <h4 className="text-sm font-semibold mb-2">Case Notes</h4>
+                        <p className="text-sm text-muted-foreground whitespace-pre-wrap">{caseData.notes}</p>
+                      </div>
+                    )}
+
+                    {!caseData.case_theory && !caseData.key_issues?.length && !caseData.winning_factors?.length && !caseData.notes && (
+                      <div className="text-center py-8">
+                        <Sparkles className="h-12 w-12 text-muted-foreground/30 mx-auto mb-3" />
+                        <p className="text-sm text-muted-foreground">
+                          Upload documents to get AI-powered analysis and insights
+                        </p>
+                      </div>
                     )}
                   </CardContent>
                 </Card>
-
-                {caseData.key_issues && caseData.key_issues.length > 0 && (
-                  <Card className="glass-card">
-                    <CardHeader>
-                      <CardTitle className="text-lg flex items-center gap-2">
-                        <AlertTriangle className="h-4 w-4" />
-                        Key Issues
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <ul className="list-disc list-inside space-y-1">
-                        {caseData.key_issues.map((issue, i) => (
-                          <li key={i} className="text-muted-foreground">{issue}</li>
-                        ))}
-                      </ul>
-                    </CardContent>
-                  </Card>
-                )}
-
-                {caseData.winning_factors && caseData.winning_factors.length > 0 && (
-                  <Card className="glass-card">
-                    <CardHeader>
-                      <CardTitle className="text-lg flex items-center gap-2">
-                        <CheckCircle className="h-4 w-4 text-green-500" />
-                        Winning Factors
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <ul className="list-disc list-inside space-y-1">
-                        {caseData.winning_factors.map((factor, i) => (
-                          <li key={i} className="text-muted-foreground">{factor}</li>
-                        ))}
-                      </ul>
-                    </CardContent>
-                  </Card>
-                )}
               </TabsContent>
             </Tabs>
           </motion.div>
