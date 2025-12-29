@@ -139,6 +139,74 @@ export type Database = {
           },
         ]
       }
+      import_jobs: {
+        Row: {
+          case_id: string
+          completed_at: string | null
+          created_at: string
+          error_message: string | null
+          failed_file_details: Json | null
+          failed_files: number
+          id: string
+          processed_files: number
+          source_folder_id: string
+          source_folder_name: string
+          source_folder_path: string
+          started_at: string | null
+          status: string
+          successful_files: number
+          total_files: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          case_id: string
+          completed_at?: string | null
+          created_at?: string
+          error_message?: string | null
+          failed_file_details?: Json | null
+          failed_files?: number
+          id?: string
+          processed_files?: number
+          source_folder_id: string
+          source_folder_name: string
+          source_folder_path: string
+          started_at?: string | null
+          status?: string
+          successful_files?: number
+          total_files?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          case_id?: string
+          completed_at?: string | null
+          created_at?: string
+          error_message?: string | null
+          failed_file_details?: Json | null
+          failed_files?: number
+          id?: string
+          processed_files?: number
+          source_folder_id?: string
+          source_folder_name?: string
+          source_folder_path?: string
+          started_at?: string | null
+          status?: string
+          successful_files?: number
+          total_files?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "import_jobs_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "cases"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -222,6 +290,71 @@ export type Database = {
             columns: ["linked_document_id"]
             isOneToOne: false
             referencedRelation: "documents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      video_rooms: {
+        Row: {
+          case_id: string
+          created_at: string
+          daily_room_name: string
+          description: string | null
+          enable_recording: boolean
+          ended_at: string | null
+          expires_at: string
+          id: string
+          recording_url: string | null
+          room_name: string
+          room_url: string
+          status: string
+          title: string
+          transcription_text: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          case_id: string
+          created_at?: string
+          daily_room_name: string
+          description?: string | null
+          enable_recording?: boolean
+          ended_at?: string | null
+          expires_at: string
+          id?: string
+          recording_url?: string | null
+          room_name: string
+          room_url: string
+          status?: string
+          title: string
+          transcription_text?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          case_id?: string
+          created_at?: string
+          daily_room_name?: string
+          description?: string | null
+          enable_recording?: boolean
+          ended_at?: string | null
+          expires_at?: string
+          id?: string
+          recording_url?: string | null
+          room_name?: string
+          room_url?: string
+          status?: string
+          title?: string
+          transcription_text?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "video_rooms_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "cases"
             referencedColumns: ["id"]
           },
         ]

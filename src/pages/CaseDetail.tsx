@@ -63,6 +63,7 @@ type Document = Tables<"documents"> & {
   ocr_text?: string | null;
   ocr_page_count?: number | null;
   ocr_processed_at?: string | null;
+  transcription_text?: string | null;
 };
 type TimelineEvent = Tables<"timeline_events">;
 type Case = Tables<"cases">;

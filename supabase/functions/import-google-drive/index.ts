@@ -110,8 +110,9 @@ serve(async (req) => {
     );
   } catch (error) {
     console.error('Error in import-google-drive function:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     return new Response(
-      JSON.stringify({ error: error.message }),
+      JSON.stringify({ error: errorMessage }),
       {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -167,7 +168,7 @@ async function processGoogleDriveFolder(
           stats.failed++;
           stats.failedFiles.push({
             filename: file.name,
-            error: error.message,
+            error: error instanceof Error ? error.message : 'Unknown error',
           });
         } finally {
           stats.processed++;
