@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CaseBuddy Database Debugger</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            max-width: 900px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            border-radius: 8px;
+            padding: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-top: 0;
+        }
+        .status {
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 4px;
+            font-weight: 500;
+        }
+        .info {
+            background: #e3f2fd;
+            color: #1976d2;
+            border-left: 4px solid #1976d2;
+        }
+        .success {
+            background: #e8f5e9;
+            color: #388e3c;
+            border-left: 4px solid #388e3c;
+        }
+        .error {
+            background: #ffebee;
+            color: #c62828;
+            border-left: 4px solid #c62828;
+        }
+        .warning {
+            background: #fff3e0;
+            color: #f57c00;
+            border-left: 4px solid #f57c00;
+        }
+        button {
+            background: #1976d2;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 4px;
+            font-size: 16px;
+            cursor: pointer;
+            font-weight: 500;
+            margin-right: 10px;
+        }
+        button:hover {
+            background: #1565c0;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        pre {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-size: 13px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .check {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .check h3 {
+            margin-top: 0;
+            color: #555;
+        }
+        code {
+            background: #f5f5f5;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Monaco', 'Courier New', monospace;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 CaseBuddy Database Debugger</h1>
+        <p>This tool will help identify why cases aren't saving to your account.</p>
+
+        <button onclick="runAllChecks()">Run All Diagnostic Checks</button>
+        <button onclick="testCreateCase()">Test Creating a Case</button>
+
+        <div id="output"></div>
+    </div>
+
+    <script>
+        const SUPABASE_URL = 'https://usyxikgqkcnlzobnqhtz.supabase.co';
+        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVzeXhpa2dxa2NubHpvYm5xaHR6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY4NTEzMjUsImV4cCI6MjA4MjQyNzMyNX0.30Sx9VSYwePrCXnDXaGIKiXb9ukiF9wS5W_6vdtQPtU';
+
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        async function runAllChecks() {
+            const output = document.getElementById('output');
+            output.innerHTML = '<div class="status info">Running diagnostic checks...</div>';
+
+            let results = '';
+
+            // Check 1: Authentication
+            results += '<div class="check">';
+            results += '<h3>✓ Check 1: Authentication Status</h3>';
+            try {
+                const { data: { session }, error } = await supabase.auth.getSession();
+
+                if (error) throw error;
+
+                if (session) {
+                    results += `<div class="status success">✓ You are logged in<br>User ID: <code>${session.user.id}</code><br>Email: <code>${session.user.email}</code></div>`;
+                } else {
+                    results += `<div class="status error">✗ Not logged in!<br><strong>Solution:</strong> Log in to CaseBuddy first, then come back to this page.</div>`;
+                }
+            } catch (err) {
+                results += `<div class="status error">✗ Auth error: ${err.message}</div>`;
+            }
+            results += '</div>';
+
+            // Check 2: Can we query the cases table?
+            results += '<div class="check">';
+            results += '<h3>✓ Check 2: Cases Table Access</h3>';
+            try {
+                const { data, error } = await supabase
+                    .from('cases')
+                    .select('*')
+                    .limit(1);
+
+                if (error) throw error;
+
+                results += `<div class="status success">✓ Can read from cases table<br>Found ${data.length} case(s) in your account</div>`;
+            } catch (err) {
+                results += `<div class="status error">✗ Cannot read cases table<br>Error: ${err.message}</div>`;
+                if (err.message.includes('permission denied')) {
+                    results += `<div class="status warning"><strong>This is a Row Level Security (RLS) issue.</strong><br>The RLS policies might not be set up correctly.</div>`;
+                }
+            }
+            results += '</div>';
+
+            // Check 3: Does case_type column exist?
+            results += '<div class="check">';
+            results += '<h3>✓ Check 3: case_type Column Exists</h3>';
+            try {
+                const { data, error } = await supabase
+                    .from('cases')
+                    .select('case_type')
+                    .limit(0);
+
+                if (error) {
+                    if (error.message.includes('case_type')) {
+                        throw new Error('case_type column does not exist in database');
+                    }
+                    throw error;
+                }
+
+                results += `<div class="status success">✓ case_type column exists in database</div>`;
+            } catch (err) {
+                results += `<div class="status error">✗ ${err.message}</div>`;
+            }
+            results += '</div>';
+
+            // Check 4: Try to insert a test case
+            results += '<div class="check">';
+            results += '<h3>✓ Check 4: Test Case Creation</h3>';
+            results += '<div class="status info">Use the "Test Creating a Case" button to try this</div>';
+            results += '</div>';
+
+            output.innerHTML = results;
+        }
+
+        async function testCreateCase() {
+            const output = document.getElementById('output');
+            let results = '<div class="check">';
+            results += '<h3>🧪 Test Case Creation</h3>';
+
+            try {
+                // First check if logged in
+                const { data: { session } } = await supabase.auth.getSession();
+
+                if (!session) {
+                    results += `<div class="status error">✗ Not logged in. Please log in to CaseBuddy first.</div>`;
+                    output.innerHTML = results + '</div>';
+                    return;
+                }
+
+                results += `<div class="status info">Attempting to create a test case...</div>`;
+
+                // Try to create a test case
+                const testCase = {
+                    user_id: session.user.id,
+                    name: 'DEBUG TEST CASE - ' + new Date().toISOString(),
+                    case_type: 'Personal Injury',
+                    client_name: 'Test Client',
+                    status: 'active',
+                    representation: 'plaintiff'
+                };
+
+                results += `<div class="status info">Test data:<pre>${JSON.stringify(testCase, null, 2)}</pre></div>`;
+
+                const { data, error } = await supabase
+                    .from('cases')
+                    .insert(testCase)
+                    .select()
+                    .single();
+
+                if (error) {
+                    results += `<div class="status error">✗ Failed to create case<br><strong>Error:</strong> ${error.message}<br><strong>Code:</strong> ${error.code}<br><strong>Details:</strong> ${error.details || 'None'}</div>`;
+
+                    // Provide specific solutions based on error
+                    if (error.code === '42501') {
+                        results += `<div class="status warning"><strong>Problem: Permission Denied (RLS Policy Issue)</strong><br><br>The Row Level Security policies are not allowing you to insert cases. Run this SQL in Supabase SQL Editor:<br><pre>-- Enable RLS
+ALTER TABLE public.cases ENABLE ROW LEVEL SECURITY;
+
+-- Drop existing policies
+DROP POLICY IF EXISTS "Users can insert their own cases" ON public.cases;
+
+-- Create new insert policy
+CREATE POLICY "Users can insert their own cases"
+  ON public.cases FOR INSERT
+  WITH CHECK (auth.uid() = user_id);
+
+-- Create select policy
+DROP POLICY IF EXISTS "Users can view their own cases" ON public.cases;
+CREATE POLICY "Users can view their own cases"
+  ON public.cases FOR SELECT
+  USING (auth.uid() = user_id);</pre></div>`;
+                    } else if (error.message.includes('case_type')) {
+                        results += `<div class="status warning"><strong>Problem: case_type column missing</strong><br>Run this in Supabase SQL Editor:<br><pre>ALTER TABLE public.cases ADD COLUMN IF NOT EXISTS case_type TEXT;</pre></div>`;
+                    } else if (error.code === '23502') {
+                        results += `<div class="status warning"><strong>Problem: Missing required column</strong><br>Message: ${error.message}<br>Some required column is not nullable but we're not providing a value.</div>`;
+                    }
+                } else {
+                    results += `<div class="status success">✓✓✓ SUCCESS! Test case created!<br><strong>Case ID:</strong> ${data.id}<br><strong>Name:</strong> ${data.name}<br><br>The database is working correctly. If you're still having issues in the app, try:<br>1. Hard refresh the app (Ctrl+Shift+R or Cmd+Shift+R)<br>2. Clear browser cache<br>3. Log out and log back in</div>`;
+
+                    // Offer to delete the test case
+                    results += `<div class="status info"><button onclick="deleteTestCase('${data.id}')">Delete This Test Case</button></div>`;
+                }
+            } catch (err) {
+                results += `<div class="status error">✗ Unexpected error: ${err.message}<br><pre>${err.stack}</pre></div>`;
+            }
+
+            results += '</div>';
+            output.innerHTML = results;
+        }
+
+        async function deleteTestCase(caseId) {
+            const { error } = await supabase
+                .from('cases')
+                .delete()
+                .eq('id', caseId);
+
+            if (error) {
+                alert('Error deleting test case: ' + error.message);
+            } else {
+                alert('Test case deleted successfully!');
+                document.getElementById('output').innerHTML = '<div class="status success">Test case deleted. You can run the tests again.</div>';
+            }
+        }
+    </script>
+</body>
+</html>
