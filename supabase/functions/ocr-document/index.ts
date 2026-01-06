@@ -1,5 +1,6 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import {
   getCorsHeaders,
   createErrorResponse,
@@ -22,33 +23,50 @@ serve(async (req) => {
     // Validate environment variables
     validateEnvVars(['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'GOOGLE_AI_API_KEY']);
 
-    const googleApiKey = Deno.env.get('GOOGLE_AI_API_KEY')!
+    const googleApiKey = Deno.env.get('GOOGLE_AI_API_KEY')!;
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    const authHeader = req.headers.get('Authorization') || '';
 
-    // Verify authentication
-    const authResult = await verifyAuth(req);
-    if (!authResult.authorized || !authResult.user || !authResult.supabase) {
-      return createErrorResponse(
-        new Error(authResult.error || 'Unauthorized'),
-        401,
-        'ocr-document'
-      );
+    let user: any;
+    let supabase: any;
+    let isServiceRole = false;
+
+    // Check if this is a service role call (internal from import-google-drive)
+    if (serviceRoleKey && authHeader.includes(serviceRoleKey)) {
+      console.log('Service role authentication detected - internal call');
+      isServiceRole = true;
+      supabase = createClient(supabaseUrl, serviceRoleKey);
+      user = { id: 'service-role' };
+    } else {
+      // Verify user authentication
+      const authResult = await verifyAuth(req);
+      if (!authResult.authorized || !authResult.user || !authResult.supabase) {
+        return createErrorResponse(
+          new Error(authResult.error || 'Unauthorized'),
+          401,
+          'ocr-document'
+        );
+      }
+      user = authResult.user;
+      supabase = authResult.supabase;
     }
 
-    const { user, supabase } = authResult;
-
-    // Rate limiting: 10 OCR operations per minute per user
-    const rateLimitCheck = checkRateLimit(`ocr:${user.id}`, 10, 60000);
-    if (!rateLimitCheck.allowed) {
-      return new Response(
-        JSON.stringify({
-          error: 'Rate limit exceeded',
-          resetAt: new Date(rateLimitCheck.resetAt).toISOString(),
-        }),
-        {
-          status: 429,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        }
-      );
+    // Rate limiting: 10 OCR operations per minute per user (skip for service role)
+    if (!isServiceRole) {
+      const rateLimitCheck = checkRateLimit(`ocr:${user.id}`, 10, 60000);
+      if (!rateLimitCheck.allowed) {
+        return new Response(
+          JSON.stringify({
+            error: 'Rate limit exceeded',
+            resetAt: new Date(rateLimitCheck.resetAt).toISOString(),
+          }),
+          {
+            status: 429,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          }
+        );
+      }
     }
 
     // Parse and validate request body
@@ -76,8 +94,8 @@ serve(async (req) => {
       );
     }
 
-    // Check if user owns the case
-    if ((documentData.cases as any).user_id !== user.id) {
+    // Check if user owns the case (skip for service role)
+    if (!isServiceRole && (documentData.cases as any).user_id !== user.id) {
       console.error('User does not own this document');
       return forbiddenResponse(
         'You do not have access to this document',
