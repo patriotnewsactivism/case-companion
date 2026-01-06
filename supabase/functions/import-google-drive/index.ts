@@ -383,7 +383,7 @@ async function collectAllFiles(
 }
 
 /**
- * Process a single file: download, upload to Supabase, create document record
+ * Process a single file: download, upload to Supabase, create document record, trigger OCR
  */
 async function processFile(
   supabase: any,
@@ -456,21 +456,53 @@ async function processFile(
       .from('case-documents')
       .getPublicUrl(storagePath);
 
+    const fileUrl = urlData.publicUrl;
+
     // Create document record
-    const { error: docError } = await supabase.from('documents').insert({
+    const { data: docData, error: docError } = await supabase.from('documents').insert({
       case_id: caseId,
       user_id: userId,
       name: file.name,
-      file_url: urlData.publicUrl,
+      file_url: fileUrl,
       file_type: file.mimeType,
       file_size: fileSize,
-    });
+    }).select().single();
 
     if (docError) {
       throw new Error(`Failed to create document record: ${docError.message}`);
     }
 
-    console.log(`Successfully processed: ${file.name}`);
+    console.log(`Successfully uploaded: ${file.name}, triggering OCR analysis...`);
+
+    // Trigger OCR analysis for documents and images
+    if (mediaType === 'document' || mediaType === 'image') {
+      try {
+        const ocrUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/ocr-document`;
+        const ocrResponse = await fetch(ocrUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+          },
+          body: JSON.stringify({
+            documentId: docData.id,
+            fileUrl: fileUrl,
+          }),
+        });
+
+        if (ocrResponse.ok) {
+          const ocrResult = await ocrResponse.json();
+          console.log(`✅ OCR complete for ${file.name}: ${ocrResult.textLength} chars extracted`);
+        } else {
+          const ocrError = await ocrResponse.text();
+          console.error(`OCR failed for ${file.name}: ${ocrError}`);
+        }
+      } catch (ocrErr) {
+        console.error(`OCR request failed for ${file.name}:`, ocrErr);
+      }
+    }
+
+    console.log(`✅ Successfully processed: ${file.name}`);
   } catch (error) {
     clearTimeout(timeout);
     throw error;
