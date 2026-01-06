@@ -43,7 +43,7 @@ export async function getCases(): Promise<Case[]> {
     .order("updated_at", { ascending: false });
 
   if (error) throw error;
-  return data || [];
+  return (data as unknown as Case[]) || [];
 }
 
 export async function getCase(id: string): Promise<Case | null> {
@@ -54,7 +54,7 @@ export async function getCase(id: string): Promise<Case | null> {
     .maybeSingle();
 
   if (error) throw error;
-  return data;
+  return data as unknown as Case | null;
 }
 
 export async function createCase(input: CreateCaseInput): Promise<Case> {
@@ -66,12 +66,12 @@ export async function createCase(input: CreateCaseInput): Promise<Case> {
     .insert({
       ...input,
       user_id: user.id,
-    })
+    } as any)
     .select()
     .single();
 
   if (error) throw error;
-  return data;
+  return data as unknown as Case;
 }
 
 export async function updateCase(input: UpdateCaseInput): Promise<Case> {
@@ -79,13 +79,13 @@ export async function updateCase(input: UpdateCaseInput): Promise<Case> {
   
   const { data, error } = await supabase
     .from("cases")
-    .update(updates)
+    .update(updates as any)
     .eq("id", id)
     .select()
     .single();
 
   if (error) throw error;
-  return data;
+  return data as unknown as Case;
 }
 
 export async function deleteCase(id: string): Promise<void> {
@@ -125,7 +125,7 @@ export async function getDocumentsByCase(caseId: string): Promise<Document[]> {
     .order("created_at", { ascending: false });
 
   if (error) throw error;
-  return data || [];
+  return (data as unknown as Document[]) || [];
 }
 
 // Timeline Events API
@@ -151,7 +151,7 @@ export async function getTimelineEventsByCase(caseId: string): Promise<TimelineE
     .order("event_date", { ascending: true });
 
   if (error) throw error;
-  return data || [];
+  return (data as unknown as TimelineEvent[]) || [];
 }
 
 // Profile API
@@ -176,7 +176,7 @@ export async function getProfile(): Promise<Profile | null> {
     .maybeSingle();
 
   if (error) throw error;
-  return data;
+  return data as unknown as Profile | null;
 }
 
 export async function updateProfile(updates: Partial<Profile>): Promise<Profile> {
@@ -185,13 +185,13 @@ export async function updateProfile(updates: Partial<Profile>): Promise<Profile>
 
   const { data, error } = await supabase
     .from("profiles")
-    .update(updates)
+    .update(updates as any)
     .eq("user_id", user.id)
     .select()
     .single();
 
   if (error) throw error;
-  return data;
+  return data as unknown as Profile;
 }
 
 // Video Room API

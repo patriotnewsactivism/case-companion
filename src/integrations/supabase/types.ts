@@ -16,126 +16,125 @@ export type Database = {
     Tables: {
       cases: {
         Row: {
+          case_theory: string | null
+          case_type: string
+          client_name: string
           created_at: string
-          description: string | null
           id: string
-          name: string | null
+          key_issues: string[] | null
+          name: string
+          next_deadline: string | null
+          notes: string | null
+          representation: Database["public"]["Enums"]["representation_type"]
+          status: Database["public"]["Enums"]["case_status"]
           updated_at: string
+          user_id: string
+          winning_factors: string[] | null
         }
         Insert: {
+          case_theory?: string | null
+          case_type: string
+          client_name: string
           created_at?: string
-          description?: string | null
           id?: string
-          name?: string | null
+          key_issues?: string[] | null
+          name: string
+          next_deadline?: string | null
+          notes?: string | null
+          representation?: Database["public"]["Enums"]["representation_type"]
+          status?: Database["public"]["Enums"]["case_status"]
           updated_at?: string
+          user_id: string
+          winning_factors?: string[] | null
         }
         Update: {
+          case_theory?: string | null
+          case_type?: string
+          client_name?: string
           created_at?: string
-          description?: string | null
           id?: string
-          name?: string | null
+          key_issues?: string[] | null
+          name?: string
+          next_deadline?: string | null
+          notes?: string | null
+          representation?: Database["public"]["Enums"]["representation_type"]
+          status?: Database["public"]["Enums"]["case_status"]
           updated_at?: string
+          user_id?: string
+          winning_factors?: string[] | null
         }
         Relationships: []
       }
       documents: {
         Row: {
-          analysis: Json | null
-          bates_formatted: string
-          bates_number: number
-          bates_prefix: string
+          action_items: string[] | null
+          adverse_findings: string[] | null
+          ai_analyzed: boolean | null
+          bates_number: string | null
+          case_id: string
           created_at: string
-          drive_file_id: string | null
-          drive_file_path: string | null
-          duration_seconds: number | null
-          error_message: string | null
+          favorable_findings: string[] | null
           file_size: number | null
-          file_type: string
+          file_type: string | null
           file_url: string | null
           id: string
-          import_job_id: string | null
-          media_type: string | null
-          mime_type: string
+          key_facts: string[] | null
           name: string
           ocr_page_count: number | null
           ocr_processed_at: string | null
           ocr_text: string | null
-          project_id: string
-          status: string
-          storage_path: string
-          transcription_processed_at: string | null
-          transcription_text: string | null
+          summary: string | null
           updated_at: string
+          user_id: string
         }
         Insert: {
-          analysis?: Json | null
-          bates_formatted: string
-          bates_number: number
-          bates_prefix: string
+          action_items?: string[] | null
+          adverse_findings?: string[] | null
+          ai_analyzed?: boolean | null
+          bates_number?: string | null
+          case_id: string
           created_at?: string
-          drive_file_id?: string | null
-          drive_file_path?: string | null
-          duration_seconds?: number | null
-          error_message?: string | null
+          favorable_findings?: string[] | null
           file_size?: number | null
-          file_type: string
+          file_type?: string | null
           file_url?: string | null
           id?: string
-          import_job_id?: string | null
-          media_type?: string | null
-          mime_type: string
+          key_facts?: string[] | null
           name: string
           ocr_page_count?: number | null
           ocr_processed_at?: string | null
           ocr_text?: string | null
-          project_id: string
-          status?: string
-          storage_path: string
-          transcription_processed_at?: string | null
-          transcription_text?: string | null
+          summary?: string | null
           updated_at?: string
+          user_id: string
         }
         Update: {
-          analysis?: Json | null
-          bates_formatted?: string
-          bates_number?: number
-          bates_prefix?: string
+          action_items?: string[] | null
+          adverse_findings?: string[] | null
+          ai_analyzed?: boolean | null
+          bates_number?: string | null
+          case_id?: string
           created_at?: string
-          drive_file_id?: string | null
-          drive_file_path?: string | null
-          duration_seconds?: number | null
-          error_message?: string | null
+          favorable_findings?: string[] | null
           file_size?: number | null
-          file_type?: string
+          file_type?: string | null
           file_url?: string | null
           id?: string
-          import_job_id?: string | null
-          media_type?: string | null
-          mime_type?: string
+          key_facts?: string[] | null
           name?: string
           ocr_page_count?: number | null
           ocr_processed_at?: string | null
           ocr_text?: string | null
-          project_id?: string
-          status?: string
-          storage_path?: string
-          transcription_processed_at?: string | null
-          transcription_text?: string | null
+          summary?: string | null
           updated_at?: string
+          user_id?: string
         }
         Relationships: [
           {
-            foreignKeyName: "documents_import_job_id_fkey"
-            columns: ["import_job_id"]
+            foreignKeyName: "documents_case_id_fkey"
+            columns: ["case_id"]
             isOneToOne: false
-            referencedRelation: "import_jobs"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "documents_project_id_fkey"
-            columns: ["project_id"]
-            isOneToOne: false
-            referencedRelation: "projects"
+            referencedRelation: "cases"
             referencedColumns: ["id"]
           },
         ]
@@ -147,17 +146,16 @@ export type Database = {
           created_at: string
           error_message: string | null
           failed_file_details: Json | null
-          failed_files: number | null
+          failed_files: number
           id: string
-          processed_files: number | null
-          source_folder_id: string | null
-          source_folder_name: string | null
-          source_folder_path: string | null
-          source_type: string
+          processed_files: number
+          source_folder_id: string
+          source_folder_name: string
+          source_folder_path: string
           started_at: string | null
           status: string
-          successful_files: number | null
-          total_files: number | null
+          successful_files: number
+          total_files: number
           updated_at: string
           user_id: string
         }
@@ -167,17 +165,16 @@ export type Database = {
           created_at?: string
           error_message?: string | null
           failed_file_details?: Json | null
-          failed_files?: number | null
+          failed_files?: number
           id?: string
-          processed_files?: number | null
-          source_folder_id?: string | null
-          source_folder_name?: string | null
-          source_folder_path?: string | null
-          source_type?: string
+          processed_files?: number
+          source_folder_id: string
+          source_folder_name: string
+          source_folder_path: string
           started_at?: string | null
           status?: string
-          successful_files?: number | null
-          total_files?: number | null
+          successful_files?: number
+          total_files?: number
           updated_at?: string
           user_id: string
         }
@@ -187,17 +184,16 @@ export type Database = {
           created_at?: string
           error_message?: string | null
           failed_file_details?: Json | null
-          failed_files?: number | null
+          failed_files?: number
           id?: string
-          processed_files?: number | null
-          source_folder_id?: string | null
-          source_folder_name?: string | null
-          source_folder_path?: string | null
-          source_type?: string
+          processed_files?: number
+          source_folder_id?: string
+          source_folder_name?: string
+          source_folder_path?: string
           started_at?: string | null
           status?: string
-          successful_files?: number | null
-          total_files?: number | null
+          successful_files?: number
+          total_files?: number
           updated_at?: string
           user_id?: string
         }
@@ -211,35 +207,92 @@ export type Database = {
           },
         ]
       }
-      projects: {
+      profiles: {
         Row: {
-          bates_counter: number
-          bates_prefix: string
+          avatar_url: string | null
           created_at: string
-          description: string | null
+          firm_name: string | null
+          full_name: string | null
           id: string
-          name: string
           updated_at: string
+          user_id: string
         }
         Insert: {
-          bates_counter?: number
-          bates_prefix?: string
+          avatar_url?: string | null
           created_at?: string
-          description?: string | null
+          firm_name?: string | null
+          full_name?: string | null
           id?: string
-          name: string
           updated_at?: string
+          user_id: string
         }
         Update: {
-          bates_counter?: number
-          bates_prefix?: string
+          avatar_url?: string | null
           created_at?: string
-          description?: string | null
+          firm_name?: string | null
+          full_name?: string | null
           id?: string
-          name?: string
           updated_at?: string
+          user_id?: string
         }
         Relationships: []
+      }
+      timeline_events: {
+        Row: {
+          case_id: string
+          created_at: string
+          description: string | null
+          event_date: string
+          event_type: string | null
+          id: string
+          importance: string | null
+          linked_document_id: string | null
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          case_id: string
+          created_at?: string
+          description?: string | null
+          event_date: string
+          event_type?: string | null
+          id?: string
+          importance?: string | null
+          linked_document_id?: string | null
+          title: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          case_id?: string
+          created_at?: string
+          description?: string | null
+          event_date?: string
+          event_type?: string | null
+          id?: string
+          importance?: string | null
+          linked_document_id?: string | null
+          title?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "timeline_events_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "timeline_events_linked_document_id_fkey"
+            columns: ["linked_document_id"]
+            isOneToOne: false
+            referencedRelation: "documents"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       video_rooms: {
         Row: {
@@ -251,22 +304,12 @@ export type Database = {
           ended_at: string | null
           expires_at: string
           id: string
-          is_private: boolean | null
-          knocking_enabled: boolean | null
-          max_participants: number | null
-          participants_log: Json | null
-          recording_started_at: string | null
-          recording_status: string | null
           recording_url: string | null
-          require_authentication: boolean | null
           room_name: string
           room_url: string
           status: string
           title: string
-          transcription_processed_at: string | null
-          transcription_status: string | null
           transcription_text: string | null
-          transcription_url: string | null
           updated_at: string
           user_id: string
         }
@@ -279,22 +322,12 @@ export type Database = {
           ended_at?: string | null
           expires_at: string
           id?: string
-          is_private?: boolean | null
-          knocking_enabled?: boolean | null
-          max_participants?: number | null
-          participants_log?: Json | null
-          recording_started_at?: string | null
-          recording_status?: string | null
           recording_url?: string | null
-          require_authentication?: boolean | null
           room_name: string
           room_url: string
           status?: string
           title: string
-          transcription_processed_at?: string | null
-          transcription_status?: string | null
           transcription_text?: string | null
-          transcription_url?: string | null
           updated_at?: string
           user_id: string
         }
@@ -307,56 +340,28 @@ export type Database = {
           ended_at?: string | null
           expires_at?: string
           id?: string
-          is_private?: boolean | null
-          knocking_enabled?: boolean | null
-          max_participants?: number | null
-          participants_log?: Json | null
-          recording_started_at?: string | null
-          recording_status?: string | null
           recording_url?: string | null
-          require_authentication?: boolean | null
           room_name?: string
           room_url?: string
           status?: string
           title?: string
-          transcription_processed_at?: string | null
-          transcription_status?: string | null
           transcription_text?: string | null
-          transcription_url?: string | null
           updated_at?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "video_rooms_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "cases"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {
-      media_files_pending_transcription: {
-        Row: {
-          created_at: string | null
-          file_type: string | null
-          id: string | null
-          media_type: string | null
-          name: string | null
-          storage_path: string | null
-        }
-        Insert: {
-          created_at?: string | null
-          file_type?: string | null
-          id?: string | null
-          media_type?: string | null
-          name?: string | null
-          storage_path?: string | null
-        }
-        Update: {
-          created_at?: string | null
-          file_type?: string | null
-          id?: string | null
-          media_type?: string | null
-          name?: string | null
-          storage_path?: string | null
-        }
-        Relationships: []
-      }
+      [_ in never]: never
     }
     Functions: {
       [_ in never]: never
@@ -369,6 +374,13 @@ export type Database = {
         | "review"
         | "closed"
         | "archived"
+      representation_type:
+        | "plaintiff"
+        | "defendant"
+        | "executor"
+        | "petitioner"
+        | "respondent"
+        | "other"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -503,6 +515,14 @@ export const Constants = {
         "review",
         "closed",
         "archived",
+      ],
+      representation_type: [
+        "plaintiff",
+        "defendant",
+        "executor",
+        "petitioner",
+        "respondent",
+        "other",
       ],
     },
   },

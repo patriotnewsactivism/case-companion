@@ -28,16 +28,17 @@ export default function Settings() {
       setLoading(true);
       const { data, error } = await supabase
         .from("profiles")
-        .select("full_name, organization")
+        .select("full_name, firm_name")
         .eq("user_id", user?.id)
-        .single();
+        .maybeSingle();
 
       if (error) throw error;
 
       if (data) {
+        const profileData = data as any;
         setProfile({
-          full_name: data.full_name || "",
-          organization: data.organization || "",
+          full_name: profileData.full_name || "",
+          organization: profileData.firm_name || "",
         });
       }
     } catch (error) {
@@ -56,9 +57,9 @@ export default function Settings() {
         .from("profiles")
         .update({
           full_name: profile.full_name,
-          organization: profile.organization,
+          firm_name: profile.organization,
           updated_at: new Date().toISOString(),
-        })
+        } as any)
         .eq("user_id", user?.id);
 
       if (error) throw error;
