@@ -1,5 +1,5 @@
 import { Layout } from "@/components/Layout";
-import { memo, useMemo, useState } from "react";
+import { memo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { FixedSizeList as List, ListChildComponentProps } from "react-window";
 import { GoogleDriveFolderImport } from "@/components/GoogleDriveFolderImport";
@@ -118,6 +118,106 @@ interface Case {
   created_at: string;
   updated_at: string;
 }
+
+const DOCUMENT_ROW_HEIGHT = 72;
+const DOCUMENT_LIST_MAX_HEIGHT = 640;
+
+type DocumentRowData = {
+  docs: Document[];
+  onView: (doc: Document) => void;
+  onDownload: (doc: Document) => void;
+  onDelete: (id: string) => void;
+};
+
+const DocumentRow = memo(({ index, style, data }: ListChildComponentProps<DocumentRowData>) => {
+  const doc = data.docs[index];
+
+  if (!doc) {
+    return null;
+  }
+
+  return (
+    <div
+      style={style}
+      className="grid grid-cols-12 gap-4 px-4 py-3 items-center hover:bg-muted/30 transition-colors border-b border-border"
+    >
+      <div className="col-span-1">
+        <div className="rounded bg-muted p-1.5 w-8 h-8 flex items-center justify-center">
+          <FileText className="h-4 w-4 text-muted-foreground" />
+        </div>
+      </div>
+
+      <div className="col-span-2">
+        {doc.bates_number ? (
+          <span className="font-mono text-xs bg-muted px-2 py-1 rounded">
+            {doc.bates_number}
+          </span>
+        ) : (
+          <span className="text-xs text-muted-foreground">-</span>
+        )}
+      </div>
+
+      <div className="col-span-4 min-w-0">
+        <p className="text-sm font-medium truncate">{doc.name}</p>
+        {doc.summary && (
+          <p className="text-xs text-muted-foreground truncate mt-0.5">
+            {doc.summary}
+          </p>
+        )}
+      </div>
+
+      <div className="col-span-2">
+        <span className="text-xs text-muted-foreground">
+          {doc.file_type?.split('/')[1]?.toUpperCase() || "File"}
+        </span>
+      </div>
+
+      <div className="col-span-1">
+        {doc.ai_analyzed && (
+          <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-green-50 text-green-700 border-green-200">
+            AI
+          </Badge>
+        )}
+      </div>
+
+      <div className="col-span-2 flex items-center justify-end gap-1">
+        {doc.file_url && (
+          <>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              title="View"
+              onClick={() => data.onView(doc)}
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              title="Download"
+              onClick={() => data.onDownload(doc)}
+            >
+              <Download className="h-3.5 w-3.5" />
+            </Button>
+          </>
+        )}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7"
+          title="Delete"
+          onClick={() => data.onDelete(doc.id)}
+        >
+          <Trash2 className="h-3.5 w-3.5 text-destructive" />
+        </Button>
+      </div>
+    </div>
+  );
+});
+
+DocumentRow.displayName = "DocumentRow";
 
 const container = {
   hidden: { opacity: 0 },
@@ -932,6 +1032,32 @@ export default function CaseDetail() {
                     );
                   }
 
+                  if (filteredDocs.length === 0) {
+                    return (
+                      <Card className="glass-card">
+                        <CardContent className="flex flex-col items-center justify-center py-12">
+                          <Search className="h-12 w-12 text-muted-foreground mb-4" />
+                          <h3 className="text-lg font-medium mb-2">No documents match your search.</h3>
+                          <p className="text-sm text-muted-foreground">
+                            Try clearing filters or adjusting your query.
+                          </p>
+                        </CardContent>
+                      </Card>
+                    );
+                  }
+
+                  const listHeight = Math.min(
+                    DOCUMENT_LIST_MAX_HEIGHT,
+                    Math.max(filteredDocs.length * DOCUMENT_ROW_HEIGHT, DOCUMENT_ROW_HEIGHT)
+                  );
+
+                  const rowData = {
+                    docs: filteredDocs,
+                    onView: handleViewDocument,
+                    onDownload: handleDownloadDocument,
+                    onDelete: setDeleteDocId,
+                  };
+
                   return (
                     <Card className="glass-card overflow-hidden">
                       {/* Table Header */}
@@ -945,70 +1071,16 @@ export default function CaseDetail() {
                       </div>
 
                       {/* Table Body */}
-                      <div className="divide-y divide-border">
-                        {filteredDocs.map((doc) => (
-                          <div key={doc.id} className="grid grid-cols-12 gap-4 px-4 py-3 items-center hover:bg-muted/30 transition-colors">
-                            {/* Type */}
-                            <div className="col-span-1">
-                              <div className="rounded bg-muted p-1.5 w-8 h-8 flex items-center justify-center">
-                                <FileText className="h-4 w-4 text-muted-foreground" />
-                              </div>
-                            </div>
-
-                            {/* Bates Number */}
-                            <div className="col-span-2">
-                              {doc.bates_number ? (
-                                <span className="font-mono text-xs bg-muted px-2 py-1 rounded">
-                                  {doc.bates_number}
-                                </span>
-                              ) : (
-                                <span className="text-xs text-muted-foreground">-</span>
-                              )}
-                            </div>
-
-                            {/* File Name / Summary */}
-                            <div className="col-span-4 min-w-0">
-                              <p className="text-sm font-medium truncate">{doc.name}</p>
-                              {doc.summary && (
-                                <p className="text-xs text-muted-foreground truncate mt-0.5">{doc.summary}</p>
-                              )}
-                            </div>
-
-                            {/* Source */}
-                            <div className="col-span-2">
-                              <span className="text-xs text-muted-foreground">
-                                {doc.file_type?.split('/')[1]?.toUpperCase() || 'File'}
-                              </span>
-                            </div>
-
-                            {/* Tags */}
-                            <div className="col-span-1">
-                              {doc.ai_analyzed && (
-                                <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-green-50 text-green-700 border-green-200">
-                                  AI
-                                </Badge>
-                              )}
-                            </div>
-
-                            {/* Actions */}
-                            <div className="col-span-2 flex items-center justify-end gap-1">
-                              {doc.file_url && (
-                                <>
-                                  <Button variant="ghost" size="icon" className="h-7 w-7" title="View" onClick={() => handleViewDocument(doc)}>
-                                    <ExternalLink className="h-3.5 w-3.5" />
-                                  </Button>
-                                  <Button variant="ghost" size="icon" className="h-7 w-7" title="Download" onClick={() => handleDownloadDocument(doc)}>
-                                    <Download className="h-3.5 w-3.5" />
-                                  </Button>
-                                </>
-                              )}
-                              <Button variant="ghost" size="icon" className="h-7 w-7" title="Delete" onClick={() => setDeleteDocId(doc.id)}>
-                                <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                              </Button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
+                      <List
+                        height={listHeight}
+                        itemCount={filteredDocs.length}
+                        itemSize={DOCUMENT_ROW_HEIGHT}
+                        width="100%"
+                        itemData={rowData}
+                        itemKey={(index, data) => data.docs[index]?.id ?? index}
+                      >
+                        {DocumentRow}
+                      </List>
                     </Card>
                   );
                 })()}
