@@ -9,6 +9,46 @@ import {
 import { verifyAuth, forbiddenResponse } from '../_shared/auth.ts';
 import { validateUUID, validateFileSize } from '../_shared/validation.ts';
 
+const STORAGE_BUCKET = 'case-documents';
+
+function extractStoragePath(fileUrl: string): string | null {
+  if (!fileUrl || typeof fileUrl !== 'string') {
+    return null;
+  }
+
+  if (!fileUrl.startsWith('http')) {
+    return fileUrl.replace(/^\/+/, '');
+  }
+
+  const lower = fileUrl.toLowerCase();
+  if (!lower.includes('/storage/v1/object/')) {
+    return null;
+  }
+
+  const marker = `/${STORAGE_BUCKET}/`;
+  const markerIndex = lower.indexOf(marker);
+  if (markerIndex === -1) {
+    return null;
+  }
+
+  const pathWithQuery = fileUrl.slice(markerIndex + marker.length);
+  return pathWithQuery.split('?')[0];
+}
+
+function inferMediaType(
+  fileType: string | null,
+  fileUrl: string | null
+): 'audio' | 'video' | null {
+  if (fileType?.startsWith('audio/')) return 'audio';
+  if (fileType?.startsWith('video/')) return 'video';
+  if (!fileUrl) return null;
+
+  const lower = fileUrl.toLowerCase();
+  if (lower.match(/\.(mp3|wav|m4a|aac|ogg|flac|webm)$/)) return 'audio';
+  if (lower.match(/\.(mp4|mpeg|mpg|mov|avi|webm|mkv|3gp|flv)$/)) return 'video';
+  return null;
+}
+
 interface TranscribeRequest {
   documentId: string;
 }
@@ -88,8 +128,10 @@ serve(async (req) => {
 
     console.log(`User verified as owner of document ${documentId}`);
 
+    const mediaType = document.media_type || inferMediaType(document.file_type, document.file_url);
+
     // Check if document is audio or video
-    if (!document.media_type || !['audio', 'video'].includes(document.media_type)) {
+    if (!mediaType || !['audio', 'video'].includes(mediaType)) {
       return new Response(
         JSON.stringify({ error: 'Document is not audio or video' }),
         {
@@ -99,7 +141,7 @@ serve(async (req) => {
       );
     }
 
-    console.log(`Transcribing ${document.media_type} file: ${document.name}`);
+    console.log(`Transcribing ${mediaType} file: ${document.name}`);
 
     // Download file from storage
     const fileUrl = document.file_url;
@@ -107,23 +149,36 @@ serve(async (req) => {
       throw new Error('File URL not found');
     }
 
-    // Extract storage path from URL
-    const urlParts = fileUrl.split('/storage/v1/object/public/case-documents/');
-    const storagePath = urlParts[1];
+    const storagePath = extractStoragePath(fileUrl);
 
-    // Download file
-    const { data: fileBlob, error: downloadError } = await supabase.storage
-      .from('case-documents')
-      .download(storagePath);
+    let fileBlob: Blob | null = null;
+    if (storagePath) {
+      const { data, error: downloadError } = await supabase.storage
+        .from(STORAGE_BUCKET)
+        .download(storagePath);
 
-    if (downloadError || !fileBlob) {
-      throw new Error(`Failed to download file: ${downloadError?.message}`);
+      if (!downloadError && data) {
+        fileBlob = data;
+      }
+    }
+
+    if (!fileBlob) {
+      if (!fileUrl.startsWith('http')) {
+        throw new Error('File URL is not a valid URL');
+      }
+
+      const response = await fetch(fileUrl);
+      if (!response.ok) {
+        throw new Error(`Failed to download file: ${response.status} ${response.statusText}`);
+      }
+      fileBlob = await response.blob();
     }
 
     console.log(`Downloaded file, size: ${fileBlob.size} bytes`);
 
     // Convert blob to File object for OpenAI API
-    const file = new File([fileBlob], document.name, { type: document.file_type || 'audio/mpeg' });
+    const fileName = document.name || 'media';
+    const file = new File([fileBlob], fileName, { type: document.file_type || fileBlob.type || 'audio/mpeg' });
 
     // Validate file size (Whisper API has a 25MB limit)
     try {
