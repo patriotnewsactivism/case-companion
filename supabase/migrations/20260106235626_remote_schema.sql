@@ -1237,9 +1237,11 @@ alter table "public"."cases" add column "visibility" text default 'private'::tex
 
 alter table "public"."cases" alter column "case_type" drop not null;
 
-alter table "public"."cases" alter column "status" set default 'active'::text;
+alter table "public"."cases" alter column "status" drop default;
 
 alter table "public"."cases" alter column "status" set data type text using "status"::text;
+
+alter table "public"."cases" alter column "status" set default 'active'::text;
 
 alter table "public"."documents" drop column "adverse_findings";
 
@@ -1307,11 +1309,13 @@ alter table "public"."documents" add column "strength_score" numeric(3,1);
 
 alter table "public"."documents" add column "title" text not null;
 
+alter table "public"."documents" alter column "action_items" drop default;
+
+alter table "public"."documents" alter column "action_items" set data type jsonb using to_jsonb("action_items");
+
 alter table "public"."documents" alter column "action_items" set default '[]'::jsonb;
 
-alter table "public"."documents" alter column "action_items" set data type jsonb using "action_items"::jsonb;
-
-alter table "public"."documents" alter column "key_facts" set data type jsonb using "key_facts"::jsonb;
+alter table "public"."documents" alter column "key_facts" set data type jsonb using to_jsonb("key_facts");
 
 alter table "public"."profiles" drop column "avatar_url";
 
@@ -5576,6 +5580,3 @@ with check (((bucket_id = 'case-documents'::text) AND ((auth.uid())::text = (sto
   for select
   to public
 using (((bucket_id = 'case-documents'::text) AND ((auth.uid())::text = (storage.foldername(name))[1])));
-
-
-
