@@ -1156,7 +1156,7 @@ export default function CaseDetail() {
                     <p className="text-sm text-muted-foreground mb-4 text-center max-w-md">
                       Organize witnesses, exhibits, and prepare your trial strategy for this case
                     </p>
-                    <Button>
+                    <Button onClick={() => navigate(`/trial-prep?caseId=${id}`)}>
                       <Plus className="h-4 w-4 mr-2" />
                       Start Trial Prep
                     </Button>
@@ -1173,7 +1173,14 @@ export default function CaseDetail() {
                     <p className="text-sm text-muted-foreground mb-4 text-center max-w-md">
                       Draft and manage legal briefs, motions, and court filings
                     </p>
-                    <Button>
+                    <Button
+                      onClick={() =>
+                        toast({
+                          title: "Briefs are coming soon",
+                          description: "We're finalizing the brief builder for this workspace.",
+                        })
+                      }
+                    >
                       <Plus className="h-4 w-4 mr-2" />
                       Create Brief
                     </Button>

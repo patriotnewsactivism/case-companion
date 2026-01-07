@@ -56,6 +56,10 @@ export function VideoConference() {
     setIsCreating(true);
 
     try {
+      if (!user) {
+        throw new Error("Not authenticated");
+      }
+
       const data = await createVideoRoom({
         name: roomName.trim(),
         caseId: selectedCaseId,
@@ -99,7 +103,24 @@ export function VideoConference() {
     setIsJoining(true);
 
     try {
-      const data = await joinVideoRoom(joinRoomName.trim(), user?.email || "Participant");
+      if (!user) {
+        throw new Error("Not authenticated");
+      }
+
+      const trimmedRoomName = joinRoomName.trim();
+      let roomNameToJoin = trimmedRoomName;
+
+      if (trimmedRoomName.startsWith("http")) {
+        try {
+          const url = new URL(trimmedRoomName);
+          const segments = url.pathname.split("/").filter(Boolean);
+          roomNameToJoin = segments[segments.length - 1] || trimmedRoomName;
+        } catch (parseError) {
+          console.warn("Unable to parse room URL:", parseError);
+        }
+      }
+
+      const data = await joinVideoRoom(roomNameToJoin, user.email || "Participant");
       setJoinDialogOpen(false);
 
       toast({
@@ -234,12 +255,12 @@ export function VideoConference() {
                     <Label htmlFor="join-room-name">Room Name</Label>
                     <Input
                       id="join-room-name"
-                      placeholder="casebuddy-xxx-yyyy"
+                      placeholder="Paste room code or Daily room URL"
                       value={joinRoomName}
                       onChange={(e) => setJoinRoomName(e.target.value)}
                     />
                     <p className="text-xs text-muted-foreground">
-                      Get the room name from the meeting organizer
+                      Ask the organizer for the room code or link
                     </p>
                   </div>
                 </div>
@@ -280,9 +301,31 @@ export function VideoConference() {
                   Rejoin
                 </Button>
               </div>
+              {currentRoom.displayName && (
+                <p className="text-xs text-muted-foreground">
+                  Room Title: {currentRoom.displayName}
+                </p>
+              )}
               <p className="text-xs text-muted-foreground">
                 Room Name: {currentRoom.roomName}
               </p>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <span>Share this room code to invite others.</span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2 text-xs"
+                  onClick={() => {
+                    navigator.clipboard.writeText(currentRoom.roomName);
+                    toast({
+                      title: "Room code copied",
+                      description: "Share the code to let others join.",
+                    });
+                  }}
+                >
+                  Copy
+                </Button>
+              </div>
               <p className="text-xs text-muted-foreground">
                 Expires: {new Date(currentRoom.expiresAt).toLocaleString()}
               </p>

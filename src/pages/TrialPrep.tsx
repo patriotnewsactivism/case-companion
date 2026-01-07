@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { getCases } from "@/lib/api";
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   Gavel,
   Play,
@@ -18,6 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useToast } from "@/hooks/use-toast";
 
 const container = {
   hidden: { opacity: 0 },
@@ -44,12 +46,15 @@ const simulationModes = [
 ];
 
 export default function TrialPrep() {
+  const { toast } = useToast();
+  const [searchParams] = useSearchParams();
+  const initialCaseId = searchParams.get("caseId") ?? "";
   const { data: cases = [], isLoading } = useQuery({
     queryKey: ["cases"],
     queryFn: getCases,
   });
 
-  const [selectedCase, setSelectedCase] = useState<string>("");
+  const [selectedCase, setSelectedCase] = useState<string>(initialCaseId);
   const [selectedMode, setSelectedMode] = useState<string>("cross-examination");
   const [isSimulating, setIsSimulating] = useState(false);
 
@@ -57,7 +62,13 @@ export default function TrialPrep() {
     if (!selectedCase) return;
     setIsSimulating(true);
     // Simulation logic would go here
-    setTimeout(() => setIsSimulating(false), 2000);
+    setTimeout(() => {
+      setIsSimulating(false);
+      toast({
+        title: "Simulation queue started",
+        description: "We're preparing your AI simulation session.",
+      });
+    }, 2000);
   };
 
   return (

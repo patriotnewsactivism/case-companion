@@ -194,6 +194,7 @@ serve(async (req) => {
         roomId: videoRoom?.id,
         roomUrl: room.url,
         roomName: room.name,
+        displayName: name,
         token: tokenData.token,
         expiresAt: new Date(exp * 1000).toISOString(),
         enableRecording,

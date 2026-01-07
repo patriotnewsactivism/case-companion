@@ -199,6 +199,7 @@ export interface VideoRoom {
   roomUrl: string;
   roomName: string;
   token: string;
+  displayName?: string;
   expiresAt?: string;
   enableRecording?: boolean;
   roomId?: string;

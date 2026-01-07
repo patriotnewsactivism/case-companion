@@ -279,6 +279,13 @@ Extract now:`
     let adverseFindings: string[] = [];
     let actionItems: string[] = [];
     let summary = '';
+    let timelineEvents: Array<{
+      title: string;
+      event_date: string;
+      event_type?: string;
+      description?: string;
+      importance?: string;
+    }> = [];
 
     if (extractedText && extractedText.length > 50 && !extractedText.startsWith('[File type')) {
       console.log('Analyzing extracted text with AI...');
@@ -303,6 +310,12 @@ ANALYSIS REQUIREMENTS:
 3. FAVORABLE_FINDINGS: 3-5 findings that could support the case (admissions, favorable testimony, helpful evidence)
 4. ADVERSE_FINDINGS: 3-5 findings that could hurt the case (contradictions, damaging statements, weaknesses)
 5. ACTION_ITEMS: 3-5 specific follow-up actions (witnesses to interview, documents to request, issues to research)
+6. TIMELINE_EVENTS: 2-8 timeline events if clear dates are present. Each event must include:
+   - event_date in YYYY-MM-DD format
+   - title (short, specific)
+   - event_type (e.g., "Deposition", "Incident", "Filing", "Hearing", "Communication")
+   - importance ("low", "medium", "high")
+   - description (optional details)
 
 Be thorough, precise, and strategic. Focus on facts that matter for litigation.
 
@@ -312,7 +325,16 @@ Respond ONLY with valid JSON in this exact format:
   "key_facts": ["fact1", "fact2", ...],
   "favorable_findings": ["finding1", "finding2", ...],
   "adverse_findings": ["finding1", "finding2", ...],
-  "action_items": ["action1", "action2", ...]
+  "action_items": ["action1", "action2", ...],
+  "timeline_events": [
+    {
+      "event_date": "YYYY-MM-DD",
+      "title": "string",
+      "event_type": "string",
+      "importance": "low|medium|high",
+      "description": "string"
+    }
+  ]
 }
 
 Document text:
@@ -343,7 +365,21 @@ ${extractedText.substring(0, 20000)}`
             favorableFindings = Array.isArray(analysis.favorable_findings) ? analysis.favorable_findings : [];
             adverseFindings = Array.isArray(analysis.adverse_findings) ? analysis.adverse_findings : [];
             actionItems = Array.isArray(analysis.action_items) ? analysis.action_items : [];
-            console.log(`Analysis complete: ${keyFacts.length} facts, ${favorableFindings.length} favorable, ${adverseFindings.length} adverse`);
+            const rawTimelineEvents = Array.isArray(analysis.timeline_events) ? analysis.timeline_events : [];
+            timelineEvents = rawTimelineEvents
+              .filter((event: any) => event?.event_date && event?.title)
+              .map((event: any) => ({
+                event_date: String(event.event_date).slice(0, 10),
+                title: String(event.title).trim(),
+                event_type: event.event_type ? String(event.event_type).trim() : undefined,
+                importance: event.importance ? String(event.importance).trim() : undefined,
+                description: event.description ? String(event.description).trim() : undefined,
+              }))
+              .filter((event: any) => event.title.length > 0 && event.event_date.length === 10);
+
+            console.log(
+              `Analysis complete: ${keyFacts.length} facts, ${favorableFindings.length} favorable, ${adverseFindings.length} adverse, ${timelineEvents.length} timeline events`
+            );
           }
         } catch (parseError) {
           console.error('Failed to parse analysis JSON:', parseError);
@@ -377,6 +413,51 @@ ${extractedText.substring(0, 20000)}`
 
     console.log('✅ Document updated successfully with OCR and analysis results');
 
+    if (timelineEvents.length > 0) {
+      const { data: existingEvents, error: eventsError } = await supabase
+        .from('timeline_events')
+        .select('event_date, title')
+        .eq('case_id', documentData.case_id);
+
+      if (eventsError) {
+        console.error('Failed to fetch existing timeline events:', eventsError);
+      } else {
+        const existingKeys = new Set(
+          (existingEvents || []).map(
+            (event: any) => `${event.event_date}::${String(event.title).toLowerCase()}`
+          )
+        );
+
+        const caseOwnerId = (documentData.cases as any).user_id || user.id;
+        const newEvents = timelineEvents
+          .filter(
+            (event) =>
+              !existingKeys.has(`${event.event_date}::${event.title.toLowerCase()}`)
+          )
+          .map((event) => ({
+            case_id: documentData.case_id,
+            user_id: caseOwnerId,
+            title: event.title,
+            description: event.description || null,
+            event_date: event.event_date,
+            event_type: event.event_type || null,
+            importance: event.importance || 'medium',
+          }));
+
+        if (newEvents.length > 0) {
+          const { error: insertError } = await supabase
+            .from('timeline_events')
+            .insert(newEvents);
+
+          if (insertError) {
+            console.error('Failed to insert timeline events:', insertError);
+          } else {
+            console.log(`✅ Added ${newEvents.length} timeline events for case ${documentData.case_id}`);
+          }
+        }
+      }
+    }
+
     return new Response(
       JSON.stringify({
         success: true,
@@ -387,6 +468,7 @@ ${extractedText.substring(0, 20000)}`
         favorableFindings,
         adverseFindings,
         actionItems,
+        timelineEvents,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
