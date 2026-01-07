@@ -31,7 +31,8 @@ serve(async (req) => {
       return createErrorResponse(
         new Error(authResult.error || 'Unauthorized'),
         401,
-        'transcribe-media'
+        'transcribe-media',
+        corsHeaders
       );
     }
 
@@ -53,7 +54,7 @@ serve(async (req) => {
     }
 
     // Parse and validate request body
-    const requestBody = await req.json();
+    const requestBody = (await req.json()) as Record<string, unknown>;
     validateRequestBody<TranscribeRequest>(requestBody, ['documentId']);
 
     const documentId = validateUUID(requestBody.documentId, 'documentId');
@@ -70,12 +71,14 @@ serve(async (req) => {
       return createErrorResponse(
         new Error('Document not found'),
         404,
-        'transcribe-media'
+        'transcribe-media',
+        corsHeaders
       );
     }
 
     // Check if user owns the case
-    if ((document.cases as any).user_id !== user.id) {
+    const ownerId = (document as { cases?: { user_id?: string } }).cases?.user_id;
+    if (ownerId !== user.id) {
       console.error('User does not own this document');
       return forbiddenResponse(
         'You do not have access to this document',
@@ -126,7 +129,7 @@ serve(async (req) => {
     try {
       validateFileSize(file.size, 25); // 25MB max for Whisper API
     } catch (sizeError) {
-      return createErrorResponse(sizeError, 400, 'transcribe-media');
+      return createErrorResponse(sizeError, 400, 'transcribe-media', corsHeaders);
     }
 
     const openaiApiKey = Deno.env.get('OPENAI_API_KEY')!;
@@ -187,6 +190,6 @@ serve(async (req) => {
     );
   } catch (error) {
     console.error('Error in transcribe-media function:', error);
-    return createErrorResponse(error, 500, 'transcribe-media');
+    return createErrorResponse(error, 500, 'transcribe-media', corsHeaders);
   }
 });

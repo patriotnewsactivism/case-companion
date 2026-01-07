@@ -1,6 +1,6 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import {
   getCorsHeaders,
   createErrorResponse,
@@ -10,6 +10,62 @@ import {
 } from '../_shared/errorHandler.ts';
 import { verifyAuth, forbiddenResponse } from '../_shared/auth.ts';
 import { validateUUID, validateURL } from '../_shared/validation.ts';
+
+const STORAGE_BUCKET = 'case-documents';
+
+function extractStoragePath(fileUrl: string): string | null {
+  if (!fileUrl || typeof fileUrl !== 'string') {
+    return null;
+  }
+
+  if (!fileUrl.startsWith('http')) {
+    return fileUrl.replace(/^\/+/, '');
+  }
+
+  const lower = fileUrl.toLowerCase();
+  if (!lower.includes('/storage/v1/object/')) {
+    return null;
+  }
+
+  const marker = `/${STORAGE_BUCKET}/`;
+  const markerIndex = lower.indexOf(marker);
+  if (markerIndex === -1) {
+    return null;
+  }
+
+  const pathWithQuery = fileUrl.slice(markerIndex + marker.length);
+  return pathWithQuery.split('?')[0];
+}
+
+async function loadFileBlob(
+  supabase: SupabaseClient,
+  fileUrl: string
+): Promise<{ blob: Blob; contentType: string }> {
+  const storagePath = extractStoragePath(fileUrl);
+
+  if (storagePath) {
+    const { data, error } = await supabase.storage
+      .from(STORAGE_BUCKET)
+      .download(storagePath);
+
+    if (!error && data) {
+      return { blob: data, contentType: data.type || '' };
+    }
+  }
+
+  if (!fileUrl.startsWith('http')) {
+    throw new Error('File URL is not a valid URL');
+  }
+
+  const response = await fetch(fileUrl);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch file: ${response.status} ${response.statusText}`);
+  }
+
+  const contentType = response.headers.get('content-type') || '';
+  const blob = await response.blob();
+  return { blob, contentType };
+}
 
 serve(async (req) => {
   const corsHeaders = getCorsHeaders(req);
@@ -28,8 +84,11 @@ serve(async (req) => {
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
     const authHeader = req.headers.get('Authorization') || '';
 
-    let user: any;
-    let supabase: any;
+    type AuthUser = { id: string };
+    type DocumentOwner = { cases?: { user_id?: string } };
+
+    let user: AuthUser;
+    let supabase: SupabaseClient;
     let isServiceRole = false;
 
     // Check if this is a service role call (internal from import-google-drive)
@@ -45,7 +104,8 @@ serve(async (req) => {
         return createErrorResponse(
           new Error(authResult.error || 'Unauthorized'),
           401,
-          'ocr-document'
+          'ocr-document',
+          corsHeaders
         );
       }
       user = authResult.user;
@@ -70,19 +130,23 @@ serve(async (req) => {
     }
 
     // Parse and validate request body
-    const requestBody = await req.json();
-    validateRequestBody(requestBody, ['documentId', 'fileUrl']);
+    const requestBody = (await req.json()) as Record<string, unknown>;
+    validateRequestBody<{ documentId: string; fileUrl: string }>(
+      requestBody,
+      ['documentId', 'fileUrl']
+    );
 
-    const documentId = validateUUID(requestBody.documentId, 'documentId');
-    const fileUrl = validateURL(requestBody.fileUrl);
+    const { documentId, fileUrl } = requestBody;
+    const validatedDocumentId = validateUUID(documentId, 'documentId');
+    const validatedFileUrl = validateURL(fileUrl);
 
-    console.log(`Processing OCR for document: ${documentId}`);
+    console.log(`Processing OCR for document: ${validatedDocumentId}`);
 
     // Verify user owns this document by checking the associated case
     const { data: documentData, error: docError } = await supabase
       .from('documents')
       .select('case_id, name, cases!inner(user_id)')
-      .eq('id', documentId)
+      .eq('id', validatedDocumentId)
       .single();
 
     if (docError || !documentData) {
@@ -90,12 +154,14 @@ serve(async (req) => {
       return createErrorResponse(
         new Error('Document not found'),
         404,
-        'ocr-document'
+        'ocr-document',
+        corsHeaders
       );
     }
 
     // Check if user owns the case (skip for service role)
-    if (!isServiceRole && (documentData.cases as any).user_id !== user.id) {
+    const ownerId = (documentData as DocumentOwner).cases?.user_id;
+    if (!isServiceRole && ownerId !== user.id) {
       console.error('User does not own this document');
       return forbiddenResponse(
         'You do not have access to this document',
@@ -103,15 +169,11 @@ serve(async (req) => {
       );
     }
 
-    console.log(`User verified as owner of document ${documentId}: ${documentData.name}`);
+    console.log(`User verified as owner of document ${validatedDocumentId}: ${documentData.name}`);
 
     // Fetch the file content
-    const fileResponse = await fetch(fileUrl);
-    if (!fileResponse.ok) {
-      throw new Error(`Failed to fetch file: ${fileResponse.statusText}`);
-    }
-
-    const contentType = fileResponse.headers.get('content-type') || '';
+    const { blob: fileBlob, contentType } = await loadFileBlob(supabase, validatedFileUrl);
+    const resolvedContentType = contentType || fileBlob.type || '';
     let extractedText = '';
 
     // Helper function to convert ArrayBuffer to base64 efficiently
@@ -127,12 +189,12 @@ serve(async (req) => {
     };
 
     // For images, use AI vision to extract text
-    if (contentType.includes('image') || fileUrl.match(/\.(jpg|jpeg|png|gif|webp|bmp|tiff)$/i)) {
+    if (resolvedContentType.includes('image') || validatedFileUrl.match(/\.(jpg|jpeg|png|gif|webp|bmp|tiff)$/i)) {
       console.log('Processing image with AI vision...');
 
-      const arrayBuffer = await fileResponse.arrayBuffer();
+      const arrayBuffer = await fileBlob.arrayBuffer();
       const base64 = arrayBufferToBase64(arrayBuffer);
-      const mimeType = contentType || 'image/jpeg';
+      const mimeType = resolvedContentType || 'image/jpeg';
       const sizeInMB = (arrayBuffer.byteLength / 1024 / 1024).toFixed(2);
 
       console.log(`Image size: ${sizeInMB}MB, MIME: ${mimeType}`);
@@ -195,11 +257,11 @@ Extract now:`
       extractedText = aiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
       console.log(`Extracted ${extractedText.length} characters from image`);
 
-    } else if (contentType.includes('pdf') || fileUrl.match(/\.pdf$/i)) {
+    } else if (resolvedContentType.includes('pdf') || validatedFileUrl.match(/\.pdf$/i)) {       
       // For PDFs, use Gemini 2.0 Flash with native PDF support
       console.log('PDF detected - using advanced AI processing...');
 
-      const arrayBuffer = await fileResponse.arrayBuffer();
+      const arrayBuffer = await fileBlob.arrayBuffer();
       const base64 = arrayBufferToBase64(arrayBuffer);
       const sizeInMB = (arrayBuffer.byteLength / 1024 / 1024).toFixed(2);
 
@@ -264,13 +326,13 @@ Extract now:`
       extractedText = aiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
       console.log(`Extracted ${extractedText.length} characters from PDF`);
 
-    } else if (contentType.includes('text') || fileUrl.match(/\.(txt|doc|docx)$/i)) {
+    } else if (resolvedContentType.includes('text') || validatedFileUrl.match(/\.(txt|doc|docx)$/i)) {
       // For text files, read directly
-      extractedText = await fileResponse.text();
+      extractedText = await fileBlob.text();
       console.log(`Read ${extractedText.length} characters from text file`);
     } else {
-      console.log(`Unsupported file type: ${contentType}`);
-      extractedText = `[File type ${contentType} - OCR not available for this format]`;
+      console.log(`Unsupported file type: ${resolvedContentType || 'unknown'}`);
+      extractedText = `[File type ${resolvedContentType || 'unknown'} - OCR not available for this format]`;
     }
 
     // Now use AI to analyze the extracted text and generate legal insights
@@ -368,7 +430,7 @@ ${extractedText.substring(0, 20000)}`
         adverse_findings: adverseFindings.length > 0 ? adverseFindings : null,
         action_items: actionItems.length > 0 ? actionItems : null,
       })
-      .eq('id', documentId);
+      .eq('id', validatedDocumentId);
 
     if (updateError) {
       console.error('Failed to update document:', updateError);
@@ -393,6 +455,6 @@ ${extractedText.substring(0, 20000)}`
 
   } catch (error) {
     console.error('❌ OCR Error:', error);
-    return createErrorResponse(error, 500, 'ocr-document');
+    return createErrorResponse(error, 500, 'ocr-document', corsHeaders);
   }
 });

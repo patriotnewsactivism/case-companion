@@ -10,12 +10,21 @@ export interface ErrorResponse {
 }
 
 // Phase 1D: CORS Hardening
-const ALLOWED_ORIGINS = [
+const BASE_ALLOWED_ORIGINS = [
   'https://plcvjadartxntnurhcua.lovableproject.com', // Lovable project URL (current)
   'https://casebuddypro.lovable.app', // Production domain
   'http://localhost:8080', // Development
   'http://localhost:5173', // Vite dev server alternative port
 ];
+
+const ENV_ALLOWED_ORIGINS = (Deno.env.get('ALLOWED_ORIGINS') || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+const ALLOWED_ORIGINS = Array.from(
+  new Set([...BASE_ALLOWED_ORIGINS, ...ENV_ALLOWED_ORIGINS])
+);
 
 /**
  * Get CORS headers based on request origin
@@ -26,17 +35,22 @@ export function getCorsHeaders(req: Request): Record<string, string> {
   const environment = Deno.env.get('ENVIRONMENT') || 'production';
 
   // In development, allow localhost
-  const isAllowedOrigin = ALLOWED_ORIGINS.includes(origin) ||
+  const isAllowedOrigin = !!origin && (
+    ALLOWED_ORIGINS.includes(origin) ||
     (environment === 'development' && origin.startsWith('http://localhost')) ||
     origin.includes('.lovable.app') || // Allow all Lovable domains
-    origin.includes('.lovableproject.com'); // Allow all Lovable project domains
+    origin.includes('.lovableproject.com') // Allow all Lovable project domains
+  );
+
+  const allowOrigin = isAllowedOrigin ? origin : (origin ? 'null' : '*');
 
   return {
-    'Access-Control-Allow-Origin': isAllowedOrigin ? origin : '*',
+    'Access-Control-Allow-Origin': allowOrigin,
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
     'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
     'Access-Control-Max-Age': '86400', // 24 hours
-    'Access-Control-Allow-Credentials': 'true',
+    'Access-Control-Allow-Credentials': isAllowedOrigin ? 'true' : 'false',
+    'Vary': 'Origin',
   };
 }
 
@@ -52,7 +66,8 @@ export const corsHeaders = {
 export function createErrorResponse(
   error: unknown,
   statusCode: number = 500,
-  context?: string
+  context?: string,
+  corsHeadersOverride: Record<string, string> = corsHeaders
 ): Response {
   const timestamp = new Date().toISOString();
 
@@ -63,7 +78,12 @@ export function createErrorResponse(
   if (error instanceof Error) {
     errorMessage = error.message;
     errorDetails = error.stack;
-    errorCode = (error as any).code;
+    if ('code' in error) {
+      const codeValue = (error as { code?: unknown }).code;
+      if (typeof codeValue === 'string') {
+        errorCode = codeValue;
+      }
+    }
   } else if (typeof error === 'string') {
     errorMessage = error;
   }
@@ -90,7 +110,7 @@ export function createErrorResponse(
     JSON.stringify(responseBody),
     {
       status: statusCode,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...corsHeadersOverride, 'Content-Type': 'application/json' },
     }
   );
 }
@@ -112,7 +132,7 @@ export function validateEnvVars(requiredVars: string[]): void {
  * Validate request body has required fields
  */
 export function validateRequestBody<T>(
-  body: any,
+  body: Record<string, unknown>,
   requiredFields: (keyof T)[]
 ): asserts body is T {
   const missing = requiredFields.filter(field => !(field in body) || body[field] === undefined);
@@ -140,7 +160,7 @@ export function withErrorHandling(
     try {
       return await handler(req);
     } catch (error) {
-      return createErrorResponse(error, 500, context);
+      return createErrorResponse(error, 500, context, getCorsHeaders(req));
     }
   };
 }

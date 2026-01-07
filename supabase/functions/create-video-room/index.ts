@@ -38,7 +38,8 @@ serve(async (req) => {
       return createErrorResponse(
         new Error(authResult.error || 'Unauthorized'),
         401,
-        'create-video-room'
+        'create-video-room',
+        corsHeaders
       );
     }
 
@@ -203,6 +204,6 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('Error creating video room:', error);
-    return createErrorResponse(error, 500, 'create-video-room');
+    return createErrorResponse(error, 500, 'create-video-room', corsHeaders);
   }
 });
