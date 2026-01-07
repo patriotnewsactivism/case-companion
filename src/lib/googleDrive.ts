@@ -14,11 +14,90 @@ const SCOPES = [
   'https://www.googleapis.com/auth/drive.readonly', // Read-only access to Drive files
 ].join(' ');
 
+interface GoogleTokenResponse {
+  error?: string;
+  access_token?: string;
+}
+
+interface GooglePickerDoc {
+  id: string;
+  name: string;
+}
+
+interface GooglePickerResponse {
+  action: string;
+  docs: GooglePickerDoc[];
+}
+
+interface GooglePickerDocsView {
+  setSelectFolderEnabled: (enabled: boolean) => GooglePickerDocsView;
+  setIncludeFolders: (enabled: boolean) => GooglePickerDocsView;
+}
+
+interface GooglePickerBuilder {
+  addView: (view: GooglePickerDocsView) => GooglePickerBuilder;
+  setOAuthToken: (token: string) => GooglePickerBuilder;
+  setDeveloperKey: (key: string) => GooglePickerBuilder;
+  setCallback: (
+    callback: (data: GooglePickerResponse) => void | Promise<void>
+  ) => GooglePickerBuilder;
+  build: () => { setVisible: (visible: boolean) => void };
+}
+
+interface GooglePicker {
+  PickerBuilder: new () => GooglePickerBuilder;
+  DocsView: new (viewId: unknown) => GooglePickerDocsView;
+  ViewId: { FOLDERS: unknown };
+  Action: { PICKED: string; CANCEL: string };
+}
+
+interface GoogleAccounts {
+  oauth2: {
+    initTokenClient: (options: {
+      client_id: string;
+      scope: string;
+      callback: (response: GoogleTokenResponse) => void;
+    }) => { requestAccessToken: () => void };
+  };
+}
+
+interface GoogleApi {
+  accounts: GoogleAccounts;
+  picker: GooglePicker;
+}
+
+interface GapiClient {
+  init: (options: { apiKey: string; discoveryDocs: string[] }) => Promise<void>;
+  drive: {
+    files: {
+      get: (options: {
+        fileId: string;
+        fields: string;
+      }) => Promise<{ result: { name: string; parents?: string[] } }>;
+    };
+  };
+}
+
+interface Gapi {
+  load: (api: string, callback: () => void) => void;
+  client: GapiClient;
+}
+
+interface DriveFile {
+  id: string;
+  name: string;
+  mimeType: string;
+}
+
+interface DriveListResponse {
+  files?: DriveFile[];
+}
+
 // Declare global gapi and google types (loaded from Google's CDN)
 declare global {
   interface Window {
-    gapi: any;
-    google: any;
+    gapi?: Gapi;
+    google?: GoogleApi;
   }
 }
 
@@ -106,12 +185,16 @@ export async function getGoogleAccessToken(): Promise<string> {
     const tokenClient = window.google.accounts.oauth2.initTokenClient({
       client_id: GOOGLE_CLIENT_ID,
       scope: SCOPES,
-      callback: (response: any) => {
+      callback: (response: GoogleTokenResponse) => {
         if (response.error) {
           reject(new Error(response.error));
-        } else {
-          resolve(response.access_token);
+          return;
         }
+        if (!response.access_token) {
+          reject(new Error('No access token returned'));
+          return;
+        }
+        resolve(response.access_token);
       },
     });
 
@@ -138,7 +221,7 @@ export async function showGoogleDriveFolderPicker(
       )
       .setOAuthToken(accessToken)
       .setDeveloperKey(GOOGLE_API_KEY)
-      .setCallback(async (data: any) => {
+      .setCallback(async (data: GooglePickerResponse) => {
         if (data.action === window.google.picker.Action.PICKED) {
           const folder = data.docs[0];
 
@@ -212,8 +295,8 @@ export async function listFolderContents(
       throw new Error('Failed to list folder contents');
     }
 
-    const data = await response.json();
-    return (data.files || []).map((file: any) => ({
+    const data = (await response.json()) as DriveListResponse;
+    return (data.files || []).map((file) => ({
       id: file.id,
       name: file.name,
       mimeType: file.mimeType,

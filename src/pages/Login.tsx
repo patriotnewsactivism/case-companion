@@ -17,6 +17,12 @@ const authSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters").optional(),
 });
 
+type LocationState = {
+  from?: {
+    pathname?: string;
+  };
+};
+
 export default function Login() {
   const [isLogin, setIsLogin] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
@@ -29,7 +35,7 @@ export default function Login() {
   const { toast } = useToast();
   const { signIn, signUp, user } = useAuth();
 
-  const from = (location.state as any)?.from?.pathname || "/dashboard";
+  const from = (location.state as LocationState | null)?.from?.pathname || "/dashboard";
 
   // Redirect if already logged in
   useEffect(() => {

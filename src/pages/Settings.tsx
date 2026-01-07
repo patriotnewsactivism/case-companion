@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -17,13 +17,9 @@ export default function Settings() {
     organization: "",
   });
 
-  useEffect(() => {
-    if (user) {
-      loadProfile();
-    }
-  }, [user]);
+  const loadProfile = useCallback(async () => {
+    type ProfileRow = { full_name: string | null; firm_name: string | null };
 
-  const loadProfile = async () => {
     try {
       setLoading(true);
       const { data, error } = await supabase
@@ -35,7 +31,7 @@ export default function Settings() {
       if (error) throw error;
 
       if (data) {
-        const profileData = data as any;
+        const profileData = data as ProfileRow;
         setProfile({
           full_name: profileData.full_name || "",
           organization: profileData.firm_name || "",
@@ -47,19 +43,27 @@ export default function Settings() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user]);
+
+  useEffect(() => {
+    if (user) {
+      loadProfile();
+    }
+  }, [user, loadProfile]);
 
   const handleSave = async () => {
     try {
       setSaving(true);
 
+      const updates = {
+        full_name: profile.full_name,
+        firm_name: profile.organization,
+        updated_at: new Date().toISOString(),
+      };
+
       const { error } = await supabase
         .from("profiles")
-        .update({
-          full_name: profile.full_name,
-          firm_name: profile.organization,
-          updated_at: new Date().toISOString(),
-        } as any)
+        .update(updates)
         .eq("user_id", user?.id);
 
       if (error) throw error;

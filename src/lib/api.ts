@@ -57,16 +57,18 @@ export async function getCase(id: string): Promise<Case | null> {
   return data as unknown as Case | null;
 }
 
-export async function createCase(input: CreateCaseInput): Promise<Case> {
+export async function createCase(input: CreateCaseInput): Promise<Case> {       
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Not authenticated");
 
+  const payload: CreateCaseInput & { user_id: string } = {
+    ...input,
+    user_id: user.id,
+  };
+
   const { data, error } = await supabase
     .from("cases")
-    .insert({
-      ...input,
-      user_id: user.id,
-    } as any)
+    .insert(payload)
     .select()
     .single();
 
@@ -74,12 +76,13 @@ export async function createCase(input: CreateCaseInput): Promise<Case> {
   return data as unknown as Case;
 }
 
-export async function updateCase(input: UpdateCaseInput): Promise<Case> {
+export async function updateCase(input: UpdateCaseInput): Promise<Case> {       
   const { id, ...updates } = input;
-  
+  const payload: Partial<CreateCaseInput> = updates;
+
   const { data, error } = await supabase
     .from("cases")
-    .update(updates as any)
+    .update(payload)
     .eq("id", id)
     .select()
     .single();
@@ -183,9 +186,11 @@ export async function updateProfile(updates: Partial<Profile>): Promise<Profile>
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Not authenticated");
 
+  const payload: Partial<Profile> = updates;
+
   const { data, error } = await supabase
     .from("profiles")
-    .update(updates as any)
+    .update(payload)
     .eq("user_id", user.id)
     .select()
     .single();
