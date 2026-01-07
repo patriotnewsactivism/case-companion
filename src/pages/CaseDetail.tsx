@@ -1170,7 +1170,7 @@ export default function CaseDetail() {
                     <p className="text-sm text-muted-foreground mb-4 text-center max-w-md">
                       Organize witnesses, exhibits, and prepare your trial strategy for this case
                     </p>
-                    <Button>
+                    <Button onClick={() => navigate(`/trial-prep?caseId=${id}`)}>
                       <Plus className="h-4 w-4 mr-2" />
                       Start Trial Prep
                     </Button>

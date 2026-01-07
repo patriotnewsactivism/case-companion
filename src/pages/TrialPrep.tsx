@@ -4,7 +4,8 @@ import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { getCases } from "@/lib/api";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   Gavel,
   Play,
@@ -49,9 +50,17 @@ export default function TrialPrep() {
     queryFn: getCases,
   });
 
+  const [searchParams] = useSearchParams();
   const [selectedCase, setSelectedCase] = useState<string>("");
   const [selectedMode, setSelectedMode] = useState<string>("cross-examination");
   const [isSimulating, setIsSimulating] = useState(false);
+
+  useEffect(() => {
+    const caseIdFromQuery = searchParams.get("caseId");
+    if (caseIdFromQuery) {
+      setSelectedCase(caseIdFromQuery);
+    }
+  }, [searchParams]);
 
   const handleStartSimulation = () => {
     if (!selectedCase) return;
