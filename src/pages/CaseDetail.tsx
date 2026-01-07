@@ -302,31 +302,17 @@ export default function CaseDetail() {
   const triggerOcr = async (documentId: string, fileUrl: string) => {
     setProcessingOcr(documentId);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error("Not authenticated");
-
-      // Use direct fetch with mode: 'cors' to handle CORS properly
-      const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ocr-document`;
-
-      const response = await fetch(functionUrl, {
-        method: 'POST',
-        mode: 'cors',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`,
-          'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-        },
-        body: JSON.stringify({ documentId, fileUrl }),
+      const { data, error } = await supabase.functions.invoke("ocr-document", {
+        body: { documentId, fileUrl },
       });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('OCR function error:', errorText);
-        throw new Error(errorText || `HTTP ${response.status}`);
+      if (error) {
+        throw error;
       }
 
-      const data = await response.json();
+      if (!data) {
+        throw new Error("No response received from OCR function");
+      }
 
       queryClient.invalidateQueries({ queryKey: ["documents", id] });
       toast({

@@ -3,7 +3,6 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -24,16 +23,7 @@ import {
 } from "@/components/ui/select";
 import { Video, Loader2, ExternalLink, Users } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { getCases } from "@/lib/api";
-
-interface VideoRoomData {
-  roomId: string;
-  roomUrl: string;
-  roomName: string;
-  token: string;
-  expiresAt: string;
-  enableRecording: boolean;
-}
+import { createVideoRoom, getCases, joinVideoRoom, type VideoRoom } from "@/lib/api";
 
 export function VideoConference() {
   const { user } = useAuth();
@@ -43,7 +33,7 @@ export function VideoConference() {
   const [roomName, setRoomName] = useState("");
   const [selectedCaseId, setSelectedCaseId] = useState("");
   const [description, setDescription] = useState("");
-  const [currentRoom, setCurrentRoom] = useState<VideoRoomData | null>(null);
+  const [currentRoom, setCurrentRoom] = useState<VideoRoom | null>(null);
   const [joinRoomName, setJoinRoomName] = useState("");
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [joinDialogOpen, setJoinDialogOpen] = useState(false);
@@ -53,7 +43,7 @@ export function VideoConference() {
     queryFn: getCases,
   });
 
-  const createVideoRoom = async () => {
+  const handleCreateVideoRoom = async () => {
     if (!roomName.trim() || !selectedCaseId) {
       toast({
         title: "Missing Information",
@@ -66,36 +56,13 @@ export function VideoConference() {
     setIsCreating(true);
 
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-
-      if (!session) {
-        throw new Error("Not authenticated");
-      }
-
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-video-room`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({
-            name: roomName,
-            caseId: selectedCaseId,
-            description: description || undefined,
-            enableRecording: true,
-            maxParticipants: 10,
-          }),
-        }
-      );
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || "Failed to create video room");
-      }
-
-      const data: VideoRoomData = await response.json();
+      const data = await createVideoRoom({
+        name: roomName.trim(),
+        caseId: selectedCaseId,
+        description: description || undefined,
+        enableRecording: true,
+        maxParticipants: 10,
+      });
       setCurrentRoom(data);
       setCreateDialogOpen(false);
 
@@ -119,7 +86,7 @@ export function VideoConference() {
     }
   };
 
-  const joinVideoRoom = async () => {
+  const handleJoinVideoRoom = async () => {
     if (!joinRoomName.trim()) {
       toast({
         title: "Missing Information",
@@ -132,33 +99,7 @@ export function VideoConference() {
     setIsJoining(true);
 
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-
-      if (!session) {
-        throw new Error("Not authenticated");
-      }
-
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/join-video-room`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({
-            roomName: joinRoomName,
-            userName: user?.email || "Participant",
-          }),
-        }
-      );
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || "Failed to join video room");
-      }
-
-      const data = await response.json();
+      const data = await joinVideoRoom(joinRoomName.trim(), user?.email || "Participant");
       setJoinDialogOpen(false);
 
       toast({
@@ -259,7 +200,7 @@ export function VideoConference() {
                   >
                     Cancel
                   </Button>
-                  <Button onClick={createVideoRoom} disabled={isCreating}>
+                    <Button onClick={handleCreateVideoRoom} disabled={isCreating}>
                     {isCreating ? (
                       <>
                         <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -310,7 +251,7 @@ export function VideoConference() {
                   >
                     Cancel
                   </Button>
-                  <Button onClick={joinVideoRoom} disabled={isJoining}>
+                  <Button onClick={handleJoinVideoRoom} disabled={isJoining}>
                     {isJoining ? (
                       <>
                         <Loader2 className="h-4 w-4 mr-2 animate-spin" />

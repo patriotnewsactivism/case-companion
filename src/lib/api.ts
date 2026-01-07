@@ -200,15 +200,31 @@ export interface VideoRoom {
   roomName: string;
   token: string;
   expiresAt?: string;
+  enableRecording?: boolean;
+  roomId?: string;
 }
 
-export async function createVideoRoom(name: string, caseId?: string): Promise<VideoRoom> {
+interface CreateVideoRoomInput {
+  name: string;
+  caseId: string;
+  description?: string;
+  expiresInMinutes?: number;
+  enableRecording?: boolean;
+  maxParticipants?: number;
+}
+
+export async function createVideoRoom(input: CreateVideoRoomInput): Promise<VideoRoom> {
   const { data, error } = await supabase.functions.invoke('create-video-room', {
-    body: { name, caseId, expiresInMinutes: 120 },
+    body: {
+      ...input,
+      expiresInMinutes: input.expiresInMinutes ?? 240,
+      enableRecording: input.enableRecording ?? true,
+      maxParticipants: input.maxParticipants ?? 10,
+    },
   });
 
   if (error) throw error;
-  return data;
+  return data as VideoRoom;
 }
 
 export async function joinVideoRoom(roomName: string, userName?: string): Promise<VideoRoom> {
@@ -217,5 +233,5 @@ export async function joinVideoRoom(roomName: string, userName?: string): Promis
   });
 
   if (error) throw error;
-  return data;
+  return data as VideoRoom;
 }
