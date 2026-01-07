@@ -23,8 +23,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Video, Loader2, ExternalLink, Users } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
-import { getCases } from "@/lib/api";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { createVideoRoom, getCases, joinVideoRoom } from "@/lib/api";
 
 interface VideoRoomData {
   roomId: string;
@@ -38,8 +38,6 @@ interface VideoRoomData {
 export function VideoConference() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [isCreating, setIsCreating] = useState(false);
-  const [isJoining, setIsJoining] = useState(false);
   const [roomName, setRoomName] = useState("");
   const [selectedCaseId, setSelectedCaseId] = useState("");
   const [description, setDescription] = useState("");
@@ -53,49 +51,25 @@ export function VideoConference() {
     queryFn: getCases,
   });
 
-  const createVideoRoom = async () => {
-    if (!roomName.trim() || !selectedCaseId) {
-      toast({
-        title: "Missing Information",
-        description: "Please provide a room name and select a case",
-        variant: "destructive",
-      });
-      return;
-    }
+  const createRoomMutation = useMutation({
+    mutationFn: async () => {
+      if (!roomName.trim() || !selectedCaseId) {
+        throw new Error("Please provide a room name and select a case");
+      }
 
-    setIsCreating(true);
-
-    try {
       const { data: { session } } = await supabase.auth.getSession();
-
       if (!session) {
         throw new Error("Not authenticated");
       }
 
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-video-room`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({
-            name: roomName,
-            caseId: selectedCaseId,
-            description: description || undefined,
-            enableRecording: true,
-            maxParticipants: 10,
-          }),
-        }
-      );
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || "Failed to create video room");
-      }
-
-      const data: VideoRoomData = await response.json();
+      return createVideoRoom(roomName, selectedCaseId, {
+        description: description || undefined,
+        enableRecording: true,
+        maxParticipants: 10,
+        expiresInMinutes: 240,
+      });
+    },
+    onSuccess: (data) => {
       setCurrentRoom(data);
       setCreateDialogOpen(false);
 
@@ -104,61 +78,32 @@ export function VideoConference() {
         description: "Your secure video conference is ready",
       });
 
-      // Open room in new window
       window.open(data.roomUrl + `?t=${data.token}`, "_blank");
-
-    } catch (error) {
+    },
+    onError: (error: Error) => {
       console.error("Error creating video room:", error);
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to create video room",
+        description: error.message,
         variant: "destructive",
       });
-    } finally {
-      setIsCreating(false);
-    }
-  };
+    },
+  });
 
-  const joinVideoRoom = async () => {
-    if (!joinRoomName.trim()) {
-      toast({
-        title: "Missing Information",
-        description: "Please provide the room name",
-        variant: "destructive",
-      });
-      return;
-    }
+  const joinRoomMutation = useMutation({
+    mutationFn: async () => {
+      if (!joinRoomName.trim()) {
+        throw new Error("Please provide the room name");
+      }
 
-    setIsJoining(true);
-
-    try {
       const { data: { session } } = await supabase.auth.getSession();
-
       if (!session) {
         throw new Error("Not authenticated");
       }
 
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/join-video-room`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({
-            roomName: joinRoomName,
-            userName: user?.email || "Participant",
-          }),
-        }
-      );
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || "Failed to join video room");
-      }
-
-      const data = await response.json();
+      return joinVideoRoom(joinRoomName, user?.email || "Participant");
+    },
+    onSuccess: (data) => {
       setJoinDialogOpen(false);
 
       toast({
@@ -166,20 +111,20 @@ export function VideoConference() {
         description: "Opening secure video conference",
       });
 
-      // Open room in new window
       window.open(data.roomUrl + `?t=${data.token}`, "_blank");
-
-    } catch (error) {
+    },
+    onError: (error: Error) => {
       console.error("Error joining video room:", error);
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to join video room",
+        description: error.message,
         variant: "destructive",
       });
-    } finally {
-      setIsJoining(false);
-    }
-  };
+    },
+  });
+
+  const isCreating = createRoomMutation.isPending;
+  const isJoining = joinRoomMutation.isPending;
 
   return (
     <div className="space-y-4">
@@ -259,7 +204,7 @@ export function VideoConference() {
                   >
                     Cancel
                   </Button>
-                  <Button onClick={createVideoRoom} disabled={isCreating}>
+                  <Button onClick={() => createRoomMutation.mutate()} disabled={isCreating}>
                     {isCreating ? (
                       <>
                         <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -310,7 +255,7 @@ export function VideoConference() {
                   >
                     Cancel
                   </Button>
-                  <Button onClick={joinVideoRoom} disabled={isJoining}>
+                  <Button onClick={() => joinRoomMutation.mutate()} disabled={isJoining}>
                     {isJoining ? (
                       <>
                         <Loader2 className="h-4 w-4 mr-2 animate-spin" />
