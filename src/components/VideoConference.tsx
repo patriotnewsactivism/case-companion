@@ -27,12 +27,12 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { createVideoRoom, getCases, joinVideoRoom } from "@/lib/api";
 
 interface VideoRoomData {
-  roomId: string;
+  roomId?: string;
   roomUrl: string;
   roomName: string;
   token: string;
-  expiresAt: string;
-  enableRecording: boolean;
+  expiresAt?: string;
+  enableRecording?: boolean;
 }
 
 export function VideoConference() {

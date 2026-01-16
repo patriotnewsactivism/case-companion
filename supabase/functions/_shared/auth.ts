@@ -128,7 +128,7 @@ export async function verifyResourceOwnership(
     };
   }
 
-  const record = data as Record<string, unknown> | null;
+  const record = data as unknown as Record<string, unknown> | null;
   const ownerId = record && typeof record[userColumn] === 'string'
     ? record[userColumn]
     : null;

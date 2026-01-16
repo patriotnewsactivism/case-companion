@@ -201,10 +201,12 @@ export async function updateProfile(updates: Partial<Profile>): Promise<Profile>
 
 // Video Room API
 export interface VideoRoom {
+  roomId?: string;
   roomUrl: string;
   roomName: string;
   token: string;
   expiresAt?: string;
+  enableRecording?: boolean;
 }
 
 export interface CreateVideoRoomOptions {

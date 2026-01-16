@@ -133,8 +133,8 @@ export function validateEnvVars(requiredVars: string[]): void {
  */
 export function validateRequestBody<T>(
   body: Record<string, unknown>,
-  requiredFields: (keyof T)[]
-): asserts body is T {
+  requiredFields: string[]
+): asserts body is Record<string, unknown> & T {
   const missing = requiredFields.filter(field => !(field in body) || body[field] === undefined);
 
   if (missing.length > 0) {
