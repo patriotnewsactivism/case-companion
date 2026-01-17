@@ -284,6 +284,10 @@ export default function CaseDetail() {
   const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0 });
 
   const [searchQuery, setSearchQuery] = useState("");
+  const [filterStatus, setFilterStatus] = useState<"all" | "analyzed" | "pending">("all");
+  const [filterFileType, setFilterFileType] = useState<"all" | "pdf" | "image" | "audio" | "video" | "other">("all");
+  const [filterDateRange, setFilterDateRange] = useState<"all" | "today" | "week" | "month">("all");
+  const [showFilters, setShowFilters] = useState(false);
 
   const [docForm, setDocForm] = useState({
     name: "",
@@ -568,6 +572,62 @@ export default function CaseDetail() {
     (doc) => !doc.ai_analyzed && doc.file_url && 
     (doc.file_type?.includes('pdf') || doc.file_type?.includes('image'))
   ).length;
+
+  // Filter documents based on search and filters
+  const filteredDocuments = documents.filter((doc) => {
+    // Search filter
+    const searchLower = searchQuery.toLowerCase();
+    const matchesSearch = !searchQuery || 
+      doc.name.toLowerCase().includes(searchLower) ||
+      doc.bates_number?.toLowerCase().includes(searchLower) ||
+      doc.summary?.toLowerCase().includes(searchLower);
+
+    // AI status filter
+    const matchesStatus = 
+      filterStatus === "all" ||
+      (filterStatus === "analyzed" && doc.ai_analyzed) ||
+      (filterStatus === "pending" && !doc.ai_analyzed);
+
+    // File type filter
+    const fileType = doc.file_type?.toLowerCase() || "";
+    const matchesFileType = 
+      filterFileType === "all" ||
+      (filterFileType === "pdf" && fileType.includes("pdf")) ||
+      (filterFileType === "image" && (fileType.includes("image") || fileType.includes("jpeg") || fileType.includes("png") || fileType.includes("gif"))) ||
+      (filterFileType === "audio" && fileType.includes("audio")) ||
+      (filterFileType === "video" && fileType.includes("video")) ||
+      (filterFileType === "other" && !fileType.includes("pdf") && !fileType.includes("image") && !fileType.includes("audio") && !fileType.includes("video"));
+
+    // Date range filter
+    const docDate = new Date(doc.created_at);
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const monthAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
+    
+    const matchesDate = 
+      filterDateRange === "all" ||
+      (filterDateRange === "today" && docDate >= today) ||
+      (filterDateRange === "week" && docDate >= weekAgo) ||
+      (filterDateRange === "month" && docDate >= monthAgo);
+
+    return matchesSearch && matchesStatus && matchesFileType && matchesDate;
+  });
+
+  // Count active filters
+  const activeFilterCount = [
+    filterStatus !== "all",
+    filterFileType !== "all",
+    filterDateRange !== "all"
+  ].filter(Boolean).length;
+
+  // Clear all filters
+  const clearFilters = () => {
+    setSearchQuery("");
+    setFilterStatus("all");
+    setFilterFileType("all");
+    setFilterDateRange("all");
+  };
 
   // Delete document mutation
   const deleteDocMutation = useMutation({
@@ -895,22 +955,96 @@ export default function CaseDetail() {
               <TabsContent value="discovery" className="space-y-4">
                 {/* Search and Filter Bar */}
                 <Card className="glass-card">
-                  <CardContent className="p-4">
+                  <CardContent className="p-4 space-y-4">
                     <div className="flex items-center gap-4">
                       <div className="relative flex-1">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                         <Input
-                          placeholder="Search Bates, files..."
+                          placeholder="Search Bates, files, summaries..."
                           value={searchQuery}
                           onChange={(e) => setSearchQuery(e.target.value)}
                           className="pl-10"
                         />
                       </div>
-                      <Button variant="outline" className="gap-2">
+                      <Button 
+                        variant={showFilters || activeFilterCount > 0 ? "default" : "outline"} 
+                        className="gap-2"
+                        onClick={() => setShowFilters(!showFilters)}
+                      >
                         <Filter className="h-4 w-4" />
                         Filters
+                        {activeFilterCount > 0 && (
+                          <Badge variant="secondary" className="ml-1 h-5 w-5 p-0 flex items-center justify-center text-xs">
+                            {activeFilterCount}
+                          </Badge>
+                        )}
                       </Button>
                     </div>
+
+                    {/* Expanded Filters */}
+                    {showFilters && (
+                      <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-border">
+                        {/* AI Status Filter */}
+                        <div className="flex items-center gap-2">
+                          <Label className="text-sm text-muted-foreground whitespace-nowrap">AI Status:</Label>
+                          <select
+                            value={filterStatus}
+                            onChange={(e) => setFilterStatus(e.target.value as typeof filterStatus)}
+                            className="h-9 px-3 rounded-md border border-input bg-background text-sm"
+                          >
+                            <option value="all">All</option>
+                            <option value="analyzed">Analyzed</option>
+                            <option value="pending">Pending</option>
+                          </select>
+                        </div>
+
+                        {/* File Type Filter */}
+                        <div className="flex items-center gap-2">
+                          <Label className="text-sm text-muted-foreground whitespace-nowrap">Type:</Label>
+                          <select
+                            value={filterFileType}
+                            onChange={(e) => setFilterFileType(e.target.value as typeof filterFileType)}
+                            className="h-9 px-3 rounded-md border border-input bg-background text-sm"
+                          >
+                            <option value="all">All Types</option>
+                            <option value="pdf">PDF</option>
+                            <option value="image">Images</option>
+                            <option value="audio">Audio</option>
+                            <option value="video">Video</option>
+                            <option value="other">Other</option>
+                          </select>
+                        </div>
+
+                        {/* Date Range Filter */}
+                        <div className="flex items-center gap-2">
+                          <Label className="text-sm text-muted-foreground whitespace-nowrap">Added:</Label>
+                          <select
+                            value={filterDateRange}
+                            onChange={(e) => setFilterDateRange(e.target.value as typeof filterDateRange)}
+                            className="h-9 px-3 rounded-md border border-input bg-background text-sm"
+                          >
+                            <option value="all">Any Time</option>
+                            <option value="today">Today</option>
+                            <option value="week">Last 7 Days</option>
+                            <option value="month">Last 30 Days</option>
+                          </select>
+                        </div>
+
+                        {/* Clear Filters */}
+                        {activeFilterCount > 0 && (
+                          <Button variant="ghost" size="sm" onClick={clearFilters} className="text-muted-foreground">
+                            Clear all
+                          </Button>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Results count */}
+                    {(searchQuery || activeFilterCount > 0) && (
+                      <div className="text-sm text-muted-foreground">
+                        Showing {filteredDocuments.length} of {documents.length} documents
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
 
@@ -1104,99 +1238,71 @@ export default function CaseDetail() {
                 {/* Import Jobs Viewer */}
                 <ImportJobsViewer caseId={id!} />
 
-                {/* Filter documents based on search */}
-                {(() => {
-                  const filteredDocs = documents.filter(doc => {
-                    if (!searchQuery) return true;
-                    const query = searchQuery.toLowerCase();
-                    return (
-                      doc.name?.toLowerCase().includes(query) ||
-                      doc.bates_number?.toLowerCase().includes(query) ||
-                      doc.summary?.toLowerCase().includes(query)
-                    );
-                  });
-
-                  if (docsLoading) {
-                    return (
-                      <div className="flex items-center justify-center py-8">
-                        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                {/* Document List */}
+                {docsLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  </div>
+                ) : documents.length === 0 ? (
+                  <Card className="glass-card">
+                    <CardContent className="flex flex-col items-center justify-center py-12">
+                      <File className="h-12 w-12 text-muted-foreground mb-4" />
+                      <h3 className="text-lg font-medium mb-2">No discovery files yet. Add evidence to get started.</h3>
+                      <div className="flex gap-2 mt-4">
+                        <Button variant="outline" onClick={() => setIsLinkImportOpen(true)}>
+                          <Link className="h-4 w-4 mr-2" />
+                          Import from Link
+                        </Button>
+                        <Button onClick={() => setIsUploadOpen(true)}>
+                          <Upload className="h-4 w-4 mr-2" />
+                          Upload File
+                        </Button>
                       </div>
-                    );
-                  }
+                    </CardContent>
+                  </Card>
+                ) : filteredDocuments.length === 0 ? (
+                  <Card className="glass-card">
+                    <CardContent className="flex flex-col items-center justify-center py-12">
+                      <Search className="h-12 w-12 text-muted-foreground mb-4" />
+                      <h3 className="text-lg font-medium mb-2">No documents match your filters.</h3>
+                      <p className="text-sm text-muted-foreground mb-4">
+                        Try adjusting your search or clearing filters.
+                      </p>
+                      <Button variant="outline" onClick={clearFilters}>
+                        Clear all filters
+                      </Button>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <Card className="glass-card overflow-hidden">
+                    {/* Table Header */}
+                    <div className="grid grid-cols-12 gap-4 px-4 py-3 border-b border-border bg-muted/30 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                      <div className="col-span-1">Type</div>
+                      <div className="col-span-2">Bates Number</div>
+                      <div className="col-span-4">File Name / Summary</div>
+                      <div className="col-span-2">Source</div>
+                      <div className="col-span-1">Tags</div>
+                      <div className="col-span-2 text-right">Actions</div>
+                    </div>
 
-                  if (documents.length === 0) {
-                    return (
-                      <Card className="glass-card">
-                        <CardContent className="flex flex-col items-center justify-center py-12">
-                          <File className="h-12 w-12 text-muted-foreground mb-4" />
-                          <h3 className="text-lg font-medium mb-2">No discovery files yet. Add evidence to get started.</h3>
-                          <div className="flex gap-2 mt-4">
-                            <Button variant="outline" onClick={() => setIsLinkImportOpen(true)}>
-                              <Link className="h-4 w-4 mr-2" />
-                              Import from Link
-                            </Button>
-                            <Button onClick={() => setIsUploadOpen(true)}>
-                              <Upload className="h-4 w-4 mr-2" />
-                              Upload File
-                            </Button>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    );
-                  }
-
-                  if (filteredDocs.length === 0) {
-                    return (
-                      <Card className="glass-card">
-                        <CardContent className="flex flex-col items-center justify-center py-12">
-                          <Search className="h-12 w-12 text-muted-foreground mb-4" />
-                          <h3 className="text-lg font-medium mb-2">No documents match your search.</h3>
-                          <p className="text-sm text-muted-foreground">
-                            Try clearing filters or adjusting your query.
-                          </p>
-                        </CardContent>
-                      </Card>
-                    );
-                  }
-
-                  const listHeight = Math.min(
-                    DOCUMENT_LIST_MAX_HEIGHT,
-                    Math.max(filteredDocs.length * DOCUMENT_ROW_HEIGHT, DOCUMENT_ROW_HEIGHT)
-                  );
-
-                  const rowData = {
-                    docs: filteredDocs,
-                    onView: handleViewDocument,
-                    onDownload: handleDownloadDocument,
-                    onDelete: setDeleteDocId,
-                  };
-
-                  return (
-                    <Card className="glass-card overflow-hidden">
-                      {/* Table Header */}
-                      <div className="grid grid-cols-12 gap-4 px-4 py-3 border-b border-border bg-muted/30 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                        <div className="col-span-1">Type</div>
-                        <div className="col-span-2">Bates Number</div>
-                        <div className="col-span-4">File Name / Summary</div>
-                        <div className="col-span-2">Source</div>
-                        <div className="col-span-1">Tags</div>
-                        <div className="col-span-2 text-right">Actions</div>
-                      </div>
-
-                      {/* Table Body */}
-                      <List
-                        height={listHeight}
-                        itemCount={filteredDocs.length}
-                        itemSize={DOCUMENT_ROW_HEIGHT}
-                        width="100%"
-                        itemData={rowData}
-                        itemKey={(index, data) => data.docs[index]?.id ?? index}
-                      >
-                        {DocumentRow}
-                      </List>
-                    </Card>
-                  );
-                })()}
+                    {/* Table Body */}
+                    <List
+                      height={Math.min(DOCUMENT_LIST_MAX_HEIGHT, Math.max(filteredDocuments.length * DOCUMENT_ROW_HEIGHT, DOCUMENT_ROW_HEIGHT))}
+                      itemCount={filteredDocuments.length}
+                      itemSize={DOCUMENT_ROW_HEIGHT}
+                      width="100%"
+                      itemData={{
+                        docs: filteredDocuments,
+                        onView: handleViewDocument,
+                        onDownload: handleDownloadDocument,
+                        onDelete: setDeleteDocId,
+                      }}
+                      itemKey={(index, data) => data.docs[index]?.id ?? index}
+                    >
+                      {DocumentRow}
+                    </List>
+                  </Card>
+                )}
               </TabsContent>
 
               {/* Timeline Tab */}
