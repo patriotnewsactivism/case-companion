@@ -280,6 +280,8 @@ export default function CaseDetail() {
   const [processingOcr, setProcessingOcr] = useState<string | null>(null);
   const [transcribing, setTranscribing] = useState<string | null>(null);
   const [selectedDoc, setSelectedDoc] = useState<Document | null>(null);
+  const [batchProcessing, setBatchProcessing] = useState(false);
+  const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0 });
 
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -477,6 +479,95 @@ export default function CaseDetail() {
       setTranscribing(null);
     }
   };
+
+  // Batch re-analyze all unprocessed documents
+  const triggerBatchOcr = async () => {
+    const unanalyzedDocs = documents.filter(
+      (doc) => !doc.ai_analyzed && doc.file_url && 
+      (doc.file_type?.includes('pdf') || doc.file_type?.includes('image'))
+    );
+
+    if (unanalyzedDocs.length === 0) {
+      toast({
+        title: "No documents to analyze",
+        description: "All documents have already been analyzed.",
+      });
+      return;
+    }
+
+    setBatchProcessing(true);
+    setBatchProgress({ current: 0, total: unanalyzedDocs.length });
+
+    toast({
+      title: "Batch analysis started",
+      description: `Processing ${unanalyzedDocs.length} documents...`,
+    });
+
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      toast({
+        title: "Authentication required",
+        description: "Please log in to analyze documents.",
+        variant: "destructive",
+      });
+      setBatchProcessing(false);
+      return;
+    }
+
+    const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ocr-document`;
+    let successCount = 0;
+    let failCount = 0;
+
+    // Process in batches of 3 to avoid overwhelming the system
+    const BATCH_SIZE = 3;
+    for (let i = 0; i < unanalyzedDocs.length; i += BATCH_SIZE) {
+      const batch = unanalyzedDocs.slice(i, i + BATCH_SIZE);
+      
+      await Promise.all(
+        batch.map(async (doc) => {
+          try {
+            const response = await fetch(functionUrl, {
+              method: 'POST',
+              mode: 'cors',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${session.access_token}`,
+                'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+              },
+              body: JSON.stringify({ documentId: doc.id, fileUrl: doc.file_url }),
+            });
+
+            if (response.ok) {
+              successCount++;
+            } else {
+              failCount++;
+              console.error(`OCR failed for ${doc.name}:`, await response.text());
+            }
+          } catch (error) {
+            failCount++;
+            console.error(`OCR error for ${doc.name}:`, error);
+          }
+        })
+      );
+
+      setBatchProgress({ current: Math.min(i + BATCH_SIZE, unanalyzedDocs.length), total: unanalyzedDocs.length });
+    }
+
+    setBatchProcessing(false);
+    queryClient.invalidateQueries({ queryKey: ["documents", id] });
+
+    toast({
+      title: "Batch analysis complete",
+      description: `Successfully analyzed ${successCount} documents${failCount > 0 ? `, ${failCount} failed` : ''}.`,
+      variant: failCount > 0 ? "destructive" : "default",
+    });
+  };
+
+  // Count unanalyzed documents
+  const unanalyzedCount = documents.filter(
+    (doc) => !doc.ai_analyzed && doc.file_url && 
+    (doc.file_type?.includes('pdf') || doc.file_type?.includes('image'))
+  ).length;
 
   // Delete document mutation
   const deleteDocMutation = useMutation({
@@ -825,6 +916,28 @@ export default function CaseDetail() {
 
                 <div className="flex flex-wrap justify-end items-center gap-2">
                   <div className="flex gap-2">
+                    {/* Batch Re-analyze Button */}
+                    {unanalyzedCount > 0 && (
+                      <Button
+                        variant="outline"
+                        className="gap-2"
+                        onClick={triggerBatchOcr}
+                        disabled={batchProcessing}
+                      >
+                        {batchProcessing ? (
+                          <>
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Analyzing {batchProgress.current}/{batchProgress.total}
+                          </>
+                        ) : (
+                          <>
+                            <Brain className="h-4 w-4" />
+                            Analyze All ({unanalyzedCount})
+                          </>
+                        )}
+                      </Button>
+                    )}
+
                     {/* Google Drive Folder Import */}
                     <GoogleDriveFolderImport
                       caseId={id!}
