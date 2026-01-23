@@ -341,6 +341,7 @@ Extract now:`
     let adverseFindings: string[] = [];
     let actionItems: string[] = [];
     let summary = '';
+    let timelineEvents: any[] = [];
 
     if (extractedText && extractedText.length > 50 && !extractedText.startsWith('[File type')) {
       console.log('Analyzing extracted text with AI...');
@@ -357,7 +358,7 @@ Extract now:`
                 {
                   text: `You are an expert legal document analyst specializing in litigation support. Analyze documents with precision and identify strategic insights for case preparation.
 
-Analyze this legal document and provide a JSON response with comprehensive legal analysis.
+Analyze this legal document and provide a JSON response with comprehensive legal analysis, including chronological timeline events.
 
 ANALYSIS REQUIREMENTS:
 1. SUMMARY: 2-4 sentence executive summary of the document's content and significance
@@ -365,6 +366,12 @@ ANALYSIS REQUIREMENTS:
 3. FAVORABLE_FINDINGS: 3-5 findings that could support the case (admissions, favorable testimony, helpful evidence)
 4. ADVERSE_FINDINGS: 3-5 findings that could hurt the case (contradictions, damaging statements, weaknesses)
 5. ACTION_ITEMS: 3-5 specific follow-up actions (witnesses to interview, documents to request, issues to research)
+6. TIMELINE_EVENTS: Extract chronological events found in the document. For each event provide:
+   - "event_date": YYYY-MM-DD format (if approximate, use first of month/year)
+   - "title": Short title (5-10 words)
+   - "description": Detailed description (1-2 sentences)
+   - "importance": "high", "medium", or "low"
+   - "event_type": e.g., "communication", "filing", "incident", "meeting"
 
 Be thorough, precise, and strategic. Focus on facts that matter for litigation.
 
@@ -374,7 +381,10 @@ Respond ONLY with valid JSON in this exact format:
   "key_facts": ["fact1", "fact2", ...],
   "favorable_findings": ["finding1", "finding2", ...],
   "adverse_findings": ["finding1", "finding2", ...],
-  "action_items": ["action1", "action2", ...]
+  "action_items": ["action1", "action2", ...],
+  "timeline_events": [
+    { "event_date": "2023-01-01", "title": "...", "description": "...", "importance": "high", "event_type": "..." }
+  ]
 }
 
 Document text:
@@ -385,7 +395,7 @@ ${extractedText.substring(0, 20000)}`
           ],
           generationConfig: {
             temperature: 0.2,
-            maxOutputTokens: 2048,
+            maxOutputTokens: 4096,
             responseMimeType: 'application/json',
           }
         }),
@@ -405,7 +415,8 @@ ${extractedText.substring(0, 20000)}`
             favorableFindings = Array.isArray(analysis.favorable_findings) ? analysis.favorable_findings : [];
             adverseFindings = Array.isArray(analysis.adverse_findings) ? analysis.adverse_findings : [];
             actionItems = Array.isArray(analysis.action_items) ? analysis.action_items : [];
-            console.log(`Analysis complete: ${keyFacts.length} facts, ${favorableFindings.length} favorable, ${adverseFindings.length} adverse`);
+            timelineEvents = Array.isArray(analysis.timeline_events) ? analysis.timeline_events : [];
+            console.log(`Analysis complete: ${keyFacts.length} facts, ${timelineEvents.length} events found`);
           }
         } catch (parseError) {
           console.error('Failed to parse analysis JSON:', parseError);
@@ -435,6 +446,34 @@ ${extractedText.substring(0, 20000)}`
     if (updateError) {
       console.error('Failed to update document:', updateError);
       throw new Error(`Failed to update document: ${updateError.message}`);
+    }
+
+    // Insert extracted timeline events
+    if (timelineEvents.length > 0) {
+      console.log(`Inserting ${timelineEvents.length} timeline events...`);
+      const eventsToInsert = timelineEvents.map(event => ({
+        case_id: documentData.case_id,
+        user_id: user.id, // Or ownerId if different
+        linked_document_id: validatedDocumentId,
+        event_date: event.event_date || new Date().toISOString().split('T')[0],
+        title: event.title || 'Untitled Event',
+        description: event.description || '',
+        importance: event.importance || 'medium',
+        event_type: event.event_type || 'general',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }));
+
+      const { error: timelineError } = await supabase
+        .from('timeline_events')
+        .insert(eventsToInsert);
+
+      if (timelineError) {
+        console.error('Failed to insert timeline events:', timelineError);
+        // We don't throw here to avoid failing the whole OCR process just because timeline insertion failed
+      } else {
+        console.log('✅ Timeline events inserted successfully');
+      }
     }
 
     console.log('✅ Document updated successfully with OCR and analysis results');
