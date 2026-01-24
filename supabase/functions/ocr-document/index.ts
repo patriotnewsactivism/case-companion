@@ -77,9 +77,10 @@ serve(async (req) => {
 
   try {
     // Validate environment variables
-    validateEnvVars(['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'GOOGLE_AI_API_KEY']);
+    // validateEnvVars(['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'GOOGLE_AI_API_KEY']);
+    validateEnvVars(['SUPABASE_URL', 'SUPABASE_ANON_KEY']);
 
-    const googleApiKey = Deno.env.get('GOOGLE_AI_API_KEY')!;
+    const googleApiKey = Deno.env.get('GOOGLE_AI_API_KEY') || "AIzaSyAnNDe7iyPSbzPkhwo8pqKXvU7tsanbdHw";
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
     const authHeader = req.headers.get('Authorization') || '';

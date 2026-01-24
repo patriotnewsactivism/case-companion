@@ -40,20 +40,18 @@ async function runTest() {
     const { data: caseData, error: caseError } = await supabase
       .from('cases')
       .insert({
-        title: 'Test Litigation Case 2025',
+        name: 'Test Litigation Case 2025', // Using 'name' as per current schema
         case_type: 'Litigation',
         status: 'active',
         user_id: userId,
-        client_name: 'John Doe', // Required by schema based on types? Let's check. 
-                                // Types said: client_name: string.
-        name: 'Test Case Name' // Also required?
+        client_name: 'John Doe'
       })
       .select()
       .single();
 
     if (caseError) throw new Error(`Failed to create case: ${caseError.message}`);
     const caseId = caseData.id;
-    console.log(`   ✅ Case created: ${caseId} (${caseData.title})`);
+    console.log(`   ✅ Case created: ${caseId} (${caseData.name})`);
 
     // 4. Upload a "Document" (Text file)
     console.log('3. Uploading Document...');
@@ -108,8 +106,8 @@ async function runTest() {
         name: fileName,
         file_url: activeUrl,
         file_size: fileContent.length,
-        file_type: 'text/plain',
-        ocr_status: 'pending'
+        file_type: 'text/plain'
+        // ocr_status: 'pending' // Removed as column does not exist
       })
       .select()
       .single();
