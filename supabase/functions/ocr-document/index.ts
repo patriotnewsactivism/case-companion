@@ -493,8 +493,11 @@ ${extractedText.substring(0, 20000)}`
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('❌ OCR Error:', error);
-    return createErrorResponse(error, 500, 'ocr-document', corsHeaders);
+    if (error instanceof Error) {
+        return createErrorResponse(error, 500, 'ocr-document', corsHeaders);
+    }
+    return createErrorResponse(new Error('An unknown error occurred'), 500, 'ocr-document', corsHeaders);
   }
 });

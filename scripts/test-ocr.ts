@@ -173,8 +173,12 @@ async function runTest() {
 
     console.log('\n✅ TEST COMPLETED SUCCESSFULLY');
 
-  } catch (err: any) {
-    console.error('\n❌ TEST FAILED:', err.message);
+  } catch (err: unknown) {
+    if (err instanceof Error) {
+        console.error('\n❌ TEST FAILED:', err.message);
+    } else {
+        console.error('\n❌ TEST FAILED:', err);
+    }
     process.exit(1);
   }
 }
