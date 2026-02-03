@@ -1,9 +1,12 @@
 
-import { createClient } from '@supabase/supabase-js';
+// Configuration (using environment variables)
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || 'http://127.0.0.1:54321'; // Fallback to local for convenience, but remote should be used
+const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
 
-// Configuration (Hardcoded for local test)
-const SUPABASE_URL = 'http://127.0.0.1:54321';
-const SERVICE_ROLE_KEY = 'eyJhbGciOiJFUzI1NiIsImtpZCI6ImI4MTI2OWYxLTIxZDgtNGYyZS1iNzE5LWMyMjQwYTg0MGQ5MCIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MjA4NDUzNzY4Mn0.sZ9Z2QoERcdAxXInqq5YRpH5JLlv4Z8wqTz81X9gZ4Sah4w2XXINGPb8WQC5n3QsSHhKENOCgWOvqm3BD_61DA';
+if (!SERVICE_ROLE_KEY) {
+  console.error('Error: SUPABASE_SERVICE_ROLE_KEY is not set in environment variables.');
+  process.exit(1);
+}
 
 // Initialize Supabase Admin Client
 const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
