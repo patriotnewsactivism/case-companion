@@ -28,7 +28,9 @@
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(supabase functions logs:*)",
-      "Bash(supabase db push:*)"
+      "Bash(supabase db push:*)",
+      "Bash(supabase db execute:*)",
+      "Bash(supabase migration new:*)"
     ]
   },
   "enableAllProjectMcpServers": true,
