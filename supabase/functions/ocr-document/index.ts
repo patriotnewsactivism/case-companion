@@ -210,7 +210,7 @@ serve(async (req) => {
 
       console.log(`Image size: ${sizeInMB}MB, MIME: ${mimeType}`);
 
-      const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${googleApiKey}`, {
+      const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${googleApiKey}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -261,6 +261,12 @@ Extract now:`
       if (!aiResponse.ok) {
         const errorText = await aiResponse.text();
         console.error('AI Image OCR error:', errorText);
+
+        // Check for rate limit errors
+        if (aiResponse.status === 429 || errorText.includes('RESOURCE_EXHAUSTED')) {
+          throw new Error('Google AI API rate limit exceeded. Please wait a few minutes or upgrade your API plan at https://aistudio.google.com/');
+        }
+
         throw new Error(`AI Image OCR failed: ${errorText}`);
       }
 
@@ -278,7 +284,7 @@ Extract now:`
 
       console.log(`PDF size: ${sizeInMB}MB`);
 
-      const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${googleApiKey}`, {
+      const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${googleApiKey}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
