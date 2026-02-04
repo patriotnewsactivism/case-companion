@@ -1649,6 +1649,28 @@ export default function CaseDetail() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Video Room Dialog */}
+      <Dialog open={showVideoRoom} onOpenChange={setShowVideoRoom}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Video className="h-5 w-5 text-accent" />
+              Video Conference
+            </DialogTitle>
+            <DialogDescription>
+              Secure, encrypted video conference for case collaboration
+            </DialogDescription>
+          </DialogHeader>
+          {showVideoRoom && id && (
+            <VideoRoom
+              caseId={id}
+              roomName={videoRoomName}
+              onLeave={() => setShowVideoRoom(false)}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </Layout>
   );
 }
