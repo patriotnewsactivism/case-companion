@@ -27,7 +27,8 @@
       "Bash(cmd /c scripts\\\\test-fixes.bat)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(supabase functions logs:*)"
+      "Bash(supabase functions logs:*)",
+      "Bash(supabase db push:*)"
     ]
   },
   "enableAllProjectMcpServers": true,
