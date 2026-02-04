@@ -78,21 +78,20 @@ serve(async (req) => {
     // Validate environment variables
     validateEnvVars(['SUPABASE_URL', 'SUPABASE_ANON_KEY']);
 
-    const azureEndpoint = Deno.env.get('AZURE_VISION_ENDPOINT');
-    const azureApiKey = Deno.env.get('AZURE_VISION_API_KEY');
-    const ocrSpaceApiKey = Deno.env.get('OCR_SPACE_API_KEY');
     const googleApiKey = Deno.env.get('GOOGLE_AI_API_KEY');
+    const ocrSpaceApiKey = Deno.env.get('OCR_SPACE_API_KEY');
 
     // Check if at least one OCR provider is configured
-    if (!azureEndpoint && !ocrSpaceApiKey && !googleApiKey) {
+    if (!googleApiKey && !ocrSpaceApiKey) {
       console.error('No OCR service configured');
       return createErrorResponse(
-        new Error('OCR service not configured. Please set AZURE_VISION_ENDPOINT or OCR_SPACE_API_KEY.'),
+        new Error('OCR service not configured. Please set GOOGLE_AI_API_KEY or OCR_SPACE_API_KEY.'),
         500,
         'ocr-document',
         corsHeaders
       );
     }
+
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || "eyJhbGciOiJFUzI1NiIsImtpZCI6ImI4MTI2OWYxLTIxZDgtNGYyZS1iNzE5LWMyMjQwYTg0MGQ5MCIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MjA4NDUzNzY4Mn0.sZ9Z2QoERcdAxXInqq5YRpH5JLlv4Z8wqTz81X9gZ4Sah4w2XXINGPb8WQC5n3QsSHhKENOCgWOvqm3BD_61DA";
     const authHeader = req.headers.get('Authorization') || '';
@@ -201,88 +200,108 @@ serve(async (req) => {
       return btoa(binary);
     };
 
-    // Azure Computer Vision OCR (BEST QUALITY - RECOMMENDED PRIMARY)
-    const azureVisionOcr = async (fileBlob: Blob, contentType: string): Promise<string> => {
-      if (!azureEndpoint || !azureApiKey) {
-        throw new Error('Azure Computer Vision not configured');
+    // Gemini 2.5 Flash OCR (PRIMARY - Best Quality)
+    const geminiOcr = async (fileBlob: Blob, mimeType: string, isImage: boolean): Promise<string> => {
+      if (!googleApiKey) {
+        throw new Error('Google AI API key not configured');
       }
 
-      console.log('Using Azure Computer Vision OCR (best quality)...');
+      console.log('Using Gemini 2.5 Flash for OCR (best quality)...');
 
-      // Step 1: Submit document for analysis
-      const analyzeUrl = `${azureEndpoint}/vision/v3.2/read/analyze`;
+      const arrayBuffer = await fileBlob.arrayBuffer();
+      const base64 = arrayBufferToBase64(arrayBuffer);
 
-      const analyzeResponse = await fetch(analyzeUrl, {
+      const prompt = isImage
+        ? `You are a professional legal document OCR system. Extract ALL text from this image with maximum accuracy.
+
+EXTRACTION REQUIREMENTS:
+1. Extract EVERY word, number, date, signature, stamp, and annotation visible
+2. Preserve document structure: headings, paragraphs, lists, tables
+3. For tables: use pipe (|) separators and preserve column alignment
+4. Include ALL metadata: dates, case numbers, file stamps, Bates numbers, exhibit numbers
+5. Preserve legal citations exactly as written (case names, statute numbers, etc.)
+6. Include handwritten notes and marginalia if visible
+7. Mark unclear text with [UNCLEAR: your best guess]
+8. Note document quality issues: [FADED], [SMUDGED], [REDACTED], [WATERMARK], etc.
+9. If text is rotated or upside down, still extract it
+10. Extract text from headers, footers, and page numbers
+
+OUTPUT FORMAT:
+- Plain text only, no markdown formatting
+- Preserve original line breaks and paragraph spacing
+- Use "---" to separate distinct sections
+- Start with any document identifiers found (Bates #, Exhibit #, file #, date)
+
+Extract now:`
+        : `You are a professional legal document OCR system. Extract ALL text from this PDF with maximum accuracy.
+
+EXTRACTION REQUIREMENTS:
+1. Process EVERY page of the PDF
+2. Extract EVERY word, number, date, signature, stamp, and annotation
+3. Preserve document structure: headings, paragraphs, lists, tables
+4. For tables: use pipe (|) separators and preserve alignment
+5. Include ALL metadata: dates, case numbers, file stamps, Bates numbers, exhibit numbers
+6. Preserve legal citations exactly as written
+7. Include handwritten notes and marginalia if visible
+8. Mark unclear text with [UNCLEAR: best guess]
+9. Note document quality issues: [FADED], [SMUDGED], [REDACTED]
+10. Extract headers, footers, and page numbers
+
+OUTPUT FORMAT:
+- Plain text only, no markdown
+- Preserve line breaks and spacing
+- Use "=== PAGE X ===" to separate pages
+- Use "---" to separate sections within a page
+- Start each page with any identifiers (Bates #, page #)
+
+Extract now:`;
+
+      const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-04-17:generateContent?key=${googleApiKey}`, {
         method: 'POST',
         headers: {
-          'Ocp-Apim-Subscription-Key': azureApiKey,
-          'Content-Type': contentType || 'application/octet-stream',
+          'Content-Type': 'application/json',
         },
-        body: fileBlob,
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                { text: prompt },
+                {
+                  inline_data: {
+                    mime_type: mimeType,
+                    data: base64
+                  }
+                }
+              ]
+            }
+          ],
+          generationConfig: {
+            temperature: 0.1,
+            maxOutputTokens: 65536,
+          }
+        }),
       });
 
-      if (!analyzeResponse.ok) {
-        const errorText = await analyzeResponse.text();
-        throw new Error(`Azure Computer Vision analyze failed: ${analyzeResponse.status} ${errorText}`);
-      }
+      if (!aiResponse.ok) {
+        const errorText = await aiResponse.text();
+        console.error('Gemini OCR error:', errorText);
 
-      // Get the operation location from headers
-      const operationLocation = analyzeResponse.headers.get('Operation-Location');
-      if (!operationLocation) {
-        throw new Error('Azure Computer Vision did not return Operation-Location header');
-      }
-
-      console.log('Azure OCR analysis submitted, polling for results...');
-
-      // Step 2: Poll for results (max 30 seconds)
-      let attempts = 0;
-      const maxAttempts = 30;
-      let result: any = null;
-
-      while (attempts < maxAttempts) {
-        await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
-        attempts++;
-
-        const resultResponse = await fetch(operationLocation, {
-          headers: {
-            'Ocp-Apim-Subscription-Key': azureApiKey,
-          },
-        });
-
-        if (!resultResponse.ok) {
-          throw new Error(`Azure Computer Vision polling failed: ${resultResponse.status}`);
+        // Check for rate limit errors
+        if (aiResponse.status === 429) {
+          throw new Error('Gemini rate limit exceeded. Falling back to OCR.space...');
         }
-
-        result = await resultResponse.json();
-
-        if (result.status === 'succeeded') {
-          console.log(`✅ Azure OCR completed in ${attempts} seconds`);
-          break;
-        } else if (result.status === 'failed') {
-          throw new Error(`Azure Computer Vision analysis failed: ${result.analyzeResult?.errors?.[0]?.message || 'Unknown error'}`);
-        }
-
-        // Status is still "running", continue polling
+        throw new Error(`Gemini OCR failed: ${errorText}`);
       }
 
-      if (result.status !== 'succeeded') {
-        throw new Error('Azure Computer Vision analysis timed out after 30 seconds');
+      const aiData = await aiResponse.json();
+      const text = aiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
+      if (!text || text.trim().length === 0) {
+        throw new Error('Gemini returned empty text');
       }
 
-      // Step 3: Extract text from all pages
-      const pages = result.analyzeResult?.readResults || [];
-      const extractedText = pages.map((page: any, idx: number) => {
-        const lines = page.lines || [];
-        const pageText = lines.map((line: any) => line.text).join('\n');
-        return pages.length > 1 ? `=== PAGE ${idx + 1} ===\n${pageText}` : pageText;
-      }).join('\n\n');
-
-      if (!extractedText || extractedText.trim().length === 0) {
-        throw new Error('Azure Computer Vision returned no text');
-      }
-
-      console.log(`Azure OCR extracted ${extractedText.length} characters from ${pages.length} page(s)`);
-      return extractedText;
+      console.log(`Gemini extracted ${text.length} characters`);
+      return text;
     };
 
     // OCR.space fallback function (FREE: 25,000 requests/month)
@@ -346,101 +365,29 @@ serve(async (req) => {
 
       console.log(`Image size: ${sizeInMB}MB, MIME: ${mimeType}`);
 
-      // Try Azure first (best quality)
-      let useAzure = !!(azureEndpoint && azureApiKey);
-      let azureError: Error | null = null;
-
-      if (useAzure) {
+      // Try Gemini 2.5 first (best quality)
+      if (googleApiKey) {
         try {
-          extractedText = await azureVisionOcr(fileBlob, mimeType);
+          extractedText = await geminiOcr(fileBlob, mimeType, true);
         } catch (error) {
-          console.error('Azure OCR error:', error);
-          azureError = error instanceof Error ? error : new Error(String(error));
-          useAzure = false;
-        }
-      }
+          console.error('Gemini OCR error:', error);
 
-      // Fall back to OCR.space if Azure failed or unavailable
-      if (!useAzure && ocrSpaceApiKey && !extractedText) {
-        console.log(`${azureError ? 'Azure failed, using' : 'Using'} OCR.space fallback...`);
-        try {
-          extractedText = await ocrSpaceExtract(fileBlob, true, mimeType);
-        } catch (ocrError) {
-          console.error('OCR.space also failed:', ocrError);
-          if (azureError) {
-            throw new Error(`All OCR providers failed. Azure: ${azureError.message}, OCR.space: ${ocrError instanceof Error ? ocrError.message : String(ocrError)}`);
-          }
-          throw ocrError;
-        }
-      }
-
-      // Last resort: Try Gemini if configured
-      if (!extractedText && googleApiKey) {
-        console.log('Trying Gemini as last resort...');
-        try {
-          const arrayBuffer = await fileBlob.arrayBuffer();
-          const base64 = arrayBufferToBase64(arrayBuffer);
-          const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash-exp:generateContent?key=${googleApiKey}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                {
-                  text: `You are a professional legal document OCR system. Extract ALL text from this image with maximum accuracy.
-
-EXTRACTION REQUIREMENTS:
-1. Extract EVERY word, number, date, signature, stamp, and annotation visible
-2. Preserve document structure: headings, paragraphs, lists, tables
-3. For tables: use pipe (|) separators and preserve column alignment
-4. Include ALL metadata: dates, case numbers, file stamps, Bates numbers, exhibit numbers
-5. Preserve legal citations exactly as written (case names, statute numbers, etc.)
-6. Include handwritten notes and marginalia if visible
-7. Mark unclear text with [UNCLEAR: your best guess]
-8. Note document quality issues: [FADED], [SMUDGED], [REDACTED], [WATERMARK], etc.
-9. If text is rotated or upside down, still extract it
-10. Extract text from headers, footers, and page numbers
-
-OUTPUT FORMAT:
-- Plain text only, no markdown formatting
-- Preserve original line breaks and paragraph spacing
-- Use "---" to separate distinct sections
-- Start with any document identifiers found (Bates #, Exhibit #, file #, date)
-
-Extract now:`
-                },
-                {
-                  inline_data: {
-                    mime_type: mimeType,
-                    data: base64
-                  }
-                }
-              ]
+          // Fall back to OCR.space
+          if (ocrSpaceApiKey) {
+            console.log('Falling back to OCR.space...');
+            try {
+              extractedText = await ocrSpaceExtract(fileBlob, true, mimeType);
+            } catch (ocrError) {
+              console.error('OCR.space also failed:', ocrError);
+              throw new Error(`All OCR providers failed. Gemini: ${error instanceof Error ? error.message : String(error)}, OCR.space: ${ocrError instanceof Error ? ocrError.message : String(ocrError)}`);
             }
-          ],
-          generationConfig: {
-            temperature: 0.1,
-            maxOutputTokens: 32768,
+          } else {
+            throw error;
           }
-        }),
-      });
-
-          if (!aiResponse.ok) {
-            const errorText = await aiResponse.text();
-            console.error('Gemini Image OCR error:', errorText);
-            throw new Error(`Gemini Image OCR failed: ${errorText}`);
-          }
-
-          const aiData = await aiResponse.json();
-          extractedText = aiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
-          console.log(`✅ Gemini extracted ${extractedText.length} characters from image`);
-        } catch (error) {
-          console.error('Gemini also failed:', error);
-          throw new Error('All OCR providers failed. Please check configuration.');
         }
+      } else if (ocrSpaceApiKey) {
+        // No Gemini, use OCR.space directly
+        extractedText = await ocrSpaceExtract(fileBlob, true, mimeType);
       }
 
       if (!extractedText) {
@@ -454,102 +401,29 @@ Extract now:`
       const sizeInMB = (fileBlob.size / 1024 / 1024).toFixed(2);
       console.log(`PDF size: ${sizeInMB}MB`);
 
-      // Try Azure first (best quality)
-      let useAzure = !!(azureEndpoint && azureApiKey);
-      let azureError: Error | null = null;
-
-      if (useAzure) {
+      // Try Gemini 2.5 first (best quality)
+      if (googleApiKey) {
         try {
-          extractedText = await azureVisionOcr(fileBlob, 'application/pdf');
+          extractedText = await geminiOcr(fileBlob, 'application/pdf', false);
         } catch (error) {
-          console.error('Azure OCR error:', error);
-          azureError = error instanceof Error ? error : new Error(String(error));
-          useAzure = false;
-        }
-      }
+          console.error('Gemini OCR error:', error);
 
-      // Fall back to OCR.space if Azure failed or unavailable
-      if (!useAzure && ocrSpaceApiKey && !extractedText) {
-        console.log(`${azureError ? 'Azure failed, using' : 'Using'} OCR.space fallback...`);
-        try {
-          extractedText = await ocrSpaceExtract(fileBlob, false, 'application/pdf');
-        } catch (ocrError) {
-          console.error('OCR.space also failed:', ocrError);
-          if (azureError) {
-            throw new Error(`All OCR providers failed. Azure: ${azureError.message}, OCR.space: ${ocrError instanceof Error ? ocrError.message : String(ocrError)}`);
-          }
-          throw ocrError;
-        }
-      }
-
-      // Last resort: Try Gemini if configured
-      if (!extractedText && googleApiKey) {
-        console.log('Trying Gemini as last resort...');
-        try {
-          const arrayBuffer = await fileBlob.arrayBuffer();
-          const base64 = arrayBufferToBase64(arrayBuffer);
-          const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash-exp:generateContent?key=${googleApiKey}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                {
-                  text: `You are a professional legal document OCR system. Extract ALL text from this PDF with maximum accuracy.
-
-EXTRACTION REQUIREMENTS:
-1. Process EVERY page of the PDF
-2. Extract EVERY word, number, date, signature, stamp, and annotation
-3. Preserve document structure: headings, paragraphs, lists, tables
-4. For tables: use pipe (|) separators and preserve alignment
-5. Include ALL metadata: dates, case numbers, file stamps, Bates numbers, exhibit numbers
-6. Preserve legal citations exactly as written
-7. Include handwritten notes and marginalia if visible
-8. Mark unclear text with [UNCLEAR: best guess]
-9. Note document quality issues: [FADED], [SMUDGED], [REDACTED]
-10. Extract headers, footers, and page numbers
-
-OUTPUT FORMAT:
-- Plain text only, no markdown
-- Preserve line breaks and spacing
-- Use "=== PAGE X ===" to separate pages
-- Use "---" to separate sections within a page
-- Start each page with any identifiers (Bates #, page #)
-
-Extract now:`
-                },
-                {
-                  inline_data: {
-                    mime_type: 'application/pdf',
-                    data: base64
-                  }
-                }
-              ]
+          // Fall back to OCR.space
+          if (ocrSpaceApiKey) {
+            console.log('Falling back to OCR.space...');
+            try {
+              extractedText = await ocrSpaceExtract(fileBlob, false, 'application/pdf');
+            } catch (ocrError) {
+              console.error('OCR.space also failed:', ocrError);
+              throw new Error(`All OCR providers failed. Gemini: ${error instanceof Error ? error.message : String(error)}, OCR.space: ${ocrError instanceof Error ? ocrError.message : String(ocrError)}`);
             }
-          ],
-          generationConfig: {
-            temperature: 0.1,
-            maxOutputTokens: 32768,
+          } else {
+            throw error;
           }
-        }),
-      });
-
-          if (!aiResponse.ok) {
-            const errorText = await aiResponse.text();
-            console.error('Gemini PDF OCR error:', errorText);
-            throw new Error(`Gemini PDF OCR failed: ${errorText}`);
-          }
-
-          const aiData = await aiResponse.json();
-          extractedText = aiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
-          console.log(`✅ Gemini extracted ${extractedText.length} characters from PDF`);
-        } catch (error) {
-          console.error('Gemini also failed:', error);
-          throw new Error('All OCR providers failed. Please check configuration.');
         }
+      } else if (ocrSpaceApiKey) {
+        // No Gemini, use OCR.space directly
+        extractedText = await ocrSpaceExtract(fileBlob, false, 'application/pdf');
       }
 
       if (!extractedText) {
@@ -573,10 +447,10 @@ Extract now:`
     let summary = '';
     let timelineEvents: any[] = [];
 
-    if (extractedText && extractedText.length > 50 && !extractedText.startsWith('[File type')) {
+    if (extractedText && extractedText.length > 50 && !extractedText.startsWith('[File type') && googleApiKey) {
       console.log('Analyzing extracted text with AI...');
 
-      const analysisResponse = await fetch(`https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash-exp:generateContent?key=${googleApiKey}`, {
+      const analysisResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-04-17:generateContent?key=${googleApiKey}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -702,11 +576,11 @@ ${extractedText.substring(0, 20000)}`
         console.error('Failed to insert timeline events:', timelineError);
         // We don't throw here to avoid failing the whole OCR process just because timeline insertion failed
       } else {
-        console.log('✅ Timeline events inserted successfully');
+        console.log('Timeline events inserted successfully');
       }
     }
 
-    console.log('✅ Document updated successfully with OCR and analysis results');
+    console.log('Document updated successfully with OCR and analysis results');
 
     return new Response(
       JSON.stringify({
@@ -723,7 +597,7 @@ ${extractedText.substring(0, 20000)}`
     );
 
   } catch (error: unknown) {
-    console.error('❌ OCR Error:', error);
+    console.error('OCR Error:', error);
     if (error instanceof Error) {
         return createErrorResponse(error, 500, 'ocr-document', corsHeaders);
     }

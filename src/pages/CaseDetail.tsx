@@ -4,6 +4,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { FixedSizeList as List, ListChildComponentProps } from "react-window";
 import { GoogleDriveFolderImport } from "@/components/GoogleDriveFolderImport";
 import { ImportJobsViewer } from "@/components/ImportJobsViewer";
+import { VideoRoom } from "@/components/VideoRoom";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -338,6 +339,10 @@ export default function CaseDetail() {
   const [filterFileType, setFilterFileType] = useState<"all" | "pdf" | "image" | "audio" | "video" | "other">("all");
   const [filterDateRange, setFilterDateRange] = useState<"all" | "today" | "week" | "month">("all");
   const [showFilters, setShowFilters] = useState(false);
+
+  // Video room state
+  const [showVideoRoom, setShowVideoRoom] = useState(false);
+  const [videoRoomName, setVideoRoomName] = useState("");
 
   const [docForm, setDocForm] = useState({
     name: "",
@@ -948,7 +953,15 @@ export default function CaseDetail() {
                   <MessageSquare className="h-4 w-4" />
                   Chat
                 </Button>
-                <Button variant="outline" size="sm" className="gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  onClick={() => {
+                    setVideoRoomName(`${caseData.name} - Video Conference`);
+                    setShowVideoRoom(true);
+                  }}
+                >
                   <Video className="h-4 w-4" />
                   Video Call
                 </Button>
