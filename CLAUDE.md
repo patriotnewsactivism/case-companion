@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**CaseBuddy Professional** - AI-powered legal case management and trial preparation platform for litigation teams. Built with React + TypeScript frontend, Supabase backend (PostgreSQL + Edge Functions), and integrated with Google Drive, OpenAI Whisper, and Jitsi Meet.
+**CaseBuddy Professional** - AI-powered legal case management and trial preparation platform for litigation teams. Built with React + TypeScript frontend, Supabase backend (PostgreSQL + Edge Functions), and integrated with Google Drive, OpenAI Whisper, and Daily.co video conferencing.
 
 ## Development Commands
 
@@ -109,8 +109,8 @@ supabase functions serve             # Local development
 
 Located in `supabase/functions/`:
 
-1. **`create-video-room`** - Creates Jitsi Meet room with JWT token
-2. **`join-video-room`** - Joins existing video room
+1. **`create-video-room`** - Creates Daily.co video room with secure meeting token
+2. **`join-video-room`** - Generates token for joining existing video room
 3. **`import-google-drive`** - Recursively imports folders from Google Drive to Supabase Storage
 4. **`ocr-document`** - OCR processing for PDF/images
 5. **`transcribe-media`** - Calls OpenAI Whisper API for audio/video transcription
@@ -126,8 +126,9 @@ Required in `.env` (see `.env.example`):
 - `VITE_GOOGLE_CLIENT_ID` - Google OAuth client ID
 - `VITE_GOOGLE_API_KEY` - Google API key for Drive integration
 - `OPENAI_API_KEY` - For Whisper transcription (edge functions only)
+- `DAILY_API_KEY` - **REQUIRED** for video conferencing (get from https://dashboard.daily.co/) - Must be set in both .env and Supabase Edge Functions secrets
 
-Current project ID: `plcvjadartxntnurhcua`
+Current project ID: `rerbrlrxptnusypzpghj`
 
 ## Common Development Workflows
 
