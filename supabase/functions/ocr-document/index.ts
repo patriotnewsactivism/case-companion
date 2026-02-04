@@ -201,21 +201,29 @@ serve(async (req) => {
     };
 
     // OCR.space fallback function (FREE: 25,000 requests/month)
-    const ocrSpaceExtract = async (fileBlob: Blob, isImage: boolean): Promise<string> => {
+    const ocrSpaceExtract = async (fileBlob: Blob, isImage: boolean, contentType?: string): Promise<string> => {
       if (!ocrSpaceApiKey) {
         throw new Error('OCR.space API key not configured');
       }
 
       console.log('Using OCR.space fallback OCR service...');
 
+      // Create a File object with proper extension so OCR.space can detect file type
+      const extension = isImage ? 'jpg' : 'pdf';
+      const fileName = `document.${extension}`;
+      const file = new File([fileBlob], fileName, {
+        type: contentType || (isImage ? 'image/jpeg' : 'application/pdf')
+      });
+
       const formData = new FormData();
-      formData.append('file', fileBlob);
+      formData.append('file', file, fileName);
       formData.append('apikey', ocrSpaceApiKey);
       formData.append('language', 'eng');
       formData.append('isOverlayRequired', 'false');
       formData.append('detectOrientation', 'true');
       formData.append('scale', 'true');
       formData.append('OCREngine', '2'); // Use OCR Engine 2 for better accuracy
+      formData.append('filetype', extension.toUpperCase()); // Explicitly set file type
 
       const response = await fetch('https://api.ocr.space/parse/image', {
         method: 'POST',
@@ -262,7 +270,7 @@ serve(async (req) => {
       if (useGemini) {
         try {
           console.log('Trying Gemini 1.5 Flash for image OCR...');
-          const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${googleApiKey}`, {
+          const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash-exp:generateContent?key=${googleApiKey}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -337,7 +345,7 @@ Extract now:`
       if (!useGemini && ocrSpaceApiKey && !extractedText) {
         console.log(`${geminiError ? 'Gemini failed, using' : 'Using'} OCR.space fallback...`);
         try {
-          extractedText = await ocrSpaceExtract(fileBlob, true);
+          extractedText = await ocrSpaceExtract(fileBlob, true, mimeType);
         } catch (ocrError) {
           console.error('OCR.space also failed:', ocrError);
           if (geminiError) {
@@ -368,7 +376,7 @@ Extract now:`
       if (useGemini) {
         try {
           console.log('Trying Gemini 1.5 Flash for PDF OCR...');
-          const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${googleApiKey}`, {
+          const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash-exp:generateContent?key=${googleApiKey}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -444,7 +452,7 @@ Extract now:`
       if (!useGemini && ocrSpaceApiKey && !extractedText) {
         console.log(`${geminiError ? 'Gemini failed, using' : 'Using'} OCR.space fallback...`);
         try {
-          extractedText = await ocrSpaceExtract(fileBlob, false);
+          extractedText = await ocrSpaceExtract(fileBlob, false, 'application/pdf');
         } catch (ocrError) {
           console.error('OCR.space also failed:', ocrError);
           if (geminiError) {
@@ -478,7 +486,7 @@ Extract now:`
     if (extractedText && extractedText.length > 50 && !extractedText.startsWith('[File type')) {
       console.log('Analyzing extracted text with AI...');
 
-      const analysisResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${googleApiKey}`, {
+      const analysisResponse = await fetch(`https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash-exp:generateContent?key=${googleApiKey}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
