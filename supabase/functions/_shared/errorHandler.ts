@@ -13,6 +13,7 @@ export interface ErrorResponse {
 const BASE_ALLOWED_ORIGINS = [
   'https://plcvjadartxntnurhcua.lovableproject.com', // Lovable project URL (current)
   'https://casebuddypro.lovable.app', // Production domain
+  'https://casebuddy.live', // Production custom domain
   'http://localhost:8080', // Development
   'http://localhost:5173', // Vite dev server alternative port
 ];
