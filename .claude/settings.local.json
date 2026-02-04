@@ -30,7 +30,10 @@
       "Bash(supabase functions logs:*)",
       "Bash(supabase db push:*)",
       "Bash(supabase db execute:*)",
-      "Bash(supabase migration new:*)"
+      "Bash(supabase migration new:*)",
+      "Bash(supabase db remote commit:*)",
+      "Bash(supabase migration list:*)",
+      "Bash(supabase projects:*)"
     ]
   },
   "enableAllProjectMcpServers": true,
