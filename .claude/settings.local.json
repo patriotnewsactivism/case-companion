@@ -17,7 +17,12 @@
       "Bash(test:*)",
       "Bash(npm outdated:*)",
       "Bash(findstr:*)",
-      "Bash(npm run lint)"
+      "Bash(npm run lint)",
+      "Bash(npm test:*)",
+      "Bash(supabase status:*)",
+      "Bash(supabase secrets list:*)",
+      "Bash(npm install:*)",
+      "Bash(supabase functions deploy:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

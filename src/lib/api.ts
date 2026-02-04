@@ -157,6 +157,51 @@ export async function getTimelineEventsByCase(caseId: string): Promise<TimelineE
   return (data as unknown as TimelineEvent[]) || [];
 }
 
+export async function getAllTimelineEvents(): Promise<TimelineEvent[]> {
+  const { data, error } = await supabase
+    .from("timeline_events")
+    .select("*")
+    .order("event_date", { ascending: true });
+
+  if (error) throw error;
+  return (data as unknown as TimelineEvent[]) || [];
+}
+
+// Documents API - Get all documents for current user
+export async function getAllDocuments(): Promise<Document[]> {
+  const { data, error } = await supabase
+    .from("documents")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
+  return (data as unknown as Document[]) || [];
+}
+
+// Get document statistics
+export interface DocumentStats {
+  total: number;
+  analyzed: number;
+  pending: number;
+  withTimeline: number;
+}
+
+export async function getDocumentStats(): Promise<DocumentStats> {
+  const { data, error } = await supabase
+    .from("documents")
+    .select("id, ai_analyzed, linked_document_id");
+
+  if (error) throw error;
+
+  const docs = data || [];
+  return {
+    total: docs.length,
+    analyzed: docs.filter((d: any) => d.ai_analyzed).length,
+    pending: docs.filter((d: any) => !d.ai_analyzed).length,
+    withTimeline: docs.filter((d: any) => d.linked_document_id).length,
+  };
+}
+
 // Profile API
 export interface Profile {
   id: string;
