@@ -80,7 +80,17 @@ serve(async (req) => {
     // validateEnvVars(['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'GOOGLE_AI_API_KEY']);
     validateEnvVars(['SUPABASE_URL', 'SUPABASE_ANON_KEY']);
 
-    const googleApiKey = Deno.env.get('GOOGLE_AI_API_KEY') || "AIzaSyAnNDe7iyPSbzPkhwo8pqKXvU7tsanbdHw";
+    const googleApiKey = Deno.env.get('GOOGLE_AI_API_KEY');
+
+    if (!googleApiKey) {
+      console.error('GOOGLE_AI_API_KEY not configured');
+      return createErrorResponse(
+        new Error('OCR service not configured. Please contact administrator.'),
+        500,
+        'ocr-document',
+        corsHeaders
+      );
+    }
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || "eyJhbGciOiJFUzI1NiIsImtpZCI6ImI4MTI2OWYxLTIxZDgtNGYyZS1iNzE5LWMyMjQwYTg0MGQ5MCIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MjA4NDUzNzY4Mn0.sZ9Z2QoERcdAxXInqq5YRpH5JLlv4Z8wqTz81X9gZ4Sah4w2XXINGPb8WQC5n3QsSHhKENOCgWOvqm3BD_61DA";
     const authHeader = req.headers.get('Authorization') || '';
