@@ -77,15 +77,16 @@ serve(async (req) => {
 
   try {
     // Validate environment variables
-    // validateEnvVars(['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'GOOGLE_AI_API_KEY']);
     validateEnvVars(['SUPABASE_URL', 'SUPABASE_ANON_KEY']);
 
     const googleApiKey = Deno.env.get('GOOGLE_AI_API_KEY');
+    const ocrSpaceApiKey = Deno.env.get('OCR_SPACE_API_KEY');
 
-    if (!googleApiKey) {
-      console.error('GOOGLE_AI_API_KEY not configured');
+    // Check if at least one OCR provider is configured
+    if (!googleApiKey && !ocrSpaceApiKey) {
+      console.error('No OCR service configured');
       return createErrorResponse(
-        new Error('OCR service not configured. Please contact administrator.'),
+        new Error('OCR service not configured. Please set GOOGLE_AI_API_KEY or OCR_SPACE_API_KEY.'),
         500,
         'ocr-document',
         corsHeaders
@@ -197,6 +198,50 @@ serve(async (req) => {
         binary += String.fromCharCode.apply(null, Array.from(chunk));
       }
       return btoa(binary);
+    };
+
+    // OCR.space fallback function (FREE: 25,000 requests/month)
+    const ocrSpaceExtract = async (fileBlob: Blob, isImage: boolean): Promise<string> => {
+      if (!ocrSpaceApiKey) {
+        throw new Error('OCR.space API key not configured');
+      }
+
+      console.log('Using OCR.space fallback OCR service...');
+
+      const formData = new FormData();
+      formData.append('file', fileBlob);
+      formData.append('apikey', ocrSpaceApiKey);
+      formData.append('language', 'eng');
+      formData.append('isOverlayRequired', 'false');
+      formData.append('detectOrientation', 'true');
+      formData.append('scale', 'true');
+      formData.append('OCREngine', '2'); // Use OCR Engine 2 for better accuracy
+
+      const response = await fetch('https://api.ocr.space/parse/image', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error(`OCR.space API failed: ${response.status} ${response.statusText}`);
+      }
+
+      const result = await response.json();
+
+      if (result.OCRExitCode !== 1 || !result.ParsedResults || result.ParsedResults.length === 0) {
+        throw new Error(`OCR.space parsing failed: ${result.ErrorMessage || 'Unknown error'}`);
+      }
+
+      // Combine all parsed text from all pages
+      const extractedText = result.ParsedResults
+        .map((page: any, idx: number) => {
+          const pageText = page.ParsedText || '';
+          return result.ParsedResults.length > 1 ? `=== PAGE ${idx + 1} ===\n${pageText}` : pageText;
+        })
+        .join('\n\n');
+
+      console.log(`OCR.space extracted ${extractedText.length} characters`);
+      return extractedText;
     };
 
     // For images, use AI vision to extract text
