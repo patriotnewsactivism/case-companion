@@ -24,7 +24,9 @@
       "Bash(npm install:*)",
       "Bash(supabase functions deploy:*)",
       "Bash(powershell -File:*)",
-      "Bash(cmd /c scripts\\\\test-fixes.bat)"
+      "Bash(cmd /c scripts\\\\test-fixes.bat)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ]
   },
   "enableAllProjectMcpServers": true,
