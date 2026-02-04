@@ -127,6 +127,10 @@ type DocumentRowData = {
   onView: (doc: Document) => void;
   onDownload: (doc: Document) => void;
   onDelete: (id: string) => void;
+  onOcr: (documentId: string, fileUrl: string) => void;
+  onTranscribe: (documentId: string) => void;
+  processingOcr: string | null;
+  transcribing: string | null;
 };
 
 const DocumentRow = memo(({ index, style, data }: ListChildComponentProps<DocumentRowData>) => {
@@ -172,15 +176,61 @@ const DocumentRow = memo(({ index, style, data }: ListChildComponentProps<Docume
         </span>
       </div>
 
-      <div className="col-span-1">
+      <div className="col-span-1 flex flex-col gap-0.5">
         {doc.ai_analyzed && (
           <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-green-50 text-green-700 border-green-200">
             AI
           </Badge>
         )}
+        {doc.ocr_processed_at && !doc.ai_analyzed && (
+          <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-blue-50 text-blue-700 border-blue-200">
+            OCR
+          </Badge>
+        )}
+        {doc.transcription_text && (
+          <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-purple-50 text-purple-700 border-purple-200">
+            TXT
+          </Badge>
+        )}
       </div>
 
       <div className="col-span-2 flex items-center justify-end gap-1">
+        {/* OCR Button for PDF/Image files */}
+        {doc.file_url && (doc.file_type?.includes('pdf') || doc.file_type?.includes('image')) && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            title={doc.ai_analyzed ? "Re-analyze with OCR" : "Analyze with OCR"}
+            onClick={() => data.onOcr(doc.id, doc.file_url!)}
+            disabled={data.processingOcr === doc.id}
+          >
+            {data.processingOcr === doc.id ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Scan className="h-3.5 w-3.5" />
+            )}
+          </Button>
+        )}
+
+        {/* Transcribe Button for Audio/Video files */}
+        {doc.file_url && (doc.file_type?.includes('audio') || doc.file_type?.includes('video')) && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            title={doc.transcription_text ? "Re-transcribe" : "Transcribe"}
+            onClick={() => data.onTranscribe(doc.id)}
+            disabled={data.transcribing === doc.id}
+          >
+            {data.transcribing === doc.id ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Music className="h-3.5 w-3.5" />
+            )}
+          </Button>
+        )}
+
         {doc.file_url && (
           <>
             <Button
@@ -487,8 +537,8 @@ export default function CaseDetail() {
   // Batch re-analyze all unprocessed documents
   const triggerBatchOcr = async () => {
     const unanalyzedDocs = documents.filter(
-      (doc) => !doc.ai_analyzed && doc.file_url && 
-      (doc.file_type?.includes('pdf') || doc.file_type?.includes('image'))
+      (doc) => !doc.ai_analyzed && doc.file_url &&
+      (doc.file_type?.includes('pdf') || doc.file_type?.includes('image') || doc.file_type?.includes('text'))
     );
 
     if (unanalyzedDocs.length === 0) {
@@ -1296,6 +1346,10 @@ export default function CaseDetail() {
                         onView: handleViewDocument,
                         onDownload: handleDownloadDocument,
                         onDelete: setDeleteDocId,
+                        onOcr: triggerOcr,
+                        onTranscribe: triggerTranscription,
+                        processingOcr,
+                        transcribing,
                       }}
                       itemKey={(index, data) => data.docs[index]?.id ?? index}
                     >

@@ -112,8 +112,13 @@ Located in `supabase/functions/`:
 1. **`create-video-room`** - Creates Jitsi Meet room with JWT token
 2. **`join-video-room`** - Joins existing video room
 3. **`import-google-drive`** - Recursively imports folders from Google Drive to Supabase Storage
-4. **`ocr-document`** - OCR processing for PDF/images
+4. **`ocr-document`** - OCR processing for PDF/images using Google Gemini 2.5 Flash
+   - Extracts text from PDFs (multi-page), images, and text files
+   - Performs AI legal analysis: summary, key facts, favorable/adverse findings, action items
+   - Auto-generates timeline events from dates found in documents
+   - Handles Bates numbers, exhibits, redactions, tables, and marginalia
 5. **`transcribe-media`** - Calls OpenAI Whisper API for audio/video transcription
+6. **`trial-simulation`** - AI-powered trial simulation with coaching (cross-exam, depositions, etc.)
 
 All functions require JWT verification (`verify_jwt: true` in config.toml).
 
@@ -125,7 +130,10 @@ Required in `.env` (see `.env.example`):
 - `VITE_SUPABASE_URL` - Supabase API URL
 - `VITE_GOOGLE_CLIENT_ID` - Google OAuth client ID
 - `VITE_GOOGLE_API_KEY` - Google API key for Drive integration
-- `OPENAI_API_KEY` - For Whisper transcription (edge functions only)
+
+**Supabase Secrets** (set via `npx supabase secrets set KEY=value`):
+- `GOOGLE_AI_API_KEY` - For OCR and document analysis (Gemini 2.5 Flash)
+- `OPENAI_API_KEY` - For Whisper audio/video transcription (optional)
 
 Current project ID: `plcvjadartxntnurhcua`
 
@@ -165,9 +173,15 @@ Components are added to `src/components/ui/` with Tailwind styling.
 ### Document Processing Pipeline
 1. User uploads file or imports from Drive
 2. File stored in Supabase Storage `case-documents` bucket
-3. For PDFs/images: `ocr-document` function extracts text → stored in `documents.ocr_text`
-4. For audio/video: Storage trigger calls `transcribe-media` → Whisper API → stored in document record
-5. AI analysis fields (`summary`, `key_facts`, `favorable_findings`, etc.) populated separately
+3. **Automatic OCR trigger** for PDFs/images:
+   - `ocr-document` edge function called automatically
+   - Google Gemini 2.5 Flash extracts text → stored in `documents.ocr_text`
+   - AI analyzes text → generates `summary`, `key_facts`, `favorable_findings`, `adverse_findings`, `action_items`
+   - Timeline events auto-extracted from dates → inserted into `timeline_events` table
+   - Document marked as `ai_analyzed = true` when complete
+4. **Manual OCR trigger**: Click Scan icon (📄) on any document to reprocess
+5. **Batch OCR**: "Analyze All" button processes all unanalyzed documents in batches of 3
+6. For audio/video: Click Music icon (🎵) → `transcribe-media` → Whisper API → stored in `transcription_text`
 
 ## Styling Conventions
 
