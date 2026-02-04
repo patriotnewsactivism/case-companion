@@ -336,6 +336,12 @@ Extract now:`
       if (!aiResponse.ok) {
         const errorText = await aiResponse.text();
         console.error('AI PDF OCR error:', errorText);
+
+        // Check for rate limit errors
+        if (aiResponse.status === 429 || errorText.includes('RESOURCE_EXHAUSTED')) {
+          throw new Error('Google AI API rate limit exceeded. Please wait a few minutes or upgrade your API plan at https://aistudio.google.com/');
+        }
+
         throw new Error(`AI PDF OCR failed: ${errorText}`);
       }
 
@@ -363,7 +369,7 @@ Extract now:`
     if (extractedText && extractedText.length > 50 && !extractedText.startsWith('[File type')) {
       console.log('Analyzing extracted text with AI...');
 
-      const analysisResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${googleApiKey}`, {
+      const analysisResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${googleApiKey}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

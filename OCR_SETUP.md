@@ -97,6 +97,25 @@ For audio and video files, you need to set up **OpenAI Whisper**:
 - **PDF with many pages**: Processing time scales with page count
 - **Network issues**: Check your internet connection
 
+### Rate Limit Error: "Google AI API rate limit exceeded"
+This means you've hit your daily or per-minute quota.
+
+**Free Tier Limits:**
+- 1,500 requests per day
+- 15 requests per minute
+
+**Solutions:**
+1. **Wait 24 hours** for the daily quota to reset
+2. **Wait 1 minute** if you hit the per-minute limit
+3. **Upgrade to paid tier** at [Google AI Studio](https://aistudio.google.com/) for 2,000 requests/minute
+4. **Process documents individually** instead of batch processing
+5. **Monitor usage** at https://ai.dev/rate-limit
+
+**To upgrade (recommended for production):**
+- Go to Google AI Studio → Billing
+- Set up a billing account
+- Cost: ~$0.01 per 100-page PDF (very affordable)
+
 ### OCR Extracts Poor Quality Text
 The OCR system is optimized for legal documents and includes:
 - Extraction of Bates numbers, exhibit numbers, file stamps
@@ -112,9 +131,20 @@ If extraction quality is poor:
 ## API Rate Limits
 
 ### Google AI (OCR)
-- **User limit**: 10 OCR operations per minute per user
+**Free Tier Limits (Gemini 1.5 Flash):**
+- **Daily limit**: 1,500 requests per day
+- **Per-minute limit**: 15 requests per minute
+- **User limit in app**: 10 OCR operations per minute per user
 - **Service role**: No limit (used for batch imports)
 - **File size limit**: ~20MB (Google AI API limit)
+
+**IMPORTANT**: If you hit the daily limit (20 requests/day on free tier), you'll see:
+> "Google AI API rate limit exceeded. Please wait a few minutes or upgrade your API plan"
+
+**Solutions:**
+1. **Wait**: Free tier resets every 24 hours
+2. **Upgrade to Pay-As-You-Go**: Go to [Google AI Studio](https://aistudio.google.com/) → Billing
+3. **Batch process slowly**: Process documents one at a time instead of using "Analyze All"
 
 ### OpenAI Whisper (Transcription)
 - **User limit**: 5 transcriptions per minute per user
@@ -122,10 +152,23 @@ If extraction quality is poor:
 
 ## Cost Considerations
 
-### Google AI Gemini 2.5 Flash
-- **Free tier**: 1,500 requests per day
-- **Pricing**: $0.00 per 1K tokens (currently free)
-- **Context**: 1M token context window
+### Google AI Gemini 1.5 Flash
+**Free Tier:**
+- **Requests**: 1,500 per day
+- **Rate**: 15 requests per minute
+- **Cost**: $0.00
+
+**Pay-As-You-Go (Paid Tier):**
+- **Requests**: 2,000 per minute
+- **Input**: $0.075 per 1M tokens (~$0.0001 per page)
+- **Output**: $0.30 per 1M tokens
+- **Cost per document**: ~$0.01 for a 100-page PDF
+
+**To upgrade to paid tier:**
+1. Go to [Google AI Studio](https://aistudio.google.com/)
+2. Click "Billing" in the sidebar
+3. Set up a billing account
+4. Your existing API key will automatically get higher limits
 
 ### OpenAI Whisper
 - **Pricing**: $0.006 per minute of audio

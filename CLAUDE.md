@@ -112,11 +112,12 @@ Located in `supabase/functions/`:
 1. **`create-video-room`** - Creates Jitsi Meet room with JWT token
 2. **`join-video-room`** - Joins existing video room
 3. **`import-google-drive`** - Recursively imports folders from Google Drive to Supabase Storage
-4. **`ocr-document`** - OCR processing for PDF/images using Google Gemini 2.5 Flash
+4. **`ocr-document`** - OCR processing for PDF/images using Google Gemini 1.5 Flash
    - Extracts text from PDFs (multi-page), images, and text files
    - Performs AI legal analysis: summary, key facts, favorable/adverse findings, action items
    - Auto-generates timeline events from dates found in documents
    - Handles Bates numbers, exhibits, redactions, tables, and marginalia
+   - **Rate limits**: 1,500 requests/day (free tier), upgrade for 2,000/minute
 5. **`transcribe-media`** - Calls OpenAI Whisper API for audio/video transcription
 6. **`trial-simulation`** - AI-powered trial simulation with coaching (cross-exam, depositions, etc.)
 
