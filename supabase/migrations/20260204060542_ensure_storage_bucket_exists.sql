@@ -37,9 +37,6 @@ ON CONFLICT (id) DO UPDATE SET
   file_size_limit = EXCLUDED.file_size_limit,
   allowed_mime_types = EXCLUDED.allowed_mime_types;
 
--- Ensure RLS is enabled
-ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
-
 -- Drop and recreate policies to ensure they're correct
 DROP POLICY IF EXISTS "Users can upload their own case documents" ON storage.objects;
 DROP POLICY IF EXISTS "Users can view their own case documents" ON storage.objects;
