@@ -17,12 +17,25 @@ After extracting text, the system automatically:
 
 ## Setup Instructions
 
-The OCR system uses **two providers** with automatic fallback:
+The OCR system uses **three providers** with automatic fallback:
 
-1. **Primary**: Google Gemini 1.5 Flash (1,500 requests/day free)
+1. **Primary**: Microsoft Azure Computer Vision (Best Quality - 5,000 requests/month free)
 2. **Fallback**: OCR.space (25,000 requests/month free)
+3. **Last Resort**: Google Gemini 2.0 Flash (1,500 requests/day free)
 
-### Option 1: Google AI (Primary - Recommended)
+### Option 1: Azure Computer Vision (Primary - BEST QUALITY)
+
+**You already have this configured!**
+
+Your Azure credentials are already set up:
+- Endpoint: https://casebuddy-ocr.cognitiveservices.azure.com/
+- Region: East US
+- Free tier: 5,000 requests/month
+- Quality: Industry-leading OCR accuracy
+
+No action needed - Azure is your primary OCR provider!
+
+### Option 2: Google AI (Last Resort - Optional)
 
 1. Go to [Google AI Studio](https://aistudio.google.com/app/apikey)
 2. Click "Create API Key"
@@ -33,10 +46,10 @@ The OCR system uses **two providers** with automatic fallback:
    npx supabase secrets set GOOGLE_AI_API_KEY=your-actual-api-key-here
    ```
 
-**Pros**: Best quality, AI-powered analysis, 1,500 requests/day free
-**Cons**: Lower free limit, requires Google account
+**Pros**: Good quality, AI-powered analysis, 1,500 requests/day free
+**Cons**: Lower quality than Azure, requires Google account
 
-### Option 2: OCR.space (Fallback - Always Recommended)
+### Option 3: OCR.space (Fallback - Always Recommended)
 
 1. Go to [OCR.space API](https://ocr.space/ocrapi)
 2. Click "Register for free API key"
@@ -50,22 +63,19 @@ The OCR system uses **two providers** with automatic fallback:
 **Pros**: 25,000 requests/month free, no credit card, automatic fallback
 **Cons**: Lower quality than Gemini for complex documents
 
-### Recommended Setup: Use Both!
+### Recommended Setup: Azure + OCR.space (Already Done!)
 
-For best results, **configure both providers**:
+You're already set up with the best configuration:
 
-```bash
-# Primary OCR (best quality)
-npx supabase secrets set GOOGLE_AI_API_KEY=your-google-key
-
-# Fallback OCR (never runs out)
-npx supabase secrets set OCR_SPACE_API_KEY=your-ocr-space-key
-```
+✅ **Azure Computer Vision** - Primary (already configured)
+✅ **OCR.space** - Fallback (already configured)
+⚪ **Google Gemini** - Last resort (optional)
 
 The system will:
-1. Try Gemini first (best quality)
-2. Automatically fall back to OCR.space if Gemini fails or hits limits
-3. Never fail OCR (25,000 free fallback requests/month!)
+1. Try Azure first (best quality - industry-leading accuracy)
+2. Automatically fall back to OCR.space if Azure fails or hits limits
+3. Use Gemini as last resort if both fail
+4. Never fail OCR (5,000 Azure + 25,000 OCR.space = 30,000 free/month!)
 
 ### Verify Configuration
 
@@ -184,27 +194,33 @@ If extraction quality is poor:
 
 ## API Rate Limits
 
-### Google AI (Primary OCR)
-**Free Tier Limits (Gemini 1.5 Flash):**
-- **Daily limit**: 1,500 requests per day
-- **Per-minute limit**: 15 requests per minute
-- **User limit in app**: 10 OCR operations per minute per user
-- **File size limit**: ~20MB (Google AI API limit)
+### Azure Computer Vision (Primary OCR) ✅
+**Free Tier Limits:**
+- **Monthly limit**: 5,000 requests per month
+- **Quality**: Industry-leading OCR accuracy
+- **File size limit**: 50MB
+- **Multi-page**: Supports multi-page PDFs
 
 **When you hit limits:**
 - System automatically falls back to OCR.space
-- You'll see a message: "Gemini rate limit exceeded, using OCR.space fallback"
+- You'll see: "Azure failed, using OCR.space fallback"
 - No interruption to your workflow!
 
-### OCR.space (Fallback OCR)
+### OCR.space (Fallback OCR) ✅
 **Free Tier Limits:**
 - **Monthly limit**: 25,000 requests per month
 - **Per-request limit**: 5MB file size
 - **No daily limit**: Spread across entire month
 - **No credit card**: Required free forever
 
-**Automatic Fallback:**
-When Gemini fails or hits limits, the system automatically uses OCR.space with no user action required.
+### Google Gemini (Last Resort OCR)
+**Free Tier Limits:**
+- **Daily limit**: 1,500 requests per day
+- **Quality**: Good AI-powered OCR
+- Only used if both Azure and OCR.space fail
+
+**Total Free OCR:**
+5,000 (Azure) + 25,000 (OCR.space) + 1,500/day (Gemini) = **30,000+ free OCRs per month!**
 
 ### OpenAI Whisper (Transcription)
 - **User limit**: 5 transcriptions per minute per user
@@ -212,7 +228,7 @@ When Gemini fails or hits limits, the system automatically uses OCR.space with n
 
 ## Cost Considerations
 
-### Google AI Gemini 1.5 Flash
+### Google AI Gemini 2.0 Flash
 **Free Tier:**
 - **Requests**: 1,500 per day
 - **Rate**: 15 requests per minute

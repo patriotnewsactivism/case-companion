@@ -1,4 +1,3 @@
-import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import {
@@ -79,14 +78,16 @@ serve(async (req) => {
     // Validate environment variables
     validateEnvVars(['SUPABASE_URL', 'SUPABASE_ANON_KEY']);
 
-    const googleApiKey = Deno.env.get('GOOGLE_AI_API_KEY');
+    const azureEndpoint = Deno.env.get('AZURE_VISION_ENDPOINT');
+    const azureApiKey = Deno.env.get('AZURE_VISION_API_KEY');
     const ocrSpaceApiKey = Deno.env.get('OCR_SPACE_API_KEY');
+    const googleApiKey = Deno.env.get('GOOGLE_AI_API_KEY');
 
     // Check if at least one OCR provider is configured
-    if (!googleApiKey && !ocrSpaceApiKey) {
+    if (!azureEndpoint && !ocrSpaceApiKey && !googleApiKey) {
       console.error('No OCR service configured');
       return createErrorResponse(
-        new Error('OCR service not configured. Please set GOOGLE_AI_API_KEY or OCR_SPACE_API_KEY.'),
+        new Error('OCR service not configured. Please set AZURE_VISION_ENDPOINT or OCR_SPACE_API_KEY.'),
         500,
         'ocr-document',
         corsHeaders
@@ -200,6 +201,90 @@ serve(async (req) => {
       return btoa(binary);
     };
 
+    // Azure Computer Vision OCR (BEST QUALITY - RECOMMENDED PRIMARY)
+    const azureVisionOcr = async (fileBlob: Blob, contentType: string): Promise<string> => {
+      if (!azureEndpoint || !azureApiKey) {
+        throw new Error('Azure Computer Vision not configured');
+      }
+
+      console.log('Using Azure Computer Vision OCR (best quality)...');
+
+      // Step 1: Submit document for analysis
+      const analyzeUrl = `${azureEndpoint}/vision/v3.2/read/analyze`;
+
+      const analyzeResponse = await fetch(analyzeUrl, {
+        method: 'POST',
+        headers: {
+          'Ocp-Apim-Subscription-Key': azureApiKey,
+          'Content-Type': contentType || 'application/octet-stream',
+        },
+        body: fileBlob,
+      });
+
+      if (!analyzeResponse.ok) {
+        const errorText = await analyzeResponse.text();
+        throw new Error(`Azure Computer Vision analyze failed: ${analyzeResponse.status} ${errorText}`);
+      }
+
+      // Get the operation location from headers
+      const operationLocation = analyzeResponse.headers.get('Operation-Location');
+      if (!operationLocation) {
+        throw new Error('Azure Computer Vision did not return Operation-Location header');
+      }
+
+      console.log('Azure OCR analysis submitted, polling for results...');
+
+      // Step 2: Poll for results (max 30 seconds)
+      let attempts = 0;
+      const maxAttempts = 30;
+      let result: any = null;
+
+      while (attempts < maxAttempts) {
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
+        attempts++;
+
+        const resultResponse = await fetch(operationLocation, {
+          headers: {
+            'Ocp-Apim-Subscription-Key': azureApiKey,
+          },
+        });
+
+        if (!resultResponse.ok) {
+          throw new Error(`Azure Computer Vision polling failed: ${resultResponse.status}`);
+        }
+
+        result = await resultResponse.json();
+
+        if (result.status === 'succeeded') {
+          console.log(`✅ Azure OCR completed in ${attempts} seconds`);
+          break;
+        } else if (result.status === 'failed') {
+          throw new Error(`Azure Computer Vision analysis failed: ${result.analyzeResult?.errors?.[0]?.message || 'Unknown error'}`);
+        }
+
+        // Status is still "running", continue polling
+      }
+
+      if (result.status !== 'succeeded') {
+        throw new Error('Azure Computer Vision analysis timed out after 30 seconds');
+      }
+
+      // Step 3: Extract text from all pages
+      const pages = result.analyzeResult?.readResults || [];
+      const extractedText = pages.map((page: any, idx: number) => {
+        const lines = page.lines || [];
+        const pageText = lines.map((line: any) => line.text).join('\n');
+        return pages.length > 1 ? `=== PAGE ${idx + 1} ===\n${pageText}` : pageText;
+      }).join('\n\n');
+
+      if (!extractedText || extractedText.trim().length === 0) {
+        throw new Error('Azure Computer Vision returned no text');
+      }
+
+      console.log(`Azure OCR extracted ${extractedText.length} characters from ${pages.length} page(s)`);
+      return extractedText;
+    };
+
     // OCR.space fallback function (FREE: 25,000 requests/month)
     const ocrSpaceExtract = async (fileBlob: Blob, isImage: boolean, contentType?: string): Promise<string> => {
       if (!ocrSpaceApiKey) {
@@ -252,24 +337,49 @@ serve(async (req) => {
       return extractedText;
     };
 
-    // For images, use AI vision to extract text
+    // For images, use OCR to extract text
     if (resolvedContentType.includes('image') || validatedFileUrl.match(/\.(jpg|jpeg|png|gif|webp|bmp|tiff)$/i)) {
       console.log('Processing image with OCR...');
 
-      const arrayBuffer = await fileBlob.arrayBuffer();
-      const base64 = arrayBufferToBase64(arrayBuffer);
       const mimeType = resolvedContentType || 'image/jpeg';
-      const sizeInMB = (arrayBuffer.byteLength / 1024 / 1024).toFixed(2);
+      const sizeInMB = (fileBlob.size / 1024 / 1024).toFixed(2);
 
       console.log(`Image size: ${sizeInMB}MB, MIME: ${mimeType}`);
 
-      // Try Gemini first if available
-      let useGemini = !!googleApiKey;
-      let geminiError: Error | null = null;
+      // Try Azure first (best quality)
+      let useAzure = !!(azureEndpoint && azureApiKey);
+      let azureError: Error | null = null;
 
-      if (useGemini) {
+      if (useAzure) {
         try {
-          console.log('Trying Gemini 1.5 Flash for image OCR...');
+          extractedText = await azureVisionOcr(fileBlob, mimeType);
+        } catch (error) {
+          console.error('Azure OCR error:', error);
+          azureError = error instanceof Error ? error : new Error(String(error));
+          useAzure = false;
+        }
+      }
+
+      // Fall back to OCR.space if Azure failed or unavailable
+      if (!useAzure && ocrSpaceApiKey && !extractedText) {
+        console.log(`${azureError ? 'Azure failed, using' : 'Using'} OCR.space fallback...`);
+        try {
+          extractedText = await ocrSpaceExtract(fileBlob, true, mimeType);
+        } catch (ocrError) {
+          console.error('OCR.space also failed:', ocrError);
+          if (azureError) {
+            throw new Error(`All OCR providers failed. Azure: ${azureError.message}, OCR.space: ${ocrError instanceof Error ? ocrError.message : String(ocrError)}`);
+          }
+          throw ocrError;
+        }
+      }
+
+      // Last resort: Try Gemini if configured
+      if (!extractedText && googleApiKey) {
+        console.log('Trying Gemini as last resort...');
+        try {
+          const arrayBuffer = await fileBlob.arrayBuffer();
+          const base64 = arrayBufferToBase64(arrayBuffer);
           const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash-exp:generateContent?key=${googleApiKey}`, {
         method: 'POST',
         headers: {
@@ -321,37 +431,15 @@ Extract now:`
           if (!aiResponse.ok) {
             const errorText = await aiResponse.text();
             console.error('Gemini Image OCR error:', errorText);
-
-            // Check for rate limit errors - fall back to OCR.space
-            if (aiResponse.status === 429 || errorText.includes('RESOURCE_EXHAUSTED')) {
-              geminiError = new Error('Gemini rate limit exceeded, falling back to OCR.space');
-              useGemini = false;
-            } else {
-              throw new Error(`Gemini Image OCR failed: ${errorText}`);
-            }
-          } else {
-            const aiData = await aiResponse.json();
-            extractedText = aiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
-            console.log(`✅ Gemini extracted ${extractedText.length} characters from image`);
+            throw new Error(`Gemini Image OCR failed: ${errorText}`);
           }
+
+          const aiData = await aiResponse.json();
+          extractedText = aiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+          console.log(`✅ Gemini extracted ${extractedText.length} characters from image`);
         } catch (error) {
-          console.error('Gemini processing error:', error);
-          geminiError = error instanceof Error ? error : new Error(String(error));
-          useGemini = false;
-        }
-      }
-
-      // Fall back to OCR.space if Gemini failed or unavailable
-      if (!useGemini && ocrSpaceApiKey && !extractedText) {
-        console.log(`${geminiError ? 'Gemini failed, using' : 'Using'} OCR.space fallback...`);
-        try {
-          extractedText = await ocrSpaceExtract(fileBlob, true, mimeType);
-        } catch (ocrError) {
-          console.error('OCR.space also failed:', ocrError);
-          if (geminiError) {
-            throw new Error(`All OCR providers failed. Gemini: ${geminiError.message}, OCR.space: ${ocrError instanceof Error ? ocrError.message : String(ocrError)}`);
-          }
-          throw ocrError;
+          console.error('Gemini also failed:', error);
+          throw new Error('All OCR providers failed. Please check configuration.');
         }
       }
 
@@ -360,22 +448,46 @@ Extract now:`
       }
 
     } else if (resolvedContentType.includes('pdf') || validatedFileUrl.match(/\.pdf$/i)) {
-      // For PDFs, try Gemini first, then fall back to OCR.space
+      // For PDFs, use OCR
       console.log('PDF detected - processing with OCR...');
 
-      const arrayBuffer = await fileBlob.arrayBuffer();
-      const base64 = arrayBufferToBase64(arrayBuffer);
-      const sizeInMB = (arrayBuffer.byteLength / 1024 / 1024).toFixed(2);
-
+      const sizeInMB = (fileBlob.size / 1024 / 1024).toFixed(2);
       console.log(`PDF size: ${sizeInMB}MB`);
 
-      // Try Gemini first if available
-      let useGemini = !!googleApiKey;
-      let geminiError: Error | null = null;
+      // Try Azure first (best quality)
+      let useAzure = !!(azureEndpoint && azureApiKey);
+      let azureError: Error | null = null;
 
-      if (useGemini) {
+      if (useAzure) {
         try {
-          console.log('Trying Gemini 1.5 Flash for PDF OCR...');
+          extractedText = await azureVisionOcr(fileBlob, 'application/pdf');
+        } catch (error) {
+          console.error('Azure OCR error:', error);
+          azureError = error instanceof Error ? error : new Error(String(error));
+          useAzure = false;
+        }
+      }
+
+      // Fall back to OCR.space if Azure failed or unavailable
+      if (!useAzure && ocrSpaceApiKey && !extractedText) {
+        console.log(`${azureError ? 'Azure failed, using' : 'Using'} OCR.space fallback...`);
+        try {
+          extractedText = await ocrSpaceExtract(fileBlob, false, 'application/pdf');
+        } catch (ocrError) {
+          console.error('OCR.space also failed:', ocrError);
+          if (azureError) {
+            throw new Error(`All OCR providers failed. Azure: ${azureError.message}, OCR.space: ${ocrError instanceof Error ? ocrError.message : String(ocrError)}`);
+          }
+          throw ocrError;
+        }
+      }
+
+      // Last resort: Try Gemini if configured
+      if (!extractedText && googleApiKey) {
+        console.log('Trying Gemini as last resort...');
+        try {
+          const arrayBuffer = await fileBlob.arrayBuffer();
+          const base64 = arrayBufferToBase64(arrayBuffer);
           const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash-exp:generateContent?key=${googleApiKey}`, {
         method: 'POST',
         headers: {
@@ -428,37 +540,15 @@ Extract now:`
           if (!aiResponse.ok) {
             const errorText = await aiResponse.text();
             console.error('Gemini PDF OCR error:', errorText);
-
-            // Check for rate limit errors - fall back to OCR.space
-            if (aiResponse.status === 429 || errorText.includes('RESOURCE_EXHAUSTED')) {
-              geminiError = new Error('Gemini rate limit exceeded, falling back to OCR.space');
-              useGemini = false;
-            } else {
-              throw new Error(`Gemini PDF OCR failed: ${errorText}`);
-            }
-          } else {
-            const aiData = await aiResponse.json();
-            extractedText = aiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
-            console.log(`✅ Gemini extracted ${extractedText.length} characters from PDF`);
+            throw new Error(`Gemini PDF OCR failed: ${errorText}`);
           }
+
+          const aiData = await aiResponse.json();
+          extractedText = aiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+          console.log(`✅ Gemini extracted ${extractedText.length} characters from PDF`);
         } catch (error) {
-          console.error('Gemini processing error:', error);
-          geminiError = error instanceof Error ? error : new Error(String(error));
-          useGemini = false;
-        }
-      }
-
-      // Fall back to OCR.space if Gemini failed or unavailable
-      if (!useGemini && ocrSpaceApiKey && !extractedText) {
-        console.log(`${geminiError ? 'Gemini failed, using' : 'Using'} OCR.space fallback...`);
-        try {
-          extractedText = await ocrSpaceExtract(fileBlob, false, 'application/pdf');
-        } catch (ocrError) {
-          console.error('OCR.space also failed:', ocrError);
-          if (geminiError) {
-            throw new Error(`All OCR providers failed. Gemini: ${geminiError.message}, OCR.space: ${ocrError instanceof Error ? ocrError.message : String(ocrError)}`);
-          }
-          throw ocrError;
+          console.error('Gemini also failed:', error);
+          throw new Error('All OCR providers failed. Please check configuration.');
         }
       }
 

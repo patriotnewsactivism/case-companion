@@ -7,7 +7,7 @@ import {
   checkRateLimit,
 } from '../_shared/errorHandler.ts';
 import { verifyAuth, forbiddenResponse } from '../_shared/auth.ts';
-import { validateUUID, validateFileSize } from '../_shared/validation.ts';
+import { validateUUID } from '../_shared/validation.ts';
 
 const STORAGE_BUCKET = 'case-documents';
 
@@ -63,7 +63,7 @@ serve(async (req) => {
 
   try {
     // Validate environment variables
-    validateEnvVars(['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'OPENAI_API_KEY']);
+    validateEnvVars(['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'ASSEMBLYAI_API_KEY']);
 
     // Verify authentication
     const authResult = await verifyAuth(req);
@@ -141,7 +141,7 @@ serve(async (req) => {
       );
     }
 
-    console.log(`Transcribing ${mediaType} file: ${document.name}`);
+    console.log(`Transcribing ${mediaType} file: ${document.name} using AssemblyAI Universal-3 Pro`);
 
     // Download file from storage
     const fileUrl = document.file_url;
@@ -174,53 +174,125 @@ serve(async (req) => {
       fileBlob = await response.blob();
     }
 
-    console.log(`Downloaded file, size: ${fileBlob.size} bytes`);
+    console.log(`Downloaded file, size: ${(fileBlob.size / 1024 / 1024).toFixed(2)} MB`);
 
-    // Convert blob to File object for OpenAI API
-    const fileName = document.name || 'media';
-    const file = new File([fileBlob], fileName, { type: document.file_type || fileBlob.type || 'audio/mpeg' });
+    const assemblyAiApiKey = Deno.env.get('ASSEMBLYAI_API_KEY')!;
 
-    // Validate file size (Whisper API has a 25MB limit)
-    try {
-      validateFileSize(file.size, 25); // 25MB max for Whisper API
-    } catch (sizeError) {
-      return createErrorResponse(sizeError, 400, 'transcribe-media', corsHeaders);
-    }
-
-    const openaiApiKey = Deno.env.get('OPENAI_API_KEY')!;
-
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('model', 'whisper-1');
-    formData.append('response_format', 'verbose_json'); // Get timestamps and metadata
-
-    const transcriptionResponse = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+    // Step 1: Upload file to AssemblyAI
+    console.log('Uploading file to AssemblyAI...');
+    const uploadResponse = await fetch('https://api.assemblyai.com/v2/upload', {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${openaiApiKey}`,
+        'authorization': assemblyAiApiKey,
       },
-      body: formData,
+      body: fileBlob,
     });
 
-    if (!transcriptionResponse.ok) {
-      const errorText = await transcriptionResponse.text();
-      console.error('Whisper API error:', errorText);
-      throw new Error(`Transcription failed: ${errorText}`);
+    if (!uploadResponse.ok) {
+      const errorText = await uploadResponse.text();
+      console.error('AssemblyAI upload error:', errorText);
+      throw new Error(`Failed to upload file to AssemblyAI: ${errorText}`);
     }
 
-    const transcriptionData = await transcriptionResponse.json();
-    const transcriptionText = transcriptionData.text;
-    const duration = transcriptionData.duration;
+    const uploadData = await uploadResponse.json();
+    const audioUrl = uploadData.upload_url;
 
-    console.log(`Transcription completed. Duration: ${duration}s, Text length: ${transcriptionText.length}`);
+    console.log('File uploaded successfully, starting transcription...');
 
-    // Update document with transcription
+    // Step 2: Submit transcription request with Universal-3 Pro model
+    const transcriptResponse = await fetch('https://api.assemblyai.com/v2/transcript', {
+      method: 'POST',
+      headers: {
+        'authorization': assemblyAiApiKey,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        audio_url: audioUrl,
+        speech_model: 'best', // Uses Universal-3 Pro (best quality)
+        language_detection: true, // Auto-detect language
+        punctuate: true,
+        format_text: true,
+        speaker_labels: true, // Enable speaker diarization
+        auto_highlights: true, // Extract key phrases
+        entity_detection: true, // Detect names, dates, etc.
+      }),
+    });
+
+    if (!transcriptResponse.ok) {
+      const errorText = await transcriptResponse.text();
+      console.error('AssemblyAI transcription submission error:', errorText);
+      throw new Error(`Failed to submit transcription: ${errorText}`);
+    }
+
+    const transcriptData = await transcriptResponse.json();
+    const transcriptId = transcriptData.id;
+
+    console.log(`Transcription submitted with ID: ${transcriptId}, polling for results...`);
+
+    // Step 3: Poll for transcription completion (max 10 minutes)
+    let attempts = 0;
+    const maxAttempts = 120; // 120 attempts * 5 seconds = 10 minutes
+    let transcript: any = null;
+
+    while (attempts < maxAttempts) {
+      await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds
+      attempts++;
+
+      const pollingResponse = await fetch(`https://api.assemblyai.com/v2/transcript/${transcriptId}`, {
+        headers: {
+          'authorization': assemblyAiApiKey,
+        },
+      });
+
+      if (!pollingResponse.ok) {
+        throw new Error(`Failed to poll transcription status: ${pollingResponse.status}`);
+      }
+
+      transcript = await pollingResponse.json();
+
+      if (transcript.status === 'completed') {
+        console.log(`✅ Transcription completed in ${attempts * 5} seconds`);
+        break;
+      } else if (transcript.status === 'error') {
+        throw new Error(`Transcription failed: ${transcript.error}`);
+      }
+
+      // Status is still "queued" or "processing", continue polling
+      if (attempts % 12 === 0) {
+        console.log(`Still processing... (${attempts * 5}s elapsed, status: ${transcript.status})`);
+      }
+    }
+
+    if (transcript.status !== 'completed') {
+      throw new Error('Transcription timed out after 10 minutes');
+    }
+
+    const transcriptionText = transcript.text;
+    const duration = transcript.audio_duration; // Duration in seconds
+
+    if (!transcriptionText || transcriptionText.trim().length === 0) {
+      throw new Error('AssemblyAI returned empty transcription');
+    }
+
+    console.log(`Transcription completed. Duration: ${duration}s, Text length: ${transcriptionText.length} characters`);
+
+    // Extract additional insights from AssemblyAI
+    const speakers = transcript.utterances || [];
+    const highlights = transcript.auto_highlights_result?.results || [];
+    const entities = transcript.entities || [];
+
+    console.log(`Extracted ${speakers.length} speaker segments, ${highlights.length} highlights, ${entities.length} entities`);
+
+    // Update document with transcription and metadata
     const { error: updateError } = await supabase
       .from('documents')
       .update({
         transcription_text: transcriptionText,
         transcription_processed_at: new Date().toISOString(),
         duration_seconds: Math.round(duration),
+        // Store additional metadata if columns exist
+        // speaker_count: speakers.length,
+        // key_phrases: highlights.map((h: any) => h.text).slice(0, 10),
       })
       .eq('id', documentId);
 
@@ -228,16 +300,16 @@ serve(async (req) => {
       throw updateError;
     }
 
-    // Optionally: Generate AI summary of transcription
-    // This could use the same AI analysis as documents
-    // For now, we'll skip this to keep the function simple
-
     return new Response(
       JSON.stringify({
         success: true,
         documentId,
         transcriptionLength: transcriptionText.length,
         duration: Math.round(duration),
+        speakers: speakers.length,
+        highlights: highlights.length,
+        entities: entities.length,
+        confidence: transcript.confidence,
       }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
