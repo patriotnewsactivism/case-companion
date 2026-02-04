@@ -29,8 +29,19 @@ interface DriveFile {
 const handler = async (req: Request): Promise<Response> => {
   const corsHeaders = getCorsHeaders(req);
 
+  console.log('import-google-drive: Request received', {
+    method: req.method,
+    url: req.url,
+    hasAuth: !!req.headers.get('Authorization'),
+  });
+
   // Validate environment variables
-  validateEnvVars(['SUPABASE_URL', 'SUPABASE_ANON_KEY']);
+  try {
+    validateEnvVars(['SUPABASE_URL', 'SUPABASE_ANON_KEY']);
+  } catch (error) {
+    console.error('Environment validation failed:', error);
+    return createErrorResponse(error, 500, 'import-google-drive', corsHeaders);
+  }
 
   const supabase = createClient(
     Deno.env.get('SUPABASE_URL')!,
@@ -92,13 +103,23 @@ const handler = async (req: Request): Promise<Response> => {
     );
   }
 
-  validateRequestBody<ImportRequest>(requestBody, [
-    'folderId',
-    'folderName',
-    'folderPath',
-    'caseId',
-    'accessToken',
-  ]);
+  // Validate required fields
+  try {
+    validateRequestBody<ImportRequest>(requestBody, [
+      'folderId',
+      'folderName',
+      'folderPath',
+      'caseId',
+      'accessToken',
+    ]);
+  } catch (error) {
+    return createErrorResponse(
+      error,
+      400,
+      'import-google-drive',
+      corsHeaders
+    );
+  }
 
   const { folderId, folderName, folderPath, caseId, accessToken } = requestBody as ImportRequest;
 
