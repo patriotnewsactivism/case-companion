@@ -17,28 +17,64 @@ After extracting text, the system automatically:
 
 ## Setup Instructions
 
-### 1. Get Google AI API Key
+The OCR system uses **two providers** with automatic fallback:
+
+1. **Primary**: Google Gemini 1.5 Flash (1,500 requests/day free)
+2. **Fallback**: OCR.space (25,000 requests/month free)
+
+### Option 1: Google AI (Primary - Recommended)
 
 1. Go to [Google AI Studio](https://aistudio.google.com/app/apikey)
 2. Click "Create API Key"
 3. Select a Google Cloud project (or create a new one)
 4. Copy the generated API key
+5. Set as Supabase secret:
+   ```bash
+   npx supabase secrets set GOOGLE_AI_API_KEY=your-actual-api-key-here
+   ```
 
-### 2. Configure Supabase Secret
+**Pros**: Best quality, AI-powered analysis, 1,500 requests/day free
+**Cons**: Lower free limit, requires Google account
+
+### Option 2: OCR.space (Fallback - Always Recommended)
+
+1. Go to [OCR.space API](https://ocr.space/ocrapi)
+2. Click "Register for free API key"
+3. Fill out the form (no credit card required)
+4. Check your email for the API key
+5. Set as Supabase secret:
+   ```bash
+   npx supabase secrets set OCR_SPACE_API_KEY=your-actual-api-key-here
+   ```
+
+**Pros**: 25,000 requests/month free, no credit card, automatic fallback
+**Cons**: Lower quality than Gemini for complex documents
+
+### Recommended Setup: Use Both!
+
+For best results, **configure both providers**:
 
 ```bash
-# Set the Google AI API key as a Supabase secret
-npx supabase secrets set GOOGLE_AI_API_KEY=your-actual-api-key-here
+# Primary OCR (best quality)
+npx supabase secrets set GOOGLE_AI_API_KEY=your-google-key
+
+# Fallback OCR (never runs out)
+npx supabase secrets set OCR_SPACE_API_KEY=your-ocr-space-key
 ```
 
-### 3. Verify Configuration
+The system will:
+1. Try Gemini first (best quality)
+2. Automatically fall back to OCR.space if Gemini fails or hits limits
+3. Never fail OCR (25,000 free fallback requests/month!)
+
+### Verify Configuration
 
 ```bash
-# List secrets to verify it's set
+# List secrets to verify they're set
 npx supabase secrets list
 ```
 
-You should see `GOOGLE_AI_API_KEY` in the list.
+You should see `GOOGLE_AI_API_KEY` and/or `OCR_SPACE_API_KEY` in the list.
 
 ## How to Use OCR
 
@@ -97,24 +133,42 @@ For audio and video files, you need to set up **OpenAI Whisper**:
 - **PDF with many pages**: Processing time scales with page count
 - **Network issues**: Check your internet connection
 
-### Rate Limit Error: "Google AI API rate limit exceeded"
-This means you've hit your daily or per-minute quota.
+### OCR Service Configuration
 
-**Free Tier Limits:**
-- 1,500 requests per day
-- 15 requests per minute
+**Error: "OCR service not configured"**
+- You need to set at least ONE of these API keys:
+  - `GOOGLE_AI_API_KEY` (primary, best quality)
+  - `OCR_SPACE_API_KEY` (fallback, unlimited)
 
-**Solutions:**
-1. **Wait 24 hours** for the daily quota to reset
-2. **Wait 1 minute** if you hit the per-minute limit
-3. **Upgrade to paid tier** at [Google AI Studio](https://aistudio.google.com/) for 2,000 requests/minute
-4. **Process documents individually** instead of batch processing
-5. **Monitor usage** at https://ai.dev/rate-limit
+**Recommended**: Set both for best results!
 
-**To upgrade (recommended for production):**
-- Go to Google AI Studio → Billing
-- Set up a billing account
-- Cost: ~$0.01 per 100-page PDF (very affordable)
+```bash
+npx supabase secrets set GOOGLE_AI_API_KEY=your-google-key
+npx supabase secrets set OCR_SPACE_API_KEY=your-ocr-space-key
+```
+
+### Automatic Fallback Working
+
+When you see: **"Gemini rate limit exceeded, using OCR.space fallback"**
+- ✅ This is GOOD! The system is working as designed
+- OCR.space is automatically processing your document
+- Quality may be slightly lower but still very good
+- You have 25,000 free OCR.space requests per month
+
+### Both Services Failed
+
+If you see: **"All OCR providers failed"**
+1. Check OCR.space quota: May have used 25,000 monthly requests
+2. Check file size: Must be under 5MB for OCR.space
+3. Verify both API keys are set correctly
+4. Check API key validity at respective provider websites
+
+### Upgrade for Production
+
+**For heavy usage (>25k documents/month):**
+- Upgrade Google AI to paid tier: $0.075 per 1M tokens (~$0.01 per 100-page PDF)
+- Upgrade OCR.space to Pro: $30/month for 100k requests
+- Or use both free tiers: 1,500 Gemini + 25,000 OCR.space = 26,500 free/month!
 
 ### OCR Extracts Poor Quality Text
 The OCR system is optimized for legal documents and includes:
@@ -130,21 +184,27 @@ If extraction quality is poor:
 
 ## API Rate Limits
 
-### Google AI (OCR)
+### Google AI (Primary OCR)
 **Free Tier Limits (Gemini 1.5 Flash):**
 - **Daily limit**: 1,500 requests per day
 - **Per-minute limit**: 15 requests per minute
 - **User limit in app**: 10 OCR operations per minute per user
-- **Service role**: No limit (used for batch imports)
 - **File size limit**: ~20MB (Google AI API limit)
 
-**IMPORTANT**: If you hit the daily limit (20 requests/day on free tier), you'll see:
-> "Google AI API rate limit exceeded. Please wait a few minutes or upgrade your API plan"
+**When you hit limits:**
+- System automatically falls back to OCR.space
+- You'll see a message: "Gemini rate limit exceeded, using OCR.space fallback"
+- No interruption to your workflow!
 
-**Solutions:**
-1. **Wait**: Free tier resets every 24 hours
-2. **Upgrade to Pay-As-You-Go**: Go to [Google AI Studio](https://aistudio.google.com/) → Billing
-3. **Batch process slowly**: Process documents one at a time instead of using "Analyze All"
+### OCR.space (Fallback OCR)
+**Free Tier Limits:**
+- **Monthly limit**: 25,000 requests per month
+- **Per-request limit**: 5MB file size
+- **No daily limit**: Spread across entire month
+- **No credit card**: Required free forever
+
+**Automatic Fallback:**
+When Gemini fails or hits limits, the system automatically uses OCR.space with no user action required.
 
 ### OpenAI Whisper (Transcription)
 - **User limit**: 5 transcriptions per minute per user

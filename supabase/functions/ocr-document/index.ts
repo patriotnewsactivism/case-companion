@@ -246,7 +246,7 @@ serve(async (req) => {
 
     // For images, use AI vision to extract text
     if (resolvedContentType.includes('image') || validatedFileUrl.match(/\.(jpg|jpeg|png|gif|webp|bmp|tiff)$/i)) {
-      console.log('Processing image with AI vision...');
+      console.log('Processing image with OCR...');
 
       const arrayBuffer = await fileBlob.arrayBuffer();
       const base64 = arrayBufferToBase64(arrayBuffer);
@@ -255,7 +255,14 @@ serve(async (req) => {
 
       console.log(`Image size: ${sizeInMB}MB, MIME: ${mimeType}`);
 
-      const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${googleApiKey}`, {
+      // Try Gemini first if available
+      let useGemini = !!googleApiKey;
+      let geminiError: Error | null = null;
+
+      if (useGemini) {
+        try {
+          console.log('Trying Gemini 1.5 Flash for image OCR...');
+          const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${googleApiKey}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -303,25 +310,50 @@ Extract now:`
         }),
       });
 
-      if (!aiResponse.ok) {
-        const errorText = await aiResponse.text();
-        console.error('AI Image OCR error:', errorText);
+          if (!aiResponse.ok) {
+            const errorText = await aiResponse.text();
+            console.error('Gemini Image OCR error:', errorText);
 
-        // Check for rate limit errors
-        if (aiResponse.status === 429 || errorText.includes('RESOURCE_EXHAUSTED')) {
-          throw new Error('Google AI API rate limit exceeded. Please wait a few minutes or upgrade your API plan at https://aistudio.google.com/');
+            // Check for rate limit errors - fall back to OCR.space
+            if (aiResponse.status === 429 || errorText.includes('RESOURCE_EXHAUSTED')) {
+              geminiError = new Error('Gemini rate limit exceeded, falling back to OCR.space');
+              useGemini = false;
+            } else {
+              throw new Error(`Gemini Image OCR failed: ${errorText}`);
+            }
+          } else {
+            const aiData = await aiResponse.json();
+            extractedText = aiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+            console.log(`✅ Gemini extracted ${extractedText.length} characters from image`);
+          }
+        } catch (error) {
+          console.error('Gemini processing error:', error);
+          geminiError = error instanceof Error ? error : new Error(String(error));
+          useGemini = false;
         }
-
-        throw new Error(`AI Image OCR failed: ${errorText}`);
       }
 
-      const aiData = await aiResponse.json();
-      extractedText = aiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      console.log(`Extracted ${extractedText.length} characters from image`);
+      // Fall back to OCR.space if Gemini failed or unavailable
+      if (!useGemini && ocrSpaceApiKey && !extractedText) {
+        console.log(`${geminiError ? 'Gemini failed, using' : 'Using'} OCR.space fallback...`);
+        try {
+          extractedText = await ocrSpaceExtract(fileBlob, true);
+        } catch (ocrError) {
+          console.error('OCR.space also failed:', ocrError);
+          if (geminiError) {
+            throw new Error(`All OCR providers failed. Gemini: ${geminiError.message}, OCR.space: ${ocrError instanceof Error ? ocrError.message : String(ocrError)}`);
+          }
+          throw ocrError;
+        }
+      }
 
-    } else if (resolvedContentType.includes('pdf') || validatedFileUrl.match(/\.pdf$/i)) {       
-      // For PDFs, use Gemini 2.0 Flash with native PDF support
-      console.log('PDF detected - using advanced AI processing...');
+      if (!extractedText) {
+        throw new Error('No OCR service was able to process this image');
+      }
+
+    } else if (resolvedContentType.includes('pdf') || validatedFileUrl.match(/\.pdf$/i)) {
+      // For PDFs, try Gemini first, then fall back to OCR.space
+      console.log('PDF detected - processing with OCR...');
 
       const arrayBuffer = await fileBlob.arrayBuffer();
       const base64 = arrayBufferToBase64(arrayBuffer);
@@ -329,7 +361,14 @@ Extract now:`
 
       console.log(`PDF size: ${sizeInMB}MB`);
 
-      const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${googleApiKey}`, {
+      // Try Gemini first if available
+      let useGemini = !!googleApiKey;
+      let geminiError: Error | null = null;
+
+      if (useGemini) {
+        try {
+          console.log('Trying Gemini 1.5 Flash for PDF OCR...');
+          const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${googleApiKey}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -378,21 +417,46 @@ Extract now:`
         }),
       });
 
-      if (!aiResponse.ok) {
-        const errorText = await aiResponse.text();
-        console.error('AI PDF OCR error:', errorText);
+          if (!aiResponse.ok) {
+            const errorText = await aiResponse.text();
+            console.error('Gemini PDF OCR error:', errorText);
 
-        // Check for rate limit errors
-        if (aiResponse.status === 429 || errorText.includes('RESOURCE_EXHAUSTED')) {
-          throw new Error('Google AI API rate limit exceeded. Please wait a few minutes or upgrade your API plan at https://aistudio.google.com/');
+            // Check for rate limit errors - fall back to OCR.space
+            if (aiResponse.status === 429 || errorText.includes('RESOURCE_EXHAUSTED')) {
+              geminiError = new Error('Gemini rate limit exceeded, falling back to OCR.space');
+              useGemini = false;
+            } else {
+              throw new Error(`Gemini PDF OCR failed: ${errorText}`);
+            }
+          } else {
+            const aiData = await aiResponse.json();
+            extractedText = aiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+            console.log(`✅ Gemini extracted ${extractedText.length} characters from PDF`);
+          }
+        } catch (error) {
+          console.error('Gemini processing error:', error);
+          geminiError = error instanceof Error ? error : new Error(String(error));
+          useGemini = false;
         }
-
-        throw new Error(`AI PDF OCR failed: ${errorText}`);
       }
 
-      const aiData = await aiResponse.json();
-      extractedText = aiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      console.log(`Extracted ${extractedText.length} characters from PDF`);
+      // Fall back to OCR.space if Gemini failed or unavailable
+      if (!useGemini && ocrSpaceApiKey && !extractedText) {
+        console.log(`${geminiError ? 'Gemini failed, using' : 'Using'} OCR.space fallback...`);
+        try {
+          extractedText = await ocrSpaceExtract(fileBlob, false);
+        } catch (ocrError) {
+          console.error('OCR.space also failed:', ocrError);
+          if (geminiError) {
+            throw new Error(`All OCR providers failed. Gemini: ${geminiError.message}, OCR.space: ${ocrError instanceof Error ? ocrError.message : String(ocrError)}`);
+          }
+          throw ocrError;
+        }
+      }
+
+      if (!extractedText) {
+        throw new Error('No OCR service was able to process this PDF');
+      }
 
     } else if (resolvedContentType.includes('text') || validatedFileUrl.match(/\.(txt|doc|docx)$/i)) {
       // For text files, read directly

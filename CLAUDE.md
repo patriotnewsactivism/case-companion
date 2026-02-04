@@ -112,12 +112,14 @@ Located in `supabase/functions/`:
 1. **`create-video-room`** - Creates Jitsi Meet room with JWT token
 2. **`join-video-room`** - Joins existing video room
 3. **`import-google-drive`** - Recursively imports folders from Google Drive to Supabase Storage
-4. **`ocr-document`** - OCR processing for PDF/images using Google Gemini 1.5 Flash
+4. **`ocr-document`** - OCR processing with automatic fallback
+   - **Primary**: Google Gemini 1.5 Flash (1,500 requests/day free)
+   - **Fallback**: OCR.space (25,000 requests/month free)
    - Extracts text from PDFs (multi-page), images, and text files
    - Performs AI legal analysis: summary, key facts, favorable/adverse findings, action items
    - Auto-generates timeline events from dates found in documents
    - Handles Bates numbers, exhibits, redactions, tables, and marginalia
-   - **Rate limits**: 1,500 requests/day (free tier), upgrade for 2,000/minute
+   - Automatically switches to OCR.space if Gemini hits rate limits
 5. **`transcribe-media`** - Calls OpenAI Whisper API for audio/video transcription
 6. **`trial-simulation`** - AI-powered trial simulation with coaching (cross-exam, depositions, etc.)
 
@@ -133,8 +135,11 @@ Required in `.env` (see `.env.example`):
 - `VITE_GOOGLE_API_KEY` - Google API key for Drive integration
 
 **Supabase Secrets** (set via `npx supabase secrets set KEY=value`):
-- `GOOGLE_AI_API_KEY` - For OCR and document analysis (Gemini 2.5 Flash)
+- `GOOGLE_AI_API_KEY` - Primary OCR provider (Gemini 1.5 Flash, 1,500/day free)
+- `OCR_SPACE_API_KEY` - Fallback OCR provider (25,000/month free, recommended)
 - `OPENAI_API_KEY` - For Whisper audio/video transcription (optional)
+
+**OCR Strategy**: Set both `GOOGLE_AI_API_KEY` and `OCR_SPACE_API_KEY` for best results. System tries Gemini first (best quality), automatically falls back to OCR.space if Gemini fails or hits rate limits.
 
 Current project ID: `plcvjadartxntnurhcua`
 
