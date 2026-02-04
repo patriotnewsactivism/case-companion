@@ -22,7 +22,9 @@
       "Bash(supabase status:*)",
       "Bash(supabase secrets list:*)",
       "Bash(npm install:*)",
-      "Bash(supabase functions deploy:*)"
+      "Bash(supabase functions deploy:*)",
+      "Bash(powershell -File:*)",
+      "Bash(cmd /c scripts\\\\test-fixes.bat)"
     ]
   },
   "enableAllProjectMcpServers": true,
