@@ -12,7 +12,7 @@ interface DiagnosticResult {
   test: string;
   status: 'pass' | 'fail' | 'warn';
   message: string;
-  details?: any;
+  details?: unknown;
 }
 
 const results: DiagnosticResult[] = [];

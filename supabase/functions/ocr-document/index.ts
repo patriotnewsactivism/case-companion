@@ -445,7 +445,7 @@ Extract now:`;
     let adverseFindings: string[] = [];
     let actionItems: string[] = [];
     let summary = '';
-    let timelineEvents: any[] = [];
+    let timelineEvents: unknown[] = [];
 
     if (extractedText && extractedText.length > 50 && !extractedText.startsWith('[File type') && googleApiKey) {
       console.log('Analyzing extracted text with AI...');

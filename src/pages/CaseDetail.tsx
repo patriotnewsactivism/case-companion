@@ -179,7 +179,7 @@ const DocumentRow = memo(({ index, style, data }: ListChildComponentProps<Docume
 
       <div className="col-span-1 flex flex-col gap-0.5">
         {doc.ai_analyzed && (
-          <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-green-50 text-green-700 border-green-200">
+                <Badge className="text-[10px] px-1.5 py-0 bg-green-50 text-green-700 border-green-200">
             AI
           </Badge>
         )}
@@ -939,7 +939,7 @@ export default function CaseDetail() {
             {/* Top row with badges and actions */}
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div className="flex items-center gap-3">
-                <Badge variant="outline" className="font-mono text-xs">
+                <Badge className="font-mono text-xs">
                   {`CV-${new Date(caseData.created_at).getFullYear()}-${caseData.id.substring(0, 5).toUpperCase()}`}
                 </Badge>
                 <Badge className={getStatusColor(caseData.status)}>{caseData.status}</Badge>
@@ -1037,7 +1037,7 @@ export default function CaseDetail() {
                         <Filter className="h-4 w-4" />
                         Filters
                         {activeFilterCount > 0 && (
-                          <Badge variant="secondary" className="ml-1 h-5 w-5 p-0 flex items-center justify-center text-xs">
+                          <Badge className="ml-1 h-5 w-5 p-0 flex items-center justify-center text-xs">
                             {activeFilterCount}
                           </Badge>
                         )}
@@ -1501,7 +1501,7 @@ export default function CaseDetail() {
                                 <Clock className="h-3 w-3" />
                                 {format(new Date(event.event_date), "PPP")}
                                 {event.event_type && (
-                                  <Badge variant="outline" className="text-xs">
+                                   <Badge className="text-xs">
                                     {event.event_type}
                                   </Badge>
                                 )}
