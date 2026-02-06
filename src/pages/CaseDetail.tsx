@@ -4,6 +4,8 @@ import { useParams, useNavigate } from "react-router-dom";
 import { FixedSizeList as List, ListChildComponentProps } from "react-window";
 import { GoogleDriveFolderImport } from "@/components/GoogleDriveFolderImport";
 import { ImportJobsViewer } from "@/components/ImportJobsViewer";
+import { BulkDocumentUpload } from "@/components/BulkDocumentUpload";
+import { TrialSimulator } from "@/components/TrialSimulator";
 import { VideoRoom } from "@/components/VideoRoom";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -325,6 +327,7 @@ export default function CaseDetail() {
 
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [isLinkImportOpen, setIsLinkImportOpen] = useState(false);
+  const [isBulkUploadOpen, setIsBulkUploadOpen] = useState(false);
   const [isEventOpen, setIsEventOpen] = useState(false);
   const [deleteDocId, setDeleteDocId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -1147,6 +1150,35 @@ export default function CaseDetail() {
                       }}
                     />
 
+                    {/* Bulk Document Upload Dialog */}
+                    <Dialog open={isBulkUploadOpen} onOpenChange={setIsBulkUploadOpen}>
+                      <DialogTrigger asChild>
+                        <Button variant="outline" className="gap-2">
+                          <Upload className="h-4 w-4" />
+                          Bulk Upload
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+                        <DialogHeader>
+                          <DialogTitle>Bulk Document Upload</DialogTitle>
+                          <DialogDescription>
+                            Upload multiple documents at once. All documents will be automatically processed with OCR and AI analysis.
+                          </DialogDescription>
+                        </DialogHeader>
+                        <BulkDocumentUpload 
+                          caseId={id!}
+                          onUploadComplete={(uploadedDocs) => {
+                            toast({
+                              title: "Upload Complete",
+                              description: `Successfully uploaded ${uploadedDocs.length} documents.`,
+                            });
+                            queryClient.invalidateQueries({ queryKey: ['documents', id] });
+                            setIsBulkUploadOpen(false);
+                          }}
+                        />
+                      </DialogContent>
+                    </Dialog>
+
                     {/* Link Import Dialog */}
                     <Dialog open={isLinkImportOpen} onOpenChange={setIsLinkImportOpen}>
                       <DialogTrigger asChild>
@@ -1522,19 +1554,59 @@ export default function CaseDetail() {
 
               {/* Trial Prep Tab */}
               <TabsContent value="trial-prep" className="space-y-4">
-                <Card className="glass-card">
-                  <CardContent className="flex flex-col items-center justify-center py-12">
-                    <Gavel className="h-12 w-12 text-muted-foreground mb-4" />
-                    <h3 className="text-lg font-medium mb-2">Trial Preparation</h3>
-                    <p className="text-sm text-muted-foreground mb-4 text-center max-w-md">
-                      Organize witnesses, exhibits, and prepare your trial strategy for this case
-                    </p>
-                    <Button onClick={() => navigate(`/trial-prep?caseId=${id}`)}>
-                      <Plus className="h-4 w-4 mr-2" />
-                      Start Trial Prep
-                    </Button>
-                  </CardContent>
-                </Card>
+                <div className="grid gap-6">
+                  <Card className="glass-card">
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Gavel className="h-5 w-5" />
+                        Trial Preparation Tools
+                      </CardTitle>
+                      <CardDescription>
+                        Organize witnesses, exhibits, and prepare your trial strategy for this case
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="grid md:grid-cols-2 gap-4">
+                        <Card className="border-border hover:border-gold-300 transition-colors">
+                          <CardContent className="pt-6">
+                            <div className="flex items-start gap-3">
+                              <div className="rounded-lg bg-blue-100 p-2">
+                                <Brain className="h-5 w-5 text-blue-600" />
+                              </div>
+                              <div>
+                                <h3 className="font-medium">Trial Simulator</h3>
+                                <p className="text-sm text-muted-foreground mt-1">
+                                  Practice deposition questions and cross-examination techniques with AI assistance
+                                </p>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                        
+                        <Card className="border-border hover:border-gold-300 transition-colors">
+                          <CardContent className="pt-6">
+                            <div className="flex items-start gap-3">
+                              <div className="rounded-lg bg-purple-100 p-2">
+                                <Target className="h-5 w-5 text-purple-600" />
+                              </div>
+                              <div>
+                                <h3 className="font-medium">Deposition Questions</h3>
+                                <p className="text-sm text-muted-foreground mt-1">
+                                  Generate trap questions and impeachment material from your documents
+                                </p>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      </div>
+                      
+                      <TrialSimulator 
+                        caseData={caseData}
+                        documents={documents}
+                      />
+                    </CardContent>
+                  </Card>
+                </div>
               </TabsContent>
 
               {/* Briefs Tab */}
