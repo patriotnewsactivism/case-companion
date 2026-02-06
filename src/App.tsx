@@ -79,6 +79,7 @@ const Calendar = lazy(() => import("./pages/Calendar"));
 const Research = lazy(() => import("./pages/Research"));
 const TrialPrep = lazy(() => import("./pages/TrialPrep"));
 const Video = lazy(() => import("./pages/Video"));
+const Billing = lazy(() => import("./pages/Billing"));
 const Settings = lazy(() => import("./pages/Settings"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
@@ -179,6 +180,14 @@ const App = () => (
                   element={
                     <ProtectedRoute>
                       <Video />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/billing"
+                  element={
+                    <ProtectedRoute>
+                      <Billing />
                     </ProtectedRoute>
                   }
                 />
