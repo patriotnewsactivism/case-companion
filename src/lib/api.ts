@@ -429,18 +429,29 @@ export interface DocumentStats {
 }
 
 export async function getDocumentStats(): Promise<DocumentStats> {
-  const { data, error } = await supabase
+  // Get documents
+  const { data: docsData, error: docsError } = await supabase
     .from("documents")
-    .select("id, ai_analyzed, linked_document_id");
+    .select("id, ai_analyzed");
 
-  if (error) throw error;
+  if (docsError) throw docsError;
 
-  const docs = data || [];
+  // Get timeline events that are linked to documents
+  const { data: timelineData, error: timelineError } = await supabase
+    .from("timeline_events")
+    .select("linked_document_id")
+    .not("linked_document_id", "is", null);
+
+  if (timelineError) throw timelineError;
+
+  const docs = docsData || [];
+  const linkedDocIds = new Set((timelineData || []).map(t => t.linked_document_id));
+  
   return {
     total: docs.length,
     analyzed: docs.filter((d) => d.ai_analyzed).length,
     pending: docs.filter((d) => !d.ai_analyzed).length,
-    withTimeline: docs.filter((d) => d.linked_document_id).length,
+    withTimeline: linkedDocIds.size,
   };
 }
 

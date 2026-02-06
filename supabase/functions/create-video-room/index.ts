@@ -177,10 +177,8 @@ serve(async (req) => {
         title: name,
         description: description,
         enable_recording: enableRecording,
-        max_participants: maxParticipants,
         expires_at: new Date(exp * 1000).toISOString(),
         status: 'active',
-        recording_status: enableRecording ? 'pending' : null,
       })
       .select()
       .single();

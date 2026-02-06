@@ -555,7 +555,14 @@ ${extractedText.substring(0, 20000)}`
     // Insert extracted timeline events
     if (timelineEvents.length > 0) {
       console.log(`Inserting ${timelineEvents.length} timeline events...`);
-      const eventsToInsert = timelineEvents.map(event => ({
+      interface TimelineEventInput {
+        event_date?: string;
+        title?: string;
+        description?: string;
+        importance?: string;
+        event_type?: string;
+      }
+      const eventsToInsert = timelineEvents.map((event: TimelineEventInput) => ({
         case_id: documentData.case_id,
         user_id: user.id, // Or ownerId if different
         linked_document_id: validatedDocumentId,

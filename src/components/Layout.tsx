@@ -17,6 +17,8 @@ import {
   Search,
   Cloud,
   Bell,
+  Video,
+  DollarSign,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
@@ -26,6 +28,8 @@ const navItems = [
   { path: "/cases", label: "My Cases", icon: FolderOpen },
   { path: "/trial-prep", label: "Trial Prep", icon: Gavel },
   { path: "/calendar", label: "Calendar", icon: Calendar },
+  { path: "/billing", label: "Practice Mgmt", icon: DollarSign },
+  { path: "/video", label: "Video Calls", icon: Video },
   { path: "/research", label: "Legal Research", icon: BookOpen },
   { path: "/settings", label: "Settings", icon: Settings },
 ];
