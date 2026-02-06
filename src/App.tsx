@@ -108,6 +108,7 @@ const queryClient = new QueryClient({
   },
 });
 
+// Main App component with routing fix
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
@@ -118,75 +119,82 @@ const App = () => (
           <ErrorBoundary>
             <Suspense fallback={<PageLoader />}>
               <Routes>
-              <Route path="/" element={<Landing />} />
-              <Route path="/login" element={<Login />} />
-              <Route
-                path="/dashboard"
-                element={
-                  <ProtectedRoute>
-                    <Dashboard />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/cases"
-                element={
-                  <ProtectedRoute>
-                    <Cases />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/cases/:id"
-                element={
-                  <ProtectedRoute>
-                    <CaseDetail />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/calendar"
-                element={
-                  <ProtectedRoute>
-                    <Calendar />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/research"
-                element={
-                  <ProtectedRoute>
-                    <Research />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/trial-prep"
-                element={
-                  <ProtectedRoute>
-                    <TrialPrep />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/video"
-                element={
-                  <ProtectedRoute>
-                    <Video />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/settings"
-                element={
-                  <ProtectedRoute>
-                    <Settings />
-                  </ProtectedRoute>
-                }
-              />
-              <Route path="*" element={<NotFound />} />
-            </Routes>
-          </Suspense>
+                {/* Fixed: Direct route to Landing page at root */}
+                <Route path="/" element={<Landing />} />
+                
+                {/* Fixed: Login page */}
+                <Route path="/login" element={<Login />} />
+                
+                {/* Protected routes */}
+                <Route
+                  path="/dashboard"
+                  element={
+                    <ProtectedRoute>
+                      <Dashboard />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/cases"
+                  element={
+                    <ProtectedRoute>
+                      <Cases />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/cases/:id"
+                  element={
+                    <ProtectedRoute>
+                      <CaseDetail />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/calendar"
+                  element={
+                    <ProtectedRoute>
+                      <Calendar />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/research"
+                  element={
+                    <ProtectedRoute>
+                      <Research />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/trial-prep"
+                  element={
+                    <ProtectedRoute>
+                      <TrialPrep />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/video"
+                  element={
+                    <ProtectedRoute>
+                      <Video />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/settings"
+                  element={
+                    <ProtectedRoute>
+                      <Settings />
+                    </ProtectedRoute>
+                  }
+                />
+                
+                {/* 404 page */}
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </Suspense>
           </ErrorBoundary>
         </BrowserRouter>
       </TooltipProvider>
