@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Logo } from "@/components/Logo";
-import { useToast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { motion } from "framer-motion";
 import { Lock, Mail, User, ArrowRight, Eye, EyeOff, ShieldCheck, AlertCircle } from "lucide-react";
@@ -32,7 +32,6 @@ export default function Login() {
   
   const navigate = useNavigate();
   const location = useLocation();
-  const { toast } = useToast();
   const { signIn, signUp, user } = useAuth();
 
   const from = (location.state as LocationState | null)?.from?.pathname || "/dashboard";
@@ -74,10 +73,7 @@ export default function Login() {
           setLoading(false);
           return;
         }
-        toast({
-          title: "Welcome back!",
-          description: "Redirecting to your dashboard...",
-        });
+        toast.success("Welcome back! Redirecting to your dashboard...");
       } else {
         const { error } = await signUp(formData.email, formData.password, formData.name);
         if (error) {
@@ -89,10 +85,7 @@ export default function Login() {
           setLoading(false);
           return;
         }
-        toast({
-          title: "Account created!",
-          description: "Check your email to confirm your account, or sign in if auto-confirm is enabled.",
-        });
+        toast.success("Account created! Check your email to confirm your account, or sign in if auto-confirm is enabled.");
       }
     } catch (err) {
       setError("An unexpected error occurred. Please try again.");

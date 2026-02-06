@@ -81,14 +81,12 @@ export function VideoRoom({ caseId, roomName, roomId, onLeave }: VideoRoomProps)
   }, []);
 
   const handleJoinedMeeting = useCallback(() => {
-    console.log('Joined meeting');
     setIsJoined(true);
     updateParticipantCount();
     toast.success('Connected to video room');
   }, [updateParticipantCount]);
 
   const handleLeftMeeting = useCallback(() => {
-    console.log('Left meeting');
     setIsJoined(false);
     if (onLeave) {
       onLeave();
@@ -100,13 +98,11 @@ export function VideoRoom({ caseId, roomName, roomId, onLeave }: VideoRoomProps)
   }, [updateParticipantCount]);
 
   const handleRecordingStarted = useCallback(() => {
-    console.log('Recording started');
     setIsRecording(true);
     toast.info('Recording started');
   }, []);
 
   const handleRecordingStopped = useCallback(() => {
-    console.log('Recording stopped');
     setIsRecording(false);
     toast.info('Recording stopped');
   }, []);
@@ -218,7 +214,6 @@ export function VideoRoom({ caseId, roomName, roomId, onLeave }: VideoRoomProps)
     script.src = 'https://unpkg.com/@daily-co/daily-js';
     script.async = true;
     script.onload = () => {
-      console.log('Daily.co script loaded');
       initializeRoom();
     };
     script.onerror = () => {

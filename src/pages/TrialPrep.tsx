@@ -92,7 +92,7 @@ export default function TrialPrep() {
   const [coaching, setCoaching] = useState<string | null>(null);
   const [aiRole, setAiRole] = useState<string>("");
 
-  const recognitionRef = useRef<any>(null);
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
   const synthesisRef = useRef<SpeechSynthesisUtterance | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -105,20 +105,20 @@ export default function TrialPrep() {
 
   // Initialize speech recognition
   useEffect(() => {
-    if (typeof window !== 'undefined' && 'webkitSpeechRecognition' in window) {
-      const SpeechRecognition = (window as any).webkitSpeechRecognition;
-      recognitionRef.current = new SpeechRecognition();
-      recognitionRef.current.continuous = false;
-      recognitionRef.current.interimResults = false;
-      recognitionRef.current.lang = 'en-US';
+    const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (typeof window !== 'undefined' && SpeechRecognitionAPI) {
+      const recognition = new SpeechRecognitionAPI();
+      recognition.continuous = false;
+      recognition.interimResults = false;
+      recognition.lang = 'en-US';
 
-      recognitionRef.current.onresult = (event: any) => {
+      recognition.onresult = (event: SpeechRecognitionEvent) => {
         const transcript = event.results[0][0].transcript;
         setCurrentInput(prev => prev + ' ' + transcript);
         setIsListening(false);
       };
 
-      recognitionRef.current.onerror = (event: any) => {
+      recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
         console.error('Speech recognition error:', event.error);
         setIsListening(false);
         if (event.error !== 'no-speech') {
@@ -126,9 +126,11 @@ export default function TrialPrep() {
         }
       };
 
-      recognitionRef.current.onend = () => {
+      recognition.onend = () => {
         setIsListening(false);
       };
+
+      recognitionRef.current = recognition;
     }
 
     return () => {
@@ -215,7 +217,7 @@ export default function TrialPrep() {
         window.speechSynthesis.speak(utterance);
       }
     },
-    onError: (error: any) => {
+    onError: (error: Error) => {
       console.error('Simulation error:', error);
       toast.error(error.message || 'Failed to get AI response');
     },

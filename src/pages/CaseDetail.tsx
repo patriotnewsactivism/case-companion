@@ -35,7 +35,7 @@ import { motion } from "framer-motion";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { useToast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 import { format } from "date-fns";
 import {
   ArrowLeft,
@@ -320,7 +320,6 @@ export default function CaseDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { toast } = useToast();
   const queryClient = useQueryClient();
 
   const [isUploadOpen, setIsUploadOpen] = useState(false);
@@ -441,10 +440,7 @@ export default function CaseDetail() {
       setIsLinkImportOpen(false);
       setDocForm({ name: "", bates_number: "", file: null });
       setLinkForm({ url: "", name: "", bates_number: "" });
-      toast({
-        title: "Document added",
-        description: "Your document has been added to the case.",
-      });
+      toast.success("Your document has been added to the case.");
       
       // Trigger OCR if there's a file URL
       if (data.file_url) {
@@ -452,11 +448,7 @@ export default function CaseDetail() {
       }
     },
     onError: (error: Error) => {
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-      });
+      toast.error(error.message);
     },
   });
 
@@ -491,17 +483,10 @@ export default function CaseDetail() {
       const data = await response.json();
 
       queryClient.invalidateQueries({ queryKey: ["documents", id] });
-      toast({
-        title: "Document analyzed",
-        description: "OCR and AI analysis complete.",
-      });
+      toast.success("OCR and AI analysis complete.");
     } catch (error) {
       console.error("OCR error:", error);
-      toast({
-        title: "OCR processing failed",
-        description: error instanceof Error ? error.message : "Unknown error",
-        variant: "destructive",
-      });
+      toast.error(error instanceof Error ? error.message : "OCR processing failed");
     } finally {
       setProcessingOcr(null);
     }
@@ -523,17 +508,10 @@ export default function CaseDetail() {
       }
 
       queryClient.invalidateQueries({ queryKey: ["documents", id] });
-      toast({
-        title: "Transcription complete",
-        description: "Audio/video has been transcribed successfully.",
-      });
+      toast.success("Audio/video has been transcribed successfully.");
     } catch (error) {
       console.error("Transcription error:", error);
-      toast({
-        title: "Transcription failed",
-        description: error instanceof Error ? error.message : "Unknown error",
-        variant: "destructive",
-      });
+      toast.error(error instanceof Error ? error.message : "Transcription failed");
     } finally {
       setTranscribing(null);
     }
@@ -547,28 +525,18 @@ export default function CaseDetail() {
     );
 
     if (unanalyzedDocs.length === 0) {
-      toast({
-        title: "No documents to analyze",
-        description: "All documents have already been analyzed.",
-      });
+      toast.info("All documents have already been analyzed.");
       return;
     }
 
     setBatchProcessing(true);
     setBatchProgress({ current: 0, total: unanalyzedDocs.length });
 
-    toast({
-      title: "Batch analysis started",
-      description: `Processing ${unanalyzedDocs.length} documents...`,
-    });
+    toast.info(`Processing ${unanalyzedDocs.length} documents...`);
 
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) {
-      toast({
-        title: "Authentication required",
-        description: "Please log in to analyze documents.",
-        variant: "destructive",
-      });
+      toast.error("Please log in to analyze documents.");
       setBatchProcessing(false);
       return;
     }
@@ -615,11 +583,11 @@ export default function CaseDetail() {
     setBatchProcessing(false);
     queryClient.invalidateQueries({ queryKey: ["documents", id] });
 
-    toast({
-      title: "Batch analysis complete",
-      description: `Successfully analyzed ${successCount} documents${failCount > 0 ? `, ${failCount} failed` : ''}.`,
-      variant: failCount > 0 ? "destructive" : "default",
-    });
+    if (failCount > 0) {
+      toast.error(`Successfully analyzed ${successCount} documents, ${failCount} failed.`);
+    } else {
+      toast.success(`Successfully analyzed ${successCount} documents.`);
+    }
   };
 
   // Count unanalyzed documents
@@ -710,17 +678,10 @@ export default function CaseDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["documents", id] });
       setDeleteDocId(null);
-      toast({
-        title: "Document deleted",
-        description: "The document has been removed from the case.",
-      });
+      toast.success("The document has been removed from the case.");
     },
     onError: (error: Error) => {
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-      });
+      toast.error(error.message);
     },
   });
 
@@ -748,17 +709,10 @@ export default function CaseDetail() {
       queryClient.invalidateQueries({ queryKey: ["timeline_events", id] });
       setIsEventOpen(false);
       setEventForm({ title: "", event_date: "", event_type: "", description: "", importance: "medium" });
-      toast({
-        title: "Event added",
-        description: "The timeline event has been added to the case.",
-      });
+      toast.success("The timeline event has been added to the case.");
     },
     onError: (error: Error) => {
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-      });
+      toast.error(error.message);
     },
   });
 
@@ -800,11 +754,7 @@ export default function CaseDetail() {
         file_size: docForm.file?.size,
       });
     } catch (error) {
-      toast({
-        title: "Upload failed",
-        description: error instanceof Error ? error.message : "Failed to upload document",
-        variant: "destructive",
-      });
+      toast.error(error instanceof Error ? error.message : "Failed to upload document");
     } finally {
       setUploading(false);
     }
@@ -838,11 +788,7 @@ export default function CaseDetail() {
 
   const handleViewDocument = async (doc: Document) => {
     if (!doc.file_url) {
-      toast({
-        title: "No file available",
-        description: "This document doesn't have an associated file.",
-        variant: "destructive",
-      });
+      toast.error("This document doesn't have an associated file.");
       return;
     }
     window.open(doc.file_url, '_blank');
@@ -850,11 +796,7 @@ export default function CaseDetail() {
 
   const handleDownloadDocument = async (doc: Document) => {
     if (!doc.file_url) {
-      toast({
-        title: "No file available",
-        description: "This document doesn't have an associated file.",
-        variant: "destructive",
-      });
+      toast.error("This document doesn't have an associated file.");
       return;
     }
 
@@ -870,21 +812,14 @@ export default function CaseDetail() {
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
     } catch (error) {
-      toast({
-        title: "Download failed",
-        description: "Could not download the document.",
-        variant: "destructive",
-      });
+      toast.error("Could not download the document.");
     }
   };
 
   const copyDocumentLink = (doc: Document) => {
     if (doc.file_url) {
       navigator.clipboard.writeText(doc.file_url);
-      toast({
-        title: "Link copied",
-        description: "Document link copied to clipboard.",
-      });
+      toast.success("Document link copied to clipboard.");
     }
   };
 
@@ -1139,10 +1074,7 @@ export default function CaseDetail() {
                     <GoogleDriveFolderImport
                       caseId={id!}
                       onImportStarted={(importJobId) => {
-                        toast({
-                          title: "Import Started",
-                          description: `Import job ${importJobId} has been started.`,
-                        });
+                        toast.success(`Import job ${importJobId} has been started.`);
                         queryClient.invalidateQueries({ queryKey: ['documents', id] });
                       }}
                     />
