@@ -160,6 +160,16 @@ export async function getDocumentsByCase(caseId: string): Promise<Document[]> {
   return (data as unknown as Document[]) || [];
 }
 
+export async function getAllDocuments(): Promise<Document[]> {
+  const { data, error } = await supabase
+    .from("documents")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
+  return (data as unknown as Document[]) || [];
+}
+
 export async function createDocument(input: CreateDocumentInput): Promise<Document> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Not authenticated");
@@ -428,9 +438,9 @@ export async function getDocumentStats(): Promise<DocumentStats> {
   const docs = data || [];
   return {
     total: docs.length,
-    analyzed: docs.filter((d: any) => d.ai_analyzed).length,
-    pending: docs.filter((d: any) => !d.ai_analyzed).length,
-    withTimeline: docs.filter((d: any) => d.linked_document_id).length,
+    analyzed: docs.filter((d) => d.ai_analyzed).length,
+    pending: docs.filter((d) => !d.ai_analyzed).length,
+    withTimeline: docs.filter((d) => d.linked_document_id).length,
   };
 }
 
