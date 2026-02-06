@@ -63,6 +63,7 @@ import {
   MessageSquare,
   Video,
   Gavel,
+  Target,
   Sparkles,
   Search,
   Filter,

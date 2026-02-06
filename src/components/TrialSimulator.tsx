@@ -8,7 +8,24 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Loader2, MessageSquare, Users, Zap, Target, Brain, AlertTriangle, CheckCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { Case, Document } from "@/lib/api";
+import { Document } from "@/lib/api";
+
+interface CaseData {
+  id: string;
+  user_id: string;
+  name: string;
+  case_type: string;
+  client_name: string;
+  status: string;
+  representation: string;
+  case_theory: string | null;
+  key_issues: string[] | null;
+  winning_factors: string[] | null;
+  next_deadline: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
 
 interface TrialSimulatorProps {
   caseData?: Case;
