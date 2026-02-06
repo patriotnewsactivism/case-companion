@@ -120,6 +120,64 @@ export interface Document {
   updated_at: string;
 }
 
+export interface CreateDocumentInput {
+  case_id: string;
+  name: string;
+  file_url: string | null;
+  file_type: string | null;
+  file_size: number | null;
+  bates_number?: string | null;
+  summary?: string;
+  key_facts?: string[];
+  favorable_findings?: string[];
+  adverse_findings?: string[];
+  action_items?: string[];
+}
+
+export interface BulkDocumentUploadInput {
+  files: File[];
+  case_id: string;
+  generate_bates: boolean;
+  bates_prefix?: string;
+}
+
+export interface BulkUploadResult {
+  successful: number;
+  failed: number;
+  total: number;
+  errors: string[];
+  documents: Document[];
+}
+
+export interface CreateDocumentInput {
+  case_id: string;
+  name: string;
+  file_url: string | null;
+  file_type: string | null;
+  file_size: number | null;
+  bates_number?: string | null;
+  summary?: string;
+  key_facts?: string[];
+  favorable_findings?: string[];
+  adverse_findings?: string[];
+  action_items?: string[];
+}
+
+export interface BulkDocumentUploadInput {
+  files: File[];
+  case_id: string;
+  generate_bates: boolean;
+  bates_prefix?: string;
+}
+
+export interface BulkUploadResult {
+  successful: number;
+  failed: number;
+  total: number;
+  errors: string[];
+  documents: Document[];
+}
+
 export async function getDocumentsByCase(caseId: string): Promise<Document[]> {
   const { data, error } = await supabase
     .from("documents")
@@ -129,6 +187,276 @@ export async function getDocumentsByCase(caseId: string): Promise<Document[]> {
 
   if (error) throw error;
   return (data as unknown as Document[]) || [];
+}
+
+export async function createDocument(input: CreateDocumentInput): Promise<Document> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Not authenticated");
+
+  const payload: CreateDocumentInput & { user_id: string } = {
+    ...input,
+    user_id: user.id,
+  };
+
+  const { data, error } = await supabase
+    .from("documents")
+    .insert(payload)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as unknown as Document;
+}
+
+export async function bulkUploadDocuments(input: BulkDocumentUploadInput): Promise<BulkUploadResult> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Not authenticated");
+
+  const results: BulkUploadResult = {
+    successful: 0,
+    failed: 0,
+    total: input.files.length,
+    errors: [],
+    documents: [],
+  };
+
+  // Get existing documents to calculate next Bates number
+  const { data: existingDocs } = await supabase
+    .from("documents")
+    .select("bates_number")
+    .eq("case_id", input.case_id);
+
+  const maxBatesNumber = existingDocs?.reduce((max, doc) => {
+    if (doc.bates_number) {
+      const match = doc.bates_number.match(/\d+$/);
+      if (match) {
+        const num = parseInt(match[0]);
+        return Math.max(max, num);
+      }
+    }
+    return max;
+  }, 0) || 0;
+
+  let currentBatesNumber = maxBatesNumber + 1;
+  const batesPrefix = input.bates_prefix || 'DOC';
+
+  // Upload files in batches of 5 to avoid overwhelming the server
+  const batchSize = 5;
+  for (let i = 0; i < input.files.length; i += batchSize) {
+    const batch = input.files.slice(i, i + batchSize);
+    const batchPromises = batch.map(async (file, index) => {
+      try {
+        const fileExt = file.name.split('.').pop();
+        const fileName = `${user.id}/${input.case_id}/${Date.now()}-${i + index}.${fileExt}`;
+
+        // Upload file to storage
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('case-documents')
+          .upload(fileName, file, {
+            cacheControl: '3600',
+            upsert: false
+          });
+
+        if (uploadError) {
+          throw new Error(`Failed to upload ${file.name}: ${uploadError.message}`);
+        }
+
+        const { data: { publicUrl } } = supabase.storage
+          .from('case-documents')
+          .getPublicUrl(uploadData.path);
+
+        // Generate Bates number if requested
+        const batesNumber = input.generate_bates 
+          ? `${batesPrefix}-${currentBatesNumber.toString().padStart(4, '0')}`
+          : null;
+
+        if (input.generate_bates) {
+          currentBatesNumber++;
+        }
+
+        // Create document record
+        const documentInput: CreateDocumentInput = {
+          case_id: input.case_id,
+          name: file.name,
+          file_url: publicUrl,
+          file_type: file.type,
+          file_size: file.size,
+          bates_number: batesNumber,
+        };
+
+        const { data: docData, error: docError } = await supabase
+          .from("documents")
+          .insert({
+            ...documentInput,
+            user_id: user.id,
+          })
+          .select()
+          .single();
+
+        if (docError) {
+          throw new Error(`Failed to create document record for ${file.name}: ${docError.message}`);
+        }
+
+        return docData as unknown as Document;
+      } catch (error) {
+        throw error;
+      }
+    });
+
+    try {
+      const batchResults = await Promise.allSettled(batchPromises);
+      
+      batchResults.forEach((result, index) => {
+        if (result.status === 'fulfilled') {
+          results.successful++;
+          results.documents.push(result.value);
+        } else {
+          results.failed++;
+          results.errors.push(`File ${batch[index].name}: ${result.reason.message || 'Unknown error'}`);
+        }
+      });
+    } catch (error) {
+      results.failed += batch.length;
+      results.errors.push(`Batch upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  return results;
+}
+
+export async function createDocument(input: CreateDocumentInput): Promise<Document> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Not authenticated");
+
+  const payload: CreateDocumentInput & { user_id: string } = {
+    ...input,
+    user_id: user.id,
+  };
+
+  const { data, error } = await supabase
+    .from("documents")
+    .insert(payload)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as unknown as Document;
+}
+
+export async function bulkUploadDocuments(input: BulkDocumentUploadInput): Promise<BulkUploadResult> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Not authenticated");
+
+  const results: BulkUploadResult = {
+    successful: 0,
+    failed: 0,
+    total: input.files.length,
+    errors: [],
+    documents: [],
+  };
+
+  // Get existing documents to calculate next Bates number
+  const { data: existingDocs } = await supabase
+    .from("documents")
+    .select("bates_number")
+    .eq("case_id", input.case_id);
+
+  const maxBatesNumber = existingDocs?.reduce((max, doc) => {
+    if (doc.bates_number) {
+      const match = doc.bates_number.match(/\d+$/);
+      if (match) {
+        const num = parseInt(match[0]);
+        return Math.max(max, num);
+      }
+    }
+    return max;
+  }, 0) || 0;
+
+  let currentBatesNumber = maxBatesNumber + 1;
+  const batesPrefix = input.bates_prefix || 'DOC';
+
+  // Upload files in batches of 5 to avoid overwhelming the server
+  const batchSize = 5;
+  for (let i = 0; i < input.files.length; i += batchSize) {
+    const batch = input.files.slice(i, i + batchSize);
+    const batchPromises = batch.map(async (file, index) => {
+      try {
+        const fileExt = file.name.split('.').pop();
+        const fileName = `${user.id}/${input.case_id}/${Date.now()}-${i + index}.${fileExt}`;
+
+        // Upload file to storage
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('case-documents')
+          .upload(fileName, file, {
+            cacheControl: '3600',
+            upsert: false
+          });
+
+        if (uploadError) {
+          throw new Error(`Failed to upload ${file.name}: ${uploadError.message}`);
+        }
+
+        const { data: { publicUrl } } = supabase.storage
+          .from('case-documents')
+          .getPublicUrl(uploadData.path);
+
+        // Generate Bates number if requested
+        const batesNumber = input.generate_bates 
+          ? `${batesPrefix}-${currentBatesNumber.toString().padStart(4, '0')}`
+          : null;
+
+        if (input.generate_bates) {
+          currentBatesNumber++;
+        }
+
+        // Create document record
+        const documentInput: CreateDocumentInput = {
+          case_id: input.case_id,
+          name: file.name,
+          file_url: publicUrl,
+          file_type: file.type,
+          file_size: file.size,
+          bates_number: batesNumber,
+        };
+
+        const { data: docData, error: docError } = await supabase
+          .from("documents")
+          .insert({
+            ...documentInput,
+            user_id: user.id,
+          })
+          .select()
+          .single();
+
+        if (docError) {
+          throw new Error(`Failed to create document record for ${file.name}: ${docError.message}`);
+        }
+
+        return docData as unknown as Document;
+      } catch (error) {
+        throw error;
+      }
+    });
+
+    try {
+      const batchResults = await Promise.allSettled(batchPromises);
+      
+      batchResults.forEach((result, index) => {
+        if (result.status === 'fulfilled') {
+          results.successful++;
+          results.documents.push(result.value);
+        } else {
+          results.failed++;
+          results.errors.push(`File ${batch[index].name}: ${result.reason.message || 'Unknown error'}`);
+        }
+      });
+    } catch (error) {
+      results.failed += batch.length;
+      results.errors.push(`Batch upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  return results;
 }
 
 // Timeline Events API
