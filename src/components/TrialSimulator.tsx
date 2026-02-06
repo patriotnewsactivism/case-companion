@@ -28,7 +28,7 @@ interface CaseData {
 }
 
 interface TrialSimulatorProps {
-  caseData?: Case;
+  caseData?: CaseData;
   documents?: Document[];
 }
 
