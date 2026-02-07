@@ -367,6 +367,72 @@ export type Database = {
           },
         ]
       }
+      exhibit_list: {
+        Row: {
+          admitted: boolean | null
+          checklist_id: string
+          created_at: string
+          description: string
+          document_id: string | null
+          exhibit_number: string
+          exhibit_type: string | null
+          foundation_witness: string | null
+          id: string
+          objection_anticipated: boolean | null
+          objection_response: string | null
+          status: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          admitted?: boolean | null
+          checklist_id: string
+          created_at?: string
+          description: string
+          document_id?: string | null
+          exhibit_number: string
+          exhibit_type?: string | null
+          foundation_witness?: string | null
+          id?: string
+          objection_anticipated?: boolean | null
+          objection_response?: string | null
+          status?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          admitted?: boolean | null
+          checklist_id?: string
+          created_at?: string
+          description?: string
+          document_id?: string | null
+          exhibit_number?: string
+          exhibit_type?: string | null
+          foundation_witness?: string | null
+          id?: string
+          objection_anticipated?: boolean | null
+          objection_response?: string | null
+          status?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "exhibit_list_checklist_id_fkey"
+            columns: ["checklist_id"]
+            isOneToOne: false
+            referencedRelation: "trial_prep_checklists"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "exhibit_list_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "documents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       import_jobs: {
         Row: {
           case_id: string
@@ -505,6 +571,118 @@ export type Database = {
             columns: ["case_id"]
             isOneToOne: false
             referencedRelation: "cases"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      jury_instructions: {
+        Row: {
+          argument_notes: string | null
+          checklist_id: string
+          created_at: string
+          id: string
+          instruction_number: string | null
+          instruction_text: string
+          instruction_type: string | null
+          opposition_position: string | null
+          source: string | null
+          status: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          argument_notes?: string | null
+          checklist_id: string
+          created_at?: string
+          id?: string
+          instruction_number?: string | null
+          instruction_text: string
+          instruction_type?: string | null
+          opposition_position?: string | null
+          source?: string | null
+          status?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          argument_notes?: string | null
+          checklist_id?: string
+          created_at?: string
+          id?: string
+          instruction_number?: string | null
+          instruction_text?: string
+          instruction_type?: string | null
+          opposition_position?: string | null
+          source?: string | null
+          status?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "jury_instructions_checklist_id_fkey"
+            columns: ["checklist_id"]
+            isOneToOne: false
+            referencedRelation: "trial_prep_checklists"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      motions_in_limine: {
+        Row: {
+          checklist_id: string
+          created_at: string
+          description: string | null
+          filed_by: string | null
+          filing_date: string | null
+          hearing_date: string | null
+          id: string
+          legal_basis: string | null
+          motion_title: string
+          motion_type: string | null
+          ruling_notes: string | null
+          status: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          checklist_id: string
+          created_at?: string
+          description?: string | null
+          filed_by?: string | null
+          filing_date?: string | null
+          hearing_date?: string | null
+          id?: string
+          legal_basis?: string | null
+          motion_title: string
+          motion_type?: string | null
+          ruling_notes?: string | null
+          status?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          checklist_id?: string
+          created_at?: string
+          description?: string | null
+          filed_by?: string | null
+          filing_date?: string | null
+          hearing_date?: string | null
+          id?: string
+          legal_basis?: string | null
+          motion_title?: string
+          motion_type?: string | null
+          ruling_notes?: string | null
+          status?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "motions_in_limine_checklist_id_fkey"
+            columns: ["checklist_id"]
+            isOneToOne: false
+            referencedRelation: "trial_prep_checklists"
             referencedColumns: ["id"]
           },
         ]
@@ -723,6 +901,47 @@ export type Database = {
           },
         ]
       }
+      trial_prep_checklists: {
+        Row: {
+          case_id: string
+          created_at: string
+          id: string
+          notes: string | null
+          status: string | null
+          trial_date: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          case_id: string
+          created_at?: string
+          id?: string
+          notes?: string | null
+          status?: string | null
+          trial_date?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          case_id?: string
+          created_at?: string
+          id?: string
+          notes?: string | null
+          status?: string | null
+          trial_date?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trial_prep_checklists_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "cases"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       video_rooms: {
         Row: {
           case_id: string
@@ -784,6 +1003,68 @@ export type Database = {
             columns: ["case_id"]
             isOneToOne: false
             referencedRelation: "cases"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      witness_prep: {
+        Row: {
+          anticipated_cross: string | null
+          checklist_id: string
+          contact_info: string | null
+          created_at: string
+          id: string
+          order_of_appearance: number | null
+          prep_date: string | null
+          prep_notes: string | null
+          prep_status: string | null
+          subpoena_served: boolean | null
+          testimony_summary: string | null
+          updated_at: string
+          user_id: string
+          witness_name: string
+          witness_type: string | null
+        }
+        Insert: {
+          anticipated_cross?: string | null
+          checklist_id: string
+          contact_info?: string | null
+          created_at?: string
+          id?: string
+          order_of_appearance?: number | null
+          prep_date?: string | null
+          prep_notes?: string | null
+          prep_status?: string | null
+          subpoena_served?: boolean | null
+          testimony_summary?: string | null
+          updated_at?: string
+          user_id: string
+          witness_name: string
+          witness_type?: string | null
+        }
+        Update: {
+          anticipated_cross?: string | null
+          checklist_id?: string
+          contact_info?: string | null
+          created_at?: string
+          id?: string
+          order_of_appearance?: number | null
+          prep_date?: string | null
+          prep_notes?: string | null
+          prep_status?: string | null
+          subpoena_served?: boolean | null
+          testimony_summary?: string | null
+          updated_at?: string
+          user_id?: string
+          witness_name?: string
+          witness_type?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "witness_prep_checklist_id_fkey"
+            columns: ["checklist_id"]
+            isOneToOne: false
+            referencedRelation: "trial_prep_checklists"
             referencedColumns: ["id"]
           },
         ]

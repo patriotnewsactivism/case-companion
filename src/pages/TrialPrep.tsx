@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Textarea } from "@/components/ui/textarea";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { getCases, getCase, getDocumentsByCase } from "@/lib/api";
@@ -26,6 +27,7 @@ import {
   Lightbulb,
   Send,
   RotateCcw,
+  ClipboardList,
 } from "lucide-react";
 import {
   Select,
@@ -36,6 +38,7 @@ import {
 } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { TrialPrepChecklist } from "@/components/TrialPrepChecklist";
 
 const container = {
   hidden: { opacity: 0 },
@@ -78,6 +81,8 @@ interface SimulationResponse {
 }
 
 export default function TrialPrep() {
+  const [activeMainTab, setActiveMainTab] = useState("simulator");
+  
   const { data: cases = [], isLoading } = useQuery({
     queryKey: ["cases"],
     queryFn: getCases,
@@ -319,53 +324,77 @@ export default function TrialPrep() {
             </p>
           </motion.div>
 
-          <div className="grid gap-6 lg:grid-cols-3">
-            {/* Main Content */}
-            <motion.div variants={item} className="lg:col-span-2 space-y-6">
-              {/* Selection Controls */}
-              {!isSimulating && (
-                <Card className="glass-card">
-                  <CardContent className="p-6">
-                    <div className="flex flex-col sm:flex-row gap-4">
-                      <Select value={selectedCase} onValueChange={setSelectedCase}>
-                        <SelectTrigger className="flex-1">
-                          <SelectValue placeholder="Select a case to practice" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {isLoading ? (
-                            <div className="flex items-center justify-center p-4">
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            </div>
-                          ) : cases.length === 0 ? (
-                            <div className="p-4 text-sm text-muted-foreground text-center">
-                              No cases available
-                            </div>
-                          ) : (
-                            cases.map((c) => (
-                              <SelectItem key={c.id} value={c.id}>
-                                {c.name}
-                              </SelectItem>
-                            ))
-                          )}
-                        </SelectContent>
-                      </Select>
+          {/* Case Selector (Always visible) */}
+          <motion.div variants={item}>
+            <Card className="glass-card">
+              <CardContent className="p-6">
+                <div className="flex flex-col sm:flex-row gap-4">
+                  <Select value={selectedCase} onValueChange={setSelectedCase}>
+                    <SelectTrigger className="flex-1">
+                      <SelectValue placeholder="Select a case to work on" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {isLoading ? (
+                        <div className="flex items-center justify-center p-4">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        </div>
+                      ) : cases.length === 0 ? (
+                        <div className="p-4 text-sm text-muted-foreground text-center">
+                          No cases available
+                        </div>
+                      ) : (
+                        cases.map((c) => (
+                          <SelectItem key={c.id} value={c.id}>
+                            {c.name}
+                          </SelectItem>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </CardContent>
+            </Card>
+          </motion.div>
 
-                      <Select value={selectedMode} onValueChange={setSelectedMode}>
-                        <SelectTrigger className="flex-1">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {simulationModes.map((mode) => (
-                            <SelectItem key={mode.value} value={mode.value}>
-                              {mode.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
+          {/* Main Tabs */}
+          <Tabs value={activeMainTab} onValueChange={setActiveMainTab} className="space-y-6">
+            <TabsList className="grid w-full max-w-md grid-cols-2">
+              <TabsTrigger value="simulator" className="flex items-center gap-2">
+                <Gavel className="h-4 w-4" />
+                Trial Simulator
+              </TabsTrigger>
+              <TabsTrigger value="checklist" className="flex items-center gap-2">
+                <ClipboardList className="h-4 w-4" />
+                Prep Checklist
+              </TabsTrigger>
+            </TabsList>
+
+            {/* Simulator Tab */}
+            <TabsContent value="simulator" className="space-y-6">
+              <div className="grid gap-6 lg:grid-cols-3">
+                {/* Main Content */}
+                <motion.div variants={item} className="lg:col-span-2 space-y-6">
+                  {/* Mode Selection */}
+                  {!isSimulating && (
+                    <Card className="glass-card">
+                      <CardContent className="p-6">
+                        <div className="flex flex-col sm:flex-row gap-4">
+                          <Select value={selectedMode} onValueChange={setSelectedMode}>
+                            <SelectTrigger className="flex-1">
+                              <SelectValue placeholder="Select simulation mode" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {simulationModes.map((mode) => (
+                                <SelectItem key={mode.value} value={mode.value}>
+                                  {mode.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
 
               {/* Simulation Panel */}
               <Card className="overflow-hidden">
@@ -645,8 +674,23 @@ export default function TrialPrep() {
                   </CardContent>
                 </Card>
               )}
-            </motion.div>
-          </div>
+              </motion.div>
+            </div>
+          </TabsContent>
+
+          {/* Checklist Tab */}
+          <TabsContent value="checklist">
+            {selectedCase ? (
+              <TrialPrepChecklist caseId={selectedCase} />
+            ) : (
+              <Card>
+                <CardContent className="flex items-center justify-center h-48">
+                  <p className="text-muted-foreground">Please select a case above to view the trial prep checklist.</p>
+                </CardContent>
+              </Card>
+            )}
+          </TabsContent>
+        </Tabs>
         </motion.div>
       </div>
     </Layout>
