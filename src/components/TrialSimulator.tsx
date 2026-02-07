@@ -231,7 +231,7 @@ export function TrialSimulator({ caseData, documents = [] }: TrialSimulatorProps
         </CardHeader>
         <CardContent>
           <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="grid w-full grid-cols-3">
+            <TabsList className="grid w-full grid-cols-1 sm:grid-cols-3">
               <TabsTrigger value="scenarios">Scenarios</TabsTrigger>
               <TabsTrigger value="questions">Deposition Questions</TabsTrigger>
               <TabsTrigger value="practice">Practice Session</TabsTrigger>

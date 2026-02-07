@@ -227,7 +227,7 @@ Components are added to `src/components/ui/` with Tailwind styling.
 ## Build & Deployment
 
 - **Build output:** `/dist` directory
-- **Deployment:** Via Lovable platform (see README.md)
+- **Deployment:** Via Vercel, Netlify, or any static hosting (see README.md)
 - **Environment:** Vite env vars must be prefixed with `VITE_`
 - **Production mode:** `npm run build` creates optimized bundles with code splitting
 - **Hot reload:** Dev server supports HMR for instant updates
