@@ -82,19 +82,15 @@ export function ImportJobsViewer({ caseId }: ImportJobsViewerProps) {
           table: 'import_jobs',
           filter: `case_id=eq.${caseId}`,
         },
-        (payload) => {
-          console.log('Realtime update received:', payload);
-          // Invalidate and refetch the query to get updated data
+        () => {
           queryClient.invalidateQueries({ queryKey: ['import-jobs', caseId] });
         }
       )
       .subscribe((status) => {
-        console.log('Realtime subscription status:', status);
         setIsRealtimeConnected(status === 'SUBSCRIBED');
       });
 
     return () => {
-      console.log('Cleaning up realtime subscription');
       supabase.removeChannel(channel);
     };
   }, [caseId, queryClient]);

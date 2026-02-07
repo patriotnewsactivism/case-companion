@@ -35,7 +35,7 @@ import {
 import { motion } from "framer-motion";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getCases, createCase, updateCase, deleteCase, Case, CaseStatus, RepresentationType, CreateCaseInput } from "@/lib/api";
-import { useToast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 import { format } from "date-fns";
 import {
   Plus,
@@ -135,7 +135,6 @@ export default function Cases() {
   const [formData, setFormData] = useState<CaseFormData>(initialFormData);
   const [editingCase, setEditingCase] = useState<Case | null>(null);
   
-  const { toast } = useToast();
   const queryClient = useQueryClient();
 
   const { data: cases = [], isLoading } = useQuery({
@@ -149,17 +148,10 @@ export default function Cases() {
       queryClient.invalidateQueries({ queryKey: ["cases"] });
       setIsCreateOpen(false);
       setFormData(initialFormData);
-      toast({
-        title: "Case created",
-        description: "Your new case has been created successfully.",
-      });
+      toast.success("Your new case has been created successfully.");
     },
     onError: (error: Error) => {
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-      });
+      toast.error(error.message);
     },
   });
 
@@ -170,17 +162,10 @@ export default function Cases() {
       setIsEditOpen(false);
       setEditingCase(null);
       setFormData(initialFormData);
-      toast({
-        title: "Case updated",
-        description: "Your case has been updated successfully.",
-      });
+      toast.success("Your case has been updated successfully.");
     },
     onError: (error: Error) => {
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-      });
+      toast.error(error.message);
     },
   });
 
@@ -189,17 +174,10 @@ export default function Cases() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["cases"] });
       setDeleteId(null);
-      toast({
-        title: "Case deleted",
-        description: "The case has been deleted successfully.",
-      });
+      toast.success("The case has been deleted successfully.");
     },
     onError: (error: Error) => {
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-      });
+      toast.error(error.message);
     },
   });
 

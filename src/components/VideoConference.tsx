@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { useToast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 import {
   Dialog,
   DialogContent,
@@ -37,7 +37,6 @@ interface VideoRoomData {
 
 export function VideoConference() {
   const { user } = useAuth();
-  const { toast } = useToast();
   const [roomName, setRoomName] = useState("");
   const [selectedCaseId, setSelectedCaseId] = useState("");
   const [description, setDescription] = useState("");
@@ -73,20 +72,13 @@ export function VideoConference() {
       setCurrentRoom(data);
       setCreateDialogOpen(false);
 
-      toast({
-        title: "Video Room Created",
-        description: "Your secure video conference is ready",
-      });
+      toast.success("Video room created. Your secure video conference is ready.");
 
       window.open(data.roomUrl + `?t=${data.token}`, "_blank");
     },
     onError: (error: Error) => {
       console.error("Error creating video room:", error);
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-      });
+      toast.error(error.message);
     },
   });
 
@@ -106,20 +98,13 @@ export function VideoConference() {
     onSuccess: (data) => {
       setJoinDialogOpen(false);
 
-      toast({
-        title: "Joining Video Room",
-        description: "Opening secure video conference",
-      });
+      toast.success("Joining video room...");
 
       window.open(data.roomUrl + `?t=${data.token}`, "_blank");
     },
     onError: (error: Error) => {
       console.error("Error joining video room:", error);
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-      });
+      toast.error(error.message);
     },
   });
 

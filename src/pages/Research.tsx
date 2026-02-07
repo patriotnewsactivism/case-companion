@@ -83,19 +83,34 @@ const databases = [
 
 const legalNews = [
   {
-    title: "Supreme Court Grants Cert in Major IP Case",
-    source: "Law360",
-    date: "Dec 28, 2025",
-  },
-  {
-    title: "New Federal Discovery Rules Take Effect",
-    source: "Legal Times",
-    date: "Dec 27, 2025",
-  },
-  {
-    title: "State Bar Releases Ethics Opinion on AI Use",
+    title: "ABA Formal Opinion on Generative AI in Legal Practice",
     source: "ABA Journal",
-    date: "Dec 26, 2025",
+    url: "https://www.americanbar.org/groups/professional_responsibility/publications/formal-opinions/",
+  },
+  {
+    title: "Federal Rules of Civil Procedure Amendments",
+    source: "US Courts",
+    url: "https://www.uscourts.gov/rules-policies/current-rules-practice-procedure",
+  },
+  {
+    title: "Ethics of AI-Assisted Legal Research and Drafting",
+    source: "State Bar Ethics",
+    url: "https://scholar.google.com/scholar?q=ethics+AI+legal+practice",
+  },
+  {
+    title: "E-Discovery Best Practices and Standards",
+    source: "Sedona Conference",
+    url: "https://thesedonaconference.org/",
+  },
+  {
+    title: "Recent Developments in Expert Witness Qualifications",
+    source: "Cornell LII",
+    url: "https://www.law.cornell.edu/rules/fre/rule_702",
+  },
+  {
+    title: "Attorney-Client Privilege in the Digital Age",
+    source: "Harvard Law Review",
+    url: "https://scholar.google.com/scholar?q=attorney-client+privilege+digital+communications",
   },
 ];
 
@@ -345,18 +360,27 @@ export default function Research() {
               <TabsContent value="news" className="mt-6">
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   {legalNews.map((article, idx) => (
-                    <Card key={idx} className="glass-card hover:shadow-md transition-shadow cursor-pointer group">
-                      <CardContent className="p-5">
-                        <h3 className="font-semibold text-sm group-hover:text-accent transition-colors line-clamp-2">
-                          {article.title}
-                        </h3>
-                        <div className="flex items-center gap-2 mt-3 text-xs text-muted-foreground">
-                          <span>{article.source}</span>
-                          <span className="h-1 w-1 rounded-full bg-muted-foreground" />
-                          <span>{article.date}</span>
-                        </div>
-                      </CardContent>
-                    </Card>
+                    <a
+                      key={idx}
+                      href={article.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block"
+                    >
+                      <Card className="glass-card h-full hover:shadow-md transition-shadow cursor-pointer group">
+                        <CardContent className="p-5">
+                          <div className="flex items-start justify-between gap-2">
+                            <h3 className="font-semibold text-sm group-hover:text-accent transition-colors line-clamp-2">
+                              {article.title}
+                            </h3>
+                            <ExternalLink className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0 mt-0.5" />
+                          </div>
+                          <div className="flex items-center gap-2 mt-3 text-xs text-muted-foreground">
+                            <span>{article.source}</span>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </a>
                   ))}
                 </div>
               </TabsContent>
