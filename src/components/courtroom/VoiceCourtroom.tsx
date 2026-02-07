@@ -3,13 +3,11 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Gavel,
-  Play,
   Square,
   Mic,
   MicOff,
@@ -24,19 +22,9 @@ import {
   Scale,
   MessageCircle,
   Timer,
-  RotateCcw,
   Download,
   AlertTriangle,
-  Settings,
-  Headphones,
 } from "lucide-react";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { useVoiceEngine, VoiceMode } from "@/hooks/useVoiceEngine";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -60,7 +48,6 @@ interface SimulationResponse {
   role: string;
   performanceHints?: string[];
   objectionTypes?: string[];
-  courtroomAction?: string;
 }
 
 interface VoiceCourtroomProps {
@@ -289,12 +276,21 @@ export function VoiceCourtroom({ caseId, caseName, mode, modeName, onEnd }: Voic
   const [aiRole, setAiRole] = useState<string>("");
   const [sessionStartTime] = useState(new Date());
   const [exchangeCount, setExchangeCount] = useState(0);
-  const [showTranscript, setShowTranscript] = useState(false);
   const [speechOutputEnabled, setSpeechOutputEnabled] = useState(true);
+  const [isSending, setIsSending] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  // Voice engine
+  // Refs for stable closures
+  const messagesRef = useRef<Message[]>([]);
+  const sendFnRef = useRef<(text: string) => void>(() => {});
+  const speechOutputRef = useRef(true);
+
+  // Keep refs in sync
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
+  useEffect(() => { speechOutputRef.current = speechOutputEnabled; }, [speechOutputEnabled]);
+
+  // Voice engine — uses ref-based callback to avoid circular dependency
   const voice = useVoiceEngine({
     onTranscript: (text, isFinal) => {
       if (isFinal) {
@@ -302,8 +298,8 @@ export function VoiceCourtroom({ caseId, caseName, mode, modeName, onEnd }: Voic
       }
     },
     onAutoSend: (text) => {
-      if (text.trim() && voice.voiceMode === "hands-free") {
-        handleSendMessage(text.trim());
+      if (text.trim()) {
+        sendFnRef.current(text.trim());
       }
     },
     silenceTimeout: 2000,
@@ -325,13 +321,14 @@ export function VoiceCourtroom({ caseId, caseName, mode, modeName, onEnd }: Voic
     setMessages([introMessage]);
   }, [modeName, caseName]);
 
-  // AI simulation mutation
+  // AI simulation mutation — uses messagesRef for fresh conversation history
   const simulationMutation = useMutation({
     mutationFn: async (userMessage: string) => {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error("Not authenticated");
+      if (!session) throw new Error("Not authenticated. Please log in and try again.");
 
-      const conversationMessages = messages
+      // Use ref to get the current messages (avoids stale closure)
+      const conversationMessages = messagesRef.current
         .filter(m => m.role !== "system")
         .map(m => ({ role: m.role, content: m.content }));
 
@@ -346,7 +343,12 @@ export function VoiceCourtroom({ caseId, caseName, mode, modeName, onEnd }: Voic
         },
       });
 
-      if (response.error) throw response.error;
+      if (response.error) {
+        const errorMsg = typeof response.error === "object" && response.error !== null
+          ? (response.error as { message?: string }).message || JSON.stringify(response.error)
+          : String(response.error);
+        throw new Error(errorMsg);
+      }
       return response.data as SimulationResponse;
     },
     onSuccess: (data) => {
@@ -360,43 +362,52 @@ export function VoiceCourtroom({ caseId, caseName, mode, modeName, onEnd }: Voic
       setMessages(prev => [...prev, assistantMsg]);
       setAiRole(data.role);
       setExchangeCount(prev => prev + 1);
+      setIsSending(false);
 
       if (data.coaching) setCoaching(data.coaching);
       if (data.performanceHints?.length) setPerformanceHints(data.performanceHints);
 
-      // Speak the response
-      if (speechOutputEnabled) {
+      // Speak the response using ref for current speechOutput setting
+      if (speechOutputRef.current) {
         voice.speak(data.message, data.role);
       }
     },
     onError: (error: Error) => {
       console.error("Simulation error:", error);
-      toast.error(error.message || "Failed to get AI response");
+      setIsSending(false);
+      toast.error(error.message || "Failed to get AI response. Check that the trial-simulation edge function is deployed.");
     },
   });
 
-  const handleSendMessage = useCallback((text?: string) => {
-    const messageText = text || currentInput.trim();
-    if (!messageText || simulationMutation.isPending) return;
+  // The main send function
+  const doSend = useCallback((text: string) => {
+    if (!text || simulationMutation.isPending) return;
 
-    // Stop listening/speaking before sending
-    if (voice.isListening) voice.stopListening();
-    if (voice.isSpeaking) voice.stopSpeaking();
+    voice.stopListening();
+    voice.stopSpeaking();
 
     const userMsg: Message = {
       id: `user-${Date.now()}`,
       role: "user",
-      content: messageText,
+      content: text,
       timestamp: new Date(),
     };
     setMessages(prev => [...prev, userMsg]);
     setCurrentInput("");
-    simulationMutation.mutate(messageText);
-  }, [currentInput, simulationMutation, voice]);
+    setIsSending(true);
+    simulationMutation.mutate(text);
+  }, [simulationMutation, voice]);
+
+  // Keep ref in sync so onAutoSend always has the latest function
+  useEffect(() => { sendFnRef.current = doSend; }, [doSend]);
+
+  const handleSendMessage = useCallback((text?: string) => {
+    const messageText = text || currentInput.trim();
+    if (messageText) doSend(messageText);
+  }, [currentInput, doSend]);
 
   const handleObjection = (type: string) => {
-    const objectionText = `Objection, Your Honor! ${type}.`;
-    handleSendMessage(objectionText);
+    doSend(`Objection, Your Honor! ${type}.`);
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -446,6 +457,7 @@ export function VoiceCourtroom({ caseId, caseName, mode, modeName, onEnd }: Voic
     toast.success("Transcript exported");
   };
 
+  const isPending = simulationMutation.isPending || isSending;
   const elapsed = Math.floor((Date.now() - sessionStartTime.getTime()) / 1000);
   const elapsedMin = Math.floor(elapsed / 60);
   const elapsedSec = elapsed % 60;
@@ -602,7 +614,7 @@ export function VoiceCourtroom({ caseId, caseName, mode, modeName, onEnd }: Voic
             ))}
           </AnimatePresence>
 
-          {simulationMutation.isPending && (
+          {isPending && (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -693,7 +705,7 @@ export function VoiceCourtroom({ caseId, caseName, mode, modeName, onEnd }: Voic
                 size="sm"
                 variant="outline"
                 onClick={() => handleObjection(type)}
-                disabled={simulationMutation.isPending}
+                disabled={isPending}
                 className="h-6 text-[10px] px-2 bg-red-500/10 border-red-500/30 text-red-300 hover:bg-red-500/20 hover:text-red-200 flex-shrink-0"
               >
                 {type}
@@ -702,8 +714,8 @@ export function VoiceCourtroom({ caseId, caseName, mode, modeName, onEnd }: Voic
             <Button
               size="sm"
               variant="outline"
-              onClick={() => handleSendMessage("No objection.")}
-              disabled={simulationMutation.isPending}
+              onClick={() => doSend("No objection.")}
+              disabled={isPending}
               className="h-6 text-[10px] px-2 bg-emerald-500/10 border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/20 flex-shrink-0"
             >
               Allow
@@ -748,7 +760,7 @@ export function VoiceCourtroom({ caseId, caseName, mode, modeName, onEnd }: Voic
               size="icon"
               variant={voice.isListening ? "destructive" : "outline"}
               onClick={handleVoiceToggle}
-              disabled={simulationMutation.isPending}
+              disabled={isPending}
               className={cn(
                 "h-10 w-10 flex-shrink-0 rounded-full",
                 voice.isListening
@@ -772,17 +784,17 @@ export function VoiceCourtroom({ caseId, caseName, mode, modeName, onEnd }: Voic
                 : "Speak or type your response..."
             }
             className="min-h-[40px] max-h-[100px] resize-none bg-slate-700/50 border-slate-600 text-white placeholder:text-slate-500 rounded-xl text-sm"
-            disabled={simulationMutation.isPending}
+            disabled={isPending}
           />
 
           {/* Send button */}
           <Button
             size="icon"
             onClick={() => handleSendMessage()}
-            disabled={!currentInput.trim() || simulationMutation.isPending}
+            disabled={!currentInput.trim() || isPending}
             className="h-10 w-10 flex-shrink-0 rounded-full bg-accent hover:bg-accent/90"
           >
-            {simulationMutation.isPending ? (
+            {isPending ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
               <Send className="h-4 w-4" />
