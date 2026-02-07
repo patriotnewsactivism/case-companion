@@ -53,12 +53,15 @@ const item = {
 };
 
 const simulationModes = [
-  { value: "cross-examination", label: "Cross-Examination" },
-  { value: "direct-examination", label: "Direct Examination" },
-  { value: "opening-statement", label: "Opening Statement" },
-  { value: "closing-argument", label: "Closing Argument" },
-  { value: "deposition", label: "Deposition" },
-  { value: "motion-hearing", label: "Motion Hearing" },
+  { value: "cross-examination", label: "Cross-Examination", description: "Practice challenging opposing witnesses" },
+  { value: "direct-examination", label: "Direct Examination", description: "Guide your own witness testimony" },
+  { value: "opening-statement", label: "Opening Statement", description: "Craft and deliver your opening" },
+  { value: "closing-argument", label: "Closing Argument", description: "Summarize and persuade the jury" },
+  { value: "deposition", label: "Deposition", description: "Question witnesses under oath" },
+  { value: "motion-hearing", label: "Motion Hearing", description: "Argue motions before the judge" },
+  { value: "objections-practice", label: "Objections Practice", description: "Master courtroom objections and rulings" },
+  { value: "voir-dire", label: "Voir Dire", description: "Practice jury selection techniques" },
+  { value: "evidence-foundation", label: "Evidence Foundation", description: "Learn to properly admit evidence" },
 ];
 
 interface Message {
