@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
 import { User, Mail, Building, Loader2, Lock } from "lucide-react";
+import { Layout } from "@/components/Layout";
 
 export default function Settings() {
   const { user } = useAuth();
@@ -116,13 +117,16 @@ export default function Settings() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-screen">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-      </div>
+      <Layout>
+        <div className="flex items-center justify-center h-screen">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      </Layout>
     );
   }
 
   return (
+    <Layout>
     <div className="container max-w-4xl py-8">
       <h1 className="text-3xl font-bold mb-8">Settings</h1>
 
@@ -293,5 +297,6 @@ export default function Settings() {
         </Card>
       </div>
     </div>
+    </Layout>
   );
 }

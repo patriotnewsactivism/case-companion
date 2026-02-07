@@ -11,9 +11,8 @@ export interface ErrorResponse {
 
 // Phase 1D: CORS Hardening
 const BASE_ALLOWED_ORIGINS = [
-  'https://plcvjadartxntnurhcua.lovableproject.com', // Lovable project URL (current)
-  'https://casebuddypro.lovable.app', // Production domain
   'https://casebuddy.live', // Production custom domain
+  'https://casebuddypro.com', // Production domain
   'http://localhost:8080', // Development
   'http://localhost:5173', // Vite dev server alternative port
 ];
@@ -39,8 +38,8 @@ export function getCorsHeaders(req: Request): Record<string, string> {
   const isAllowedOrigin = !!origin && (
     ALLOWED_ORIGINS.includes(origin) ||
     (environment === 'development' && origin.startsWith('http://localhost')) ||
-    origin.includes('.lovable.app') || // Allow all Lovable domains
-    origin.includes('.lovableproject.com') // Allow all Lovable project domains
+    origin.includes('casebuddy.live') || // Allow CaseBuddy production domains
+    origin.includes('casebuddypro.com') // Allow CaseBuddy domains
   );
 
   const allowOrigin = isAllowedOrigin ? origin : (origin ? 'null' : '*');

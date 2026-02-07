@@ -1,4 +1,4 @@
-# Migrating from Lovable's Supabase to Your Own
+# Migrating from managed hosting's Supabase to Your Own
 
 ## Why Migrate?
 
@@ -11,7 +11,7 @@
 - ✅ Your own backup and disaster recovery
 
 **What You Keep:**
-- ✅ Lovable's hosting and deployment pipeline
+- ✅ managed hosting's hosting and deployment pipeline
 - ✅ Git-based deployments on push
 - ✅ Environment variable management
 - ✅ All your existing code and migrations
@@ -114,9 +114,9 @@ npx supabase secrets list --project-ref YOUR_PROJECT_REF
 
 ### Phase 4: Update Frontend Configuration (5 min)
 
-#### 4.1 Update Lovable Environment Variables
+#### 4.1 Update managed hosting Environment Variables
 
-In Lovable Dashboard → Settings → Environment Variables:
+In managed hosting Dashboard → Settings → Environment Variables:
 ```
 VITE_SUPABASE_URL=https://YOUR_PROJECT.supabase.co
 VITE_SUPABASE_PUBLISHABLE_KEY=YOUR_ANON_KEY
@@ -138,17 +138,17 @@ VITE_GOOGLE_API_KEY=your-api-key
 
 ### Phase 5: Data Migration (OPTIONAL - 30 min to 2 hours)
 
-**Only if you have existing data in Lovable's Supabase that you want to keep.**
+**Only if you have existing data in managed hosting's Supabase that you want to keep.**
 
 #### Option A: Fresh Start (Recommended for Testing)
 - Skip this phase
 - Start with clean database
-- Lovable's data remains accessible for reference
+- managed hosting's data remains accessible for reference
 
 #### Option B: Manual Data Export/Import
 
-**Export from Lovable's Supabase:**
-1. Go to Lovable's Supabase Dashboard
+**Export from managed hosting's Supabase:**
+1. Go to managed hosting's Supabase Dashboard
 2. Table Editor → Select table → Export as CSV
 3. Repeat for: `cases`, `documents`, `profiles`, `timeline_events`, `import_jobs`, `video_rooms`
 
@@ -159,7 +159,7 @@ VITE_GOOGLE_API_KEY=your-api-key
 
 #### Option C: Database Dump (Advanced)
 
-If you have direct database access to Lovable's instance:
+If you have direct database access to managed hosting's instance:
 ```bash
 # Export
 pg_dump -h LOVABLE_HOST -U postgres -d postgres --data-only > backup.sql
@@ -176,7 +176,7 @@ Your migrations already created the `case-documents` bucket, but verify:
 2. Verify `case-documents` bucket exists
 3. Check RLS policies are active
 4. **If migrating existing files:**
-   - Download from Lovable's Storage (via API or Dashboard)
+   - Download from managed hosting's Storage (via API or Dashboard)
    - Upload to your Storage bucket
 
 ### Phase 7: Testing & Verification (15 min)
@@ -212,7 +212,7 @@ git commit -m "Switch to own Supabase instance"
 git push
 ```
 
-Lovable will auto-deploy with your new Supabase credentials.
+managed hosting will auto-deploy with your new Supabase credentials.
 
 ## Post-Migration Checklist
 
@@ -230,11 +230,11 @@ Lovable will auto-deploy with your new Supabase credentials.
 
 If something goes wrong, you can instantly rollback:
 
-1. Revert environment variables in Lovable Dashboard to old Supabase
+1. Revert environment variables in managed hosting Dashboard to old Supabase
 2. Or update `.env` locally with old credentials
 3. Push to trigger redeployment
 
-Your Lovable-managed Supabase remains untouched during migration.
+Your managed hosting-managed Supabase remains untouched during migration.
 
 ## Ongoing Maintenance
 
@@ -259,10 +259,10 @@ Or via SQL Editor in Supabase Dashboard.
 
 ## Cost Comparison
 
-**Lovable's Supabase (Managed):**
-- Included in Lovable subscription
+**managed hosting's Supabase (Managed):**
+- Included in managed hosting subscription
 - Limited access and control
-- Auto-scaled by Lovable
+- Auto-scaled by managed hosting
 
 **Your Own Supabase:**
 - **Free Tier**: 500MB database, 1GB file storage, 2GB bandwidth
@@ -303,7 +303,7 @@ Or via SQL Editor in Supabase Dashboard.
 - Minimal code changes needed
 - Can rollback instantly
 
-**Impact on Lovable: ⚠️ Minimal**
+**Impact on managed hosting: ⚠️ Minimal**
 - Hosting: No change
 - Deployments: No change
 - CI/CD: No change

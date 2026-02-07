@@ -615,7 +615,7 @@ jobs:
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
-      - run: echo "Deploy to Lovable or Vercel here"
+      - run: echo "Deploy to your hosting provider or Vercel here"
 ```
 
 ---
@@ -749,7 +749,7 @@ export default function () {
 
 If critical issues arise:
 
-1. **Frontend rollback:** Revert to previous Vercel/Lovable deployment
+1. **Frontend rollback:** Revert to previous Vercel/your hosting provider deployment
 2. **Edge functions:** Redeploy previous version via Supabase CLI
 3. **Database:** Restore from pre-deployment backup
 
@@ -788,7 +788,7 @@ supabase db reset --db-url postgresql://...
 - Edge Functions (100K invocations): **$2/month**
 - OpenAI API (Whisper transcription): **$20-50/month** (usage-based)
 - Google Cloud (OCR via Gemini): **$10-30/month** (usage-based)
-- Vercel/Lovable hosting: **$20-50/month**
+- Vercel/your hosting provider hosting: **$20-50/month**
 
 **Total: $87-167/month** (scales with usage)
 
