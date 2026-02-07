@@ -226,7 +226,6 @@ export async function bulkUploadDocuments(input: BulkDocumentUploadInput): Promi
   for (let i = 0; i < input.files.length; i += batchSize) {
     const batch = input.files.slice(i, i + batchSize);
     const batchPromises = batch.map(async (file, index) => {
-      try {
         const fileExt = file.name.split('.').pop();
         const fileName = `${user.id}/${input.case_id}/${Date.now()}-${i + index}.${fileExt}`;
 
@@ -279,9 +278,6 @@ export async function bulkUploadDocuments(input: BulkDocumentUploadInput): Promi
         }
 
         return docData as unknown as Document;
-      } catch (error) {
-        throw error;
-      }
     });
 
     try {

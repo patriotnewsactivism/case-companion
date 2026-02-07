@@ -232,7 +232,7 @@ serve(async (req) => {
     // Step 3: Poll for transcription completion (max 10 minutes)
     let attempts = 0;
     const maxAttempts = 120; // 120 attempts * 5 seconds = 10 minutes
-    let transcript: any = null;
+    let transcript: { status: string; error?: string; text?: string; audio_duration?: number } | null = null;
 
     while (attempts < maxAttempts) {
       await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds

@@ -346,7 +346,7 @@ Extract now:`;
 
       // Combine all parsed text from all pages
       const extractedText = result.ParsedResults
-        .map((page: any, idx: number) => {
+        .map((page: { ParsedText?: string }, idx: number) => {
           const pageText = page.ParsedText || '';
           return result.ParsedResults.length > 1 ? `=== PAGE ${idx + 1} ===\n${pageText}` : pageText;
         })

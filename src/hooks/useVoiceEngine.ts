@@ -66,8 +66,17 @@ export function useVoiceEngine(options: VoiceEngineOptions) {
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animFrameRef = useRef<number>(0);
   const streamRef = useRef<MediaStream | null>(null);
-  const ttsQueueRef = useRef<SpeechSynthesisUtterance[]>([]);
-  const isProcessingTTSRef = useRef(false);
+
+  // Refs for stable closures — keeps recognition callbacks fresh
+  const voiceModeRef = useRef<VoiceMode>(state.voiceMode);
+  const onTranscriptRef = useRef(onTranscript);
+  const onAutoSendRef = useRef(onAutoSend);
+  const silenceTimeoutRef = useRef(silenceTimeout);
+
+  useEffect(() => { voiceModeRef.current = state.voiceMode; }, [state.voiceMode]);
+  useEffect(() => { onTranscriptRef.current = onTranscript; }, [onTranscript]);
+  useEffect(() => { onAutoSendRef.current = onAutoSend; }, [onAutoSend]);
+  useEffect(() => { silenceTimeoutRef.current = silenceTimeout; }, [silenceTimeout]);
 
   // Check support
   useEffect(() => {
@@ -129,8 +138,8 @@ export function useVoiceEngine(options: VoiceEngineOptions) {
         animFrameRef.current = requestAnimationFrame(updateLevel);
       };
       updateLevel();
-    } catch {
-      // Mic access denied - continue without audio visualization
+    } catch (_e) {
+      // Mic access denied — continue without audio visualization
     }
   }, []);
 
@@ -150,6 +159,7 @@ export function useVoiceEngine(options: VoiceEngineOptions) {
     setState(prev => ({ ...prev, audioLevel: 0 }));
   }, []);
 
+  // Recognition factory — uses refs so callbacks always read fresh state
   const initRecognition = useCallback(() => {
     const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognitionAPI) return null;
@@ -176,26 +186,26 @@ export function useVoiceEngine(options: VoiceEngineOptions) {
       if (finalText) {
         accumulatedRef.current += " " + finalText;
         const trimmed = accumulatedRef.current.trim();
-        onTranscript(trimmed, true);
+        onTranscriptRef.current(trimmed, true);
         setState(prev => ({ ...prev, interimTranscript: "" }));
 
-        // Reset silence timer for auto-send
+        // Reset silence timer for auto-send in hands-free mode
         if (silenceTimerRef.current) {
           clearTimeout(silenceTimerRef.current);
         }
-        if (onAutoSend && state.voiceMode === "hands-free") {
+        if (onAutoSendRef.current && voiceModeRef.current === "hands-free") {
           silenceTimerRef.current = setTimeout(() => {
             if (accumulatedRef.current.trim()) {
-              onAutoSend(accumulatedRef.current.trim());
+              onAutoSendRef.current?.(accumulatedRef.current.trim());
               accumulatedRef.current = "";
             }
-          }, silenceTimeout);
+          }, silenceTimeoutRef.current);
         }
       }
 
       if (interim) {
         setState(prev => ({ ...prev, interimTranscript: interim }));
-        onTranscript(accumulatedRef.current + " " + interim, false);
+        onTranscriptRef.current(accumulatedRef.current + " " + interim, false);
       }
     };
 
@@ -207,24 +217,24 @@ export function useVoiceEngine(options: VoiceEngineOptions) {
 
     recognition.onend = () => {
       // Auto-restart in hands-free mode
-      if (state.voiceMode === "hands-free" && recognitionRef.current) {
+      if (voiceModeRef.current === "hands-free" && recognitionRef.current) {
         try {
           recognitionRef.current.start();
-        } catch {
+        } catch (_e) {
           setState(prev => ({ ...prev, isListening: false }));
         }
       } else {
         setState(prev => ({ ...prev, isListening: false }));
-        // Auto-send accumulated text when stopping
-        if (accumulatedRef.current.trim() && onAutoSend) {
-          onAutoSend(accumulatedRef.current.trim());
+        // Auto-send accumulated text when stopping in push-to-talk
+        if (accumulatedRef.current.trim() && onAutoSendRef.current) {
+          onAutoSendRef.current(accumulatedRef.current.trim());
           accumulatedRef.current = "";
         }
       }
     };
 
     return recognition;
-  }, [lang, onTranscript, onAutoSend, silenceTimeout, state.voiceMode]);
+  }, [lang]); // Only depends on lang — everything else uses refs
 
   const startListening = useCallback(() => {
     if (state.isSpeaking) {
@@ -270,8 +280,8 @@ export function useVoiceEngine(options: VoiceEngineOptions) {
     utterance.rate = config.rate;
     utterance.volume = 0.9;
 
-    const voice = findVoiceForRole(role);
-    if (voice) utterance.voice = voice;
+    const selectedVoice = findVoiceForRole(role);
+    if (selectedVoice) utterance.voice = selectedVoice;
 
     utterance.onstart = () => setState(prev => ({ ...prev, isSpeaking: true }));
     utterance.onend = () => setState(prev => ({ ...prev, isSpeaking: false }));
