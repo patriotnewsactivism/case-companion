@@ -1101,10 +1101,7 @@ export default function CaseDetail() {
                         <BulkDocumentUpload 
                           caseId={id!}
                           onUploadComplete={(uploadedDocs) => {
-                            toast({
-                              title: "Upload Complete",
-                              description: `Successfully uploaded ${uploadedDocs.length} documents.`,
-                            });
+                            toast.success(`Successfully uploaded ${uploadedDocs.length} documents.`);
                             queryClient.invalidateQueries({ queryKey: ['documents', id] });
                             setIsBulkUploadOpen(false);
                           }}

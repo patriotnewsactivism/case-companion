@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Plus, Users, FileText, Scale, Gavel, Trash2, Edit, CheckCircle2, Clock, AlertCircle, Calendar } from "lucide-react";
+import { Plus, Users, FileText, Scale, Gavel, Trash2, Edit, CheckCircle2, Clock, AlertCircle, Calendar, Link2 } from "lucide-react";
 import {
   getOrCreateChecklist,
   updateChecklist,
@@ -30,11 +30,13 @@ import {
   createMotionInLimine,
   updateMotionInLimine,
   deleteMotionInLimine,
+  getCaseDocuments,
   type TrialPrepChecklist as ChecklistType,
   type WitnessPrep,
   type ExhibitItem,
   type JuryInstruction,
   type MotionInLimine,
+  type CaseDocument,
 } from "@/lib/trial-prep-api";
 
 interface TrialPrepChecklistProps {
@@ -47,6 +49,7 @@ export function TrialPrepChecklist({ caseId }: TrialPrepChecklistProps) {
   const [exhibits, setExhibits] = useState<ExhibitItem[]>([]);
   const [instructions, setInstructions] = useState<JuryInstruction[]>([]);
   const [motions, setMotions] = useState<MotionInLimine[]>([]);
+  const [caseDocuments, setCaseDocuments] = useState<CaseDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("witnesses");
 
@@ -68,7 +71,11 @@ export function TrialPrepChecklist({ caseId }: TrialPrepChecklistProps) {
 
   async function loadData() {
     setLoading(true);
-    const checklistData = await getOrCreateChecklist(caseId);
+    const [checklistData, docs] = await Promise.all([
+      getOrCreateChecklist(caseId),
+      getCaseDocuments(caseId),
+    ]);
+    setCaseDocuments(docs);
     if (checklistData) {
       setChecklist(checklistData);
       const [witnessData, exhibitData, instructionData, motionData] = await Promise.all([
@@ -295,6 +302,7 @@ export function TrialPrepChecklist({ caseId }: TrialPrepChecklistProps) {
                   onOpenChange={setExhibitDialogOpen}
                   exhibit={editingExhibit}
                   checklistId={checklist?.id || ""}
+                  caseDocuments={caseDocuments}
                   onSave={async (data) => {
                     if (editingExhibit) {
                       await updateExhibit(editingExhibit.id, data);
@@ -310,51 +318,57 @@ export function TrialPrepChecklist({ caseId }: TrialPrepChecklistProps) {
                 />
               </div>
               <div className="space-y-3">
-                {exhibits.map((exhibit) => (
-                  <Card key={exhibit.id}>
-                    <CardContent className="pt-4">
-                      <div className="flex justify-between items-start">
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium">Exhibit {exhibit.exhibit_number}</span>
-                            <Badge variant="outline">{exhibit.exhibit_type}</Badge>
-                            {getStatusBadge(exhibit.status)}
-                          </div>
-                          <p className="text-sm text-muted-foreground">{exhibit.description}</p>
-                          <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                            {exhibit.foundation_witness && <span>Foundation: {exhibit.foundation_witness}</span>}
-                            {exhibit.objection_anticipated && (
-                              <Badge variant="destructive" className="text-xs">Objection Expected</Badge>
+                {exhibits.map((exhibit) => {
+                  const linkedDoc = exhibit.document_id ? caseDocuments.find(d => d.id === exhibit.document_id) : null;
+                  return (
+                    <Card key={exhibit.id}>
+                      <CardContent className="pt-4">
+                        <div className="flex justify-between items-start">
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium">Exhibit {exhibit.exhibit_number}</span>
+                              <Badge variant="outline">{exhibit.exhibit_type}</Badge>
+                              {getStatusBadge(exhibit.status)}
+                              {linkedDoc && (
+                                <Badge variant="secondary" className="flex items-center gap-1 text-xs">
+                                  <Link2 className="h-3 w-3" />
+                                  {linkedDoc.name}
+                                </Badge>
+                              )}
+                            </div>
+                            <p className="text-sm text-muted-foreground">{exhibit.description}</p>
+                            {linkedDoc?.ai_analyzed && linkedDoc.key_facts && linkedDoc.key_facts.length > 0 && (
+                              <div className="mt-2 p-2 rounded bg-muted/50 border border-border">
+                                <p className="text-xs font-medium mb-1">Key Facts (from OCR):</p>
+                                <ul className="text-xs text-muted-foreground space-y-0.5">
+                                  {linkedDoc.key_facts.slice(0, 3).map((f, i) => (
+                                    <li key={i} className="flex items-start gap-1">
+                                      <span className="text-primary mt-0.5">•</span> {f}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
                             )}
+                            <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                              {exhibit.foundation_witness && <span>Foundation: {exhibit.foundation_witness}</span>}
+                              {exhibit.objection_anticipated && (
+                                <Badge variant="destructive" className="text-xs">Objection Expected</Badge>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <Button variant="ghost" size="icon" onClick={() => { setEditingExhibit(exhibit); setExhibitDialogOpen(true); }}>
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="icon" onClick={async () => { await deleteExhibit(exhibit.id); toast.success("Exhibit removed"); loadData(); }}>
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
                           </div>
                         </div>
-                        <div className="flex gap-2">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => {
-                              setEditingExhibit(exhibit);
-                              setExhibitDialogOpen(true);
-                            }}
-                          >
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={async () => {
-                              await deleteExhibit(exhibit.id);
-                              toast.success("Exhibit removed");
-                              loadData();
-                            }}
-                          >
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
+                      </CardContent>
+                    </Card>
+                  );
+                })}
                 {exhibits.length === 0 && (
                   <div className="text-center py-8 text-muted-foreground">
                     No exhibits added yet. Click "Add Exhibit" to get started.
@@ -685,6 +699,7 @@ function ExhibitDialog({
   onOpenChange,
   exhibit,
   checklistId,
+  caseDocuments = [],
   onSave,
   onClose,
 }: {
@@ -692,6 +707,7 @@ function ExhibitDialog({
   onOpenChange: (open: boolean) => void;
   exhibit: ExhibitItem | null;
   checklistId: string;
+  caseDocuments?: CaseDocument[];
   onSave: (data: Partial<ExhibitItem>) => Promise<void>;
   onClose: () => void;
 }) {
@@ -703,6 +719,7 @@ function ExhibitDialog({
     status: "pending",
     objection_anticipated: false,
     objection_response: "",
+    document_id: null as string | null,
   });
 
   useEffect(() => {
@@ -715,6 +732,7 @@ function ExhibitDialog({
         status: exhibit.status,
         objection_anticipated: exhibit.objection_anticipated,
         objection_response: exhibit.objection_response || "",
+        document_id: exhibit.document_id || null,
       });
     } else {
       setFormData({
@@ -725,9 +743,21 @@ function ExhibitDialog({
         status: "pending",
         objection_anticipated: false,
         objection_response: "",
+        document_id: null,
       });
     }
   }, [exhibit, open]);
+
+  const handleDocumentLink = (docId: string) => {
+    const doc = caseDocuments.find(d => d.id === docId);
+    if (doc) {
+      setFormData(prev => ({
+        ...prev,
+        document_id: docId,
+        description: prev.description || doc.summary || doc.name,
+      }));
+    }
+  };
 
   const handleSubmit = async () => {
     if (!formData.exhibit_number || !formData.description) {
@@ -768,6 +798,33 @@ function ExhibitDialog({
                 </SelectContent>
               </Select>
             </div>
+          </div>
+          {/* Document Link */}
+          <div className="space-y-2">
+            <Label className="flex items-center gap-1"><Link2 className="h-3 w-3" /> Link to Case Document</Label>
+            <Select value={formData.document_id || "none"} onValueChange={(v) => { if (v === "none") { setFormData({...formData, document_id: null}); } else { handleDocumentLink(v); } }}>
+              <SelectTrigger><SelectValue placeholder="Select a document..." /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">No linked document</SelectItem>
+                {caseDocuments.map(doc => (
+                  <SelectItem key={doc.id} value={doc.id}>
+                    {doc.name} {doc.ai_analyzed ? "✓ AI Analyzed" : ""} {doc.bates_number ? `(${doc.bates_number})` : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {formData.document_id && (() => {
+              const doc = caseDocuments.find(d => d.id === formData.document_id);
+              if (!doc?.ai_analyzed) return null;
+              return (
+                <div className="p-2 rounded bg-muted/50 border border-border text-xs space-y-1">
+                  {doc.summary && <p><span className="font-medium">Summary:</span> {doc.summary}</p>}
+                  {doc.key_facts && doc.key_facts.length > 0 && (
+                    <div><span className="font-medium">Key Facts:</span> {doc.key_facts.slice(0,3).join("; ")}</div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
           <div className="space-y-2">
             <Label>Description *</Label>

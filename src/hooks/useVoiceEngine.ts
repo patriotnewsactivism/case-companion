@@ -59,7 +59,7 @@ export function useVoiceEngine(options: VoiceEngineOptions) {
     ttsSupported: false,
   });
 
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const recognitionRef = useRef<any>(null);
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const accumulatedRef = useRef<string>("");
   const audioContextRef = useRef<AudioContext | null>(null);
