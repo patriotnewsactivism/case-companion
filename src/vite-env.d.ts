@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 
 interface Window {
-  webkitSpeechRecognition: typeof SpeechRecognition;
+  SpeechRecognition: any;
+  webkitSpeechRecognition: any;
 }

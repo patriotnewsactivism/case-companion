@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { TrialPrepChecklist } from "@/components/TrialPrepChecklist";
+import { TrialBinder } from "@/components/TrialBinder";
 import { VoiceCourtroom } from "@/components/courtroom/VoiceCourtroom";
 import { cn } from "@/lib/utils";
 
@@ -252,14 +253,18 @@ export default function TrialPrep() {
 
           {/* Main Tabs */}
           <Tabs value={activeMainTab} onValueChange={setActiveMainTab} className="space-y-6">
-            <TabsList className="grid w-full max-w-md grid-cols-2">
+            <TabsList className="grid w-full max-w-lg grid-cols-3">
               <TabsTrigger value="simulator" className="flex items-center gap-2">
                 <Gavel className="h-4 w-4" />
-                Courtroom Simulator
+                Simulator
               </TabsTrigger>
               <TabsTrigger value="checklist" className="flex items-center gap-2">
                 <ClipboardList className="h-4 w-4" />
-                Prep Checklist
+                Checklist
+              </TabsTrigger>
+              <TabsTrigger value="binder" className="flex items-center gap-2">
+                <FileText className="h-4 w-4" />
+                Trial Binder
               </TabsTrigger>
             </TabsList>
 
@@ -495,6 +500,19 @@ export default function TrialPrep() {
                 <Card>
                   <CardContent className="flex items-center justify-center h-48">
                     <p className="text-muted-foreground">Please select a case above to view the trial prep checklist.</p>
+                  </CardContent>
+                </Card>
+              )}
+            </TabsContent>
+
+            {/* Binder Tab */}
+            <TabsContent value="binder">
+              {selectedCase ? (
+                <TrialBinder caseId={selectedCase} caseName={currentCaseName} />
+              ) : (
+                <Card>
+                  <CardContent className="flex items-center justify-center h-48">
+                    <p className="text-muted-foreground">Please select a case above to view the trial binder.</p>
                   </CardContent>
                 </Card>
               )}

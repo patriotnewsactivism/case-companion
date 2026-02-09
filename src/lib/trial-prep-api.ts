@@ -1,5 +1,26 @@
 import { supabase } from "@/integrations/supabase/client";
 
+export interface CaseDocument {
+  id: string;
+  name: string;
+  file_type: string | null;
+  summary: string | null;
+  key_facts: string[] | null;
+  favorable_findings: string[] | null;
+  adverse_findings: string[] | null;
+  ai_analyzed: boolean | null;
+  bates_number: string | null;
+}
+
+export async function getCaseDocuments(caseId: string): Promise<CaseDocument[]> {
+  const { data, error } = await supabase
+    .from('documents')
+    .select('id, name, file_type, summary, key_facts, favorable_findings, adverse_findings, ai_analyzed, bates_number')
+    .eq('case_id', caseId)
+    .order('name');
+  if (error) { console.error('Error fetching docs:', error); return []; }
+  return data as CaseDocument[];
+}
 // Trial Prep Checklist types
 export interface TrialPrepChecklist {
   id: string;
