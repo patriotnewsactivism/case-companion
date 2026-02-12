@@ -253,7 +253,7 @@ serve(async (req) => {
   }
 
   try {
-    validateEnvVars(['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'OPENAI_API_KEY']);
+    validateEnvVars(['SUPABASE_URL', 'SUPABASE_ANON_KEY']);
 
     const authResult = await verifyAuth(req);
     if (!authResult.authorized || !authResult.user || !authResult.supabase) {
@@ -399,34 +399,35 @@ After each exchange, score performance and teach proper objection technique.` : 
 Keep responses concise (under 150 words) unless the mode requires longer feedback.
 ${messages.length === 0 ? `This is the beginning of the session. The attorney has just said their first words. Respond in character to set the scene.` : ''}`;
 
-    // Call OpenAI Chat API
-    const openaiApiKey = Deno.env.get('OPENAI_API_KEY')!;
+    // Call AI via gateway
+    const AI_API_KEY = Deno.env.get('OPENAI_API_KEY') || Deno.env.get('LOVABLE_API_KEY');
+    if (!AI_API_KEY) throw new Error('AI API key is not configured');
+    const AI_GATEWAY_URL = Deno.env.get('AI_GATEWAY_URL') || 'https://api.openai.com/v1/chat/completions';
 
     const chatMessages = [
       { role: 'system', content: systemPrompt },
       ...messages,
     ];
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const response = await fetch(AI_GATEWAY_URL, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${openaiApiKey}`,
+        'Authorization': `Bearer ${AI_API_KEY}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model: 'google/gemini-2.5-flash',
         messages: chatMessages,
         max_tokens: 600,
         temperature: 0.85,
-        presence_penalty: 0.3,
-        frequency_penalty: 0.15,
+        stream: false,
       }),
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('OpenAI API error:', errorText);
-      throw new Error(`OpenAI API failed: ${errorText}`);
+      console.error('AI API error:', errorText);
+      throw new Error(`AI API failed: ${errorText}`);
     }
 
     const data = await response.json();
@@ -470,17 +471,18 @@ Provide 2-4 specific, actionable coaching points. Write in natural sentences (th
 
 Be encouraging but direct. Give specific examples from the exchange.`;
 
-      const coachingResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+      const coachingResponse = await fetch(AI_GATEWAY_URL, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${openaiApiKey}`,
+          'Authorization': `Bearer ${AI_API_KEY}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'gpt-4o-mini',
+          model: 'google/gemini-2.5-flash',
           messages: [{ role: 'user', content: coachingPrompt }],
           max_tokens: 300,
           temperature: 0.7,
+          stream: false,
         }),
       });
 
