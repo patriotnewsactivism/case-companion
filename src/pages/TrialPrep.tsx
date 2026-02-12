@@ -310,7 +310,7 @@ export default function TrialPrep() {
                   <Card className="overflow-hidden">
                     <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-8 min-h-[300px] flex flex-col items-center justify-center text-center relative">
                       {/* Decorative courtroom elements */}
-                      <div className="absolute inset-0 overflow-hidden opacity-5">
+                      <div className="absolute inset-0 overflow-hidden opacity-5 pointer-events-none">
                         <div className="absolute top-4 left-1/2 -translate-x-1/2 w-32 h-32 border-4 border-white rounded-full" />
                         <div className="absolute bottom-0 left-0 right-0 h-16 border-t-2 border-white" />
                       </div>
@@ -349,7 +349,7 @@ export default function TrialPrep() {
 
                       <Button
                         size="lg"
-                        className="gap-2 bg-accent hover:bg-accent/90 text-white px-8"
+                        className="gap-2 bg-accent hover:bg-accent/90 text-white px-8 relative z-10"
                         onClick={handleStartSimulation}
                         disabled={!selectedCase}
                       >
