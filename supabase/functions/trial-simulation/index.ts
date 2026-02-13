@@ -399,39 +399,36 @@ After each exchange, score performance and teach proper objection technique.` : 
 Keep responses concise (under 150 words) unless the mode requires longer feedback.
 ${messages.length === 0 ? `This is the beginning of the session. The attorney has just said their first words. Respond in character to set the scene.` : ''}`;
 
-    // Call AI via gateway
-    const AI_API_KEY = Deno.env.get('OPENAI_API_KEY') || Deno.env.get('LOVABLE_API_KEY');
-    if (!AI_API_KEY) throw new Error('AI API key is not configured');
-    const AI_GATEWAY_URL = Deno.env.get('AI_GATEWAY_URL') || 'https://api.openai.com/v1/chat/completions';
+    // Call Google Gemini API directly
+    const GOOGLE_AI_KEY = Deno.env.get('GOOGLE_AI_API_KEY');
+    if (!GOOGLE_AI_KEY) throw new Error('GOOGLE_AI_API_KEY is not configured');
 
     const chatMessages = [
-      { role: 'system', content: systemPrompt },
-      ...messages,
+      { role: 'user', content: systemPrompt + '\n\n' + messages.map((m: { role: string; content: string }) => `${m.role}: ${m.content}`).join('\n') },
     ];
 
-    const response = await fetch(AI_GATEWAY_URL, {
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GOOGLE_AI_KEY}`;
+
+    const response = await fetch(geminiUrl, {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${AI_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
-        messages: chatMessages,
-        max_tokens: 600,
-        temperature: 0.85,
-        stream: false,
+        contents: chatMessages.map(m => ({ role: m.role, parts: [{ text: m.content }] })),
+        generationConfig: {
+          maxOutputTokens: 600,
+          temperature: 0.85,
+        },
       }),
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('AI API error:', errorText);
-      throw new Error(`AI API failed: ${errorText}`);
+      console.error('Gemini API error:', errorText);
+      throw new Error(`Gemini API failed: ${errorText}`);
     }
 
     const data = await response.json();
-    const aiMessage = data.choices[0]?.message?.content;
+    const aiMessage = data.candidates?.[0]?.content?.parts?.[0]?.text;
 
     if (!aiMessage) {
       throw new Error('No response from AI');
@@ -471,24 +468,21 @@ Provide 2-4 specific, actionable coaching points. Write in natural sentences (th
 
 Be encouraging but direct. Give specific examples from the exchange.`;
 
-      const coachingResponse = await fetch(AI_GATEWAY_URL, {
+      const coachingResponse = await fetch(geminiUrl, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${AI_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'google/gemini-2.5-flash',
-          messages: [{ role: 'user', content: coachingPrompt }],
-          max_tokens: 300,
-          temperature: 0.7,
-          stream: false,
+          contents: [{ role: 'user', parts: [{ text: coachingPrompt }] }],
+          generationConfig: {
+            maxOutputTokens: 300,
+            temperature: 0.7,
+          },
         }),
       });
 
       if (coachingResponse.ok) {
         const coachingData = await coachingResponse.json();
-        coaching = coachingData.choices[0]?.message?.content;
+        coaching = coachingData.candidates?.[0]?.content?.parts?.[0]?.text;
       }
     }
 
