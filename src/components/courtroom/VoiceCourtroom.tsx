@@ -297,14 +297,23 @@ export function VoiceCourtroom({ caseId, caseName, mode, modeName, onEnd }: Voic
   // Voice engine
   const voice = useVoiceEngine({
     onTranscript: (text, isFinal) => {
-      if (isFinal) {
-        setCurrentInput(text);
+      const normalized = text.trim();
+      if (!normalized) return;
+
+      // Keep the textarea in sync so users can see what the mic captured.
+      setCurrentInput(normalized);
+
+      if (isFinal && voice.voiceMode === "hands-free") {
+        inputRef.current?.blur();
       }
     },
     onAutoSend: (text) => {
       if (text.trim() && voice.voiceMode === "hands-free") {
         handleSendMessage(text.trim());
       }
+    },
+    onError: (message) => {
+      toast.error(message, { duration: 6000 });
     },
     silenceTimeout: 2000,
   });
@@ -415,6 +424,11 @@ export function VoiceCourtroom({ caseId, caseName, mode, modeName, onEnd }: Voic
   };
 
   const handleVoiceToggle = () => {
+    if (!voice.speechSupported) {
+      toast.error("Voice input is not supported in this browser. Use latest Chrome/Edge on HTTPS.");
+      return;
+    }
+
     if (voice.isListening) {
       voice.stopListening();
     } else {
@@ -722,6 +736,14 @@ export function VoiceCourtroom({ caseId, caseName, mode, modeName, onEnd }: Voic
 
       {/* Input Area */}
       <div className="border-t border-slate-700/50 bg-slate-800/80 backdrop-blur-sm p-3">
+        {!voice.speechSupported && (
+          <Alert className="mb-3 bg-amber-950/40 border-amber-500/40 text-amber-200">
+            <AlertDescription className="text-xs">
+              Voice input is unavailable in this browser. Use the latest Chrome or Edge and ensure microphone permission is enabled.
+            </AlertDescription>
+          </Alert>
+        )}
+
         {/* Voice indicator */}
         <AnimatePresence>
           {voice.isListening && (

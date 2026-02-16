@@ -9,13 +9,15 @@ import { createClient } from '@supabase/supabase-js';
 const SUPABASE_URL =
   process.env.VITE_SUPABASE_URL ||
   process.env.SUPABASE_URL ||
-  'https://plcvjadartxntnurhcua.supabase.co';
+  '';
 
-const SUPABASE_KEY =
+const SUPABASE_ANON_KEY =
   process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
   process.env.VITE_SUPABASE_ANON_KEY ||
   process.env.SUPABASE_ANON_KEY ||
   '';
+
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
 interface DiagnosticResult {
   test: string;
@@ -26,9 +28,19 @@ interface DiagnosticResult {
 
 const results: DiagnosticResult[] = [];
 
+function hasBaseConfig(): boolean {
+  return Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
+}
+
+function maskKey(key: string): string {
+  if (!key) return '(missing)';
+  if (key.length < 20) return `${key.substring(0, 6)}...`;
+  return `${key.substring(0, 20)}...`;
+}
+
 async function testDatabaseConnection() {
   try {
-    const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     const { error } = await supabase.from('cases').select('count').limit(1);
 
     if (error) throw error;
@@ -49,7 +61,7 @@ async function testDatabaseConnection() {
 
 async function testAuthentication() {
   try {
-    const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     const { data } = await supabase.auth.getSession();
 
     results.push({
@@ -68,14 +80,29 @@ async function testAuthentication() {
 
 async function testStorageBucket() {
   try {
-    const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
-    const { data, error } = await supabase.storage.getBucket('case-documents');
-
-    if (error) {
+    if (!SUPABASE_SERVICE_ROLE_KEY) {
       results.push({
         test: 'Storage Bucket',
         status: 'warn',
-        message: `Unable to verify case-documents bucket with anon key: ${error.message}`,
+        message:
+          'SUPABASE_SERVICE_ROLE_KEY not set; skipping definitive storage bucket existence check',
+      });
+      return;
+    }
+
+    const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+    const { data, error } = await adminClient
+      .from('buckets', { schema: 'storage' })
+      .select('id, public')
+      .eq('id', 'case-documents')
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!data) {
+      results.push({
+        test: 'Storage Bucket',
+        status: 'fail',
+        message: 'case-documents bucket is missing',
       });
       return;
     }
@@ -83,7 +110,7 @@ async function testStorageBucket() {
     results.push({
       test: 'Storage Bucket',
       status: 'pass',
-      message: 'case-documents bucket exists and is accessible',
+      message: `case-documents bucket exists (public: ${data.public})`,
       details: data,
     });
   } catch (error) {
@@ -134,21 +161,23 @@ async function testEdgeFunctions() {
 
 async function testRLSPolicies() {
   try {
-    const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
     // Try to access tables without authentication (should be blocked)
     const tables = ['cases', 'documents', 'timeline_events', 'profiles'];
 
     for (const table of tables) {
-      const { error } = await supabase.from(table).select('*').limit(1);
+      const { data, error } = await supabase.from(table).select('*').limit(1);
+      const rowCount = Array.isArray(data) ? data.length : 0;
 
-      // RLS should block unauthenticated access
       results.push({
         test: `RLS Policy: ${table}`,
-        status: error ? 'pass' : 'warn',
+        status: error || rowCount === 0 ? 'pass' : 'warn',
         message: error
           ? `${table} table properly protected by RLS`
-          : `${table} table returned no RLS error; verify policy manually`,
+          : rowCount === 0
+            ? `${table} table returned zero rows to anon user`
+            : `${table} table returned ${rowCount} row(s) to anon user; verify policy`,
       });
     }
   } catch (error) {
@@ -164,8 +193,39 @@ async function runDiagnostics() {
   console.log('Starting backend diagnostics...\n');
   console.log('Configuration:');
   console.log(`  Supabase URL: ${SUPABASE_URL}`);
-  console.log(`  API Key: ${SUPABASE_KEY ? `${SUPABASE_KEY.substring(0, 20)}...` : '(missing)'}`);
+  console.log(`  Anon API Key: ${maskKey(SUPABASE_ANON_KEY)}`);
+  console.log(`  Service Role Key: ${maskKey(SUPABASE_SERVICE_ROLE_KEY)}`);
   console.log('\n');
+
+  if (!hasBaseConfig()) {
+    results.push({
+      test: 'Configuration',
+      status: 'fail',
+      message:
+        'Missing required Supabase env vars: set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY',
+    });
+  } else {
+    results.push({
+      test: 'Configuration',
+      status: 'pass',
+      message: 'Required Supabase environment variables are present',
+    });
+  }
+
+  if (!hasBaseConfig()) {
+    console.log('\nDiagnostic results:\n');
+    console.log('='.repeat(80));
+    results.forEach((result) => {
+      const icon = result.status === 'pass' ? '[PASS]' : result.status === 'warn' ? '[WARN]' : '[FAIL]';
+      console.log(`${icon} ${result.test}`);
+      console.log(`   ${result.message}`);
+      console.log('');
+    });
+    console.log('='.repeat(80));
+    console.log('\nSummary: 0 passed, 0 warnings, 1 failed');
+    console.log('\nCRITICAL ISSUES FOUND - Backend requires attention!');
+    process.exit(1);
+  }
 
   await testDatabaseConnection();
   await testAuthentication();

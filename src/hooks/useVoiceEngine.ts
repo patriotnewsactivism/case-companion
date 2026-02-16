@@ -5,6 +5,7 @@ export type VoiceMode = "push-to-talk" | "hands-free" | "off";
 interface VoiceEngineOptions {
   onTranscript: (text: string, isFinal: boolean) => void;
   onAutoSend?: (text: string) => void;
+  onError?: (message: string) => void;
   silenceTimeout?: number; // ms before auto-sending in hands-free mode
   lang?: string;
 }
@@ -47,7 +48,7 @@ function findVoiceForRole(role: string): SpeechSynthesisVoice | null {
 }
 
 export function useVoiceEngine(options: VoiceEngineOptions) {
-  const { onTranscript, onAutoSend, silenceTimeout = 1800, lang = "en-US" } = options;
+  const { onTranscript, onAutoSend, onError, silenceTimeout = 1800, lang = "en-US" } = options;
 
   const [state, setState] = useState<VoiceEngineState>({
     isListening: false,
@@ -62,12 +63,17 @@ export function useVoiceEngine(options: VoiceEngineOptions) {
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const accumulatedRef = useRef<string>("");
+  const interimRef = useRef<string>("");
+  const voiceModeRef = useRef<VoiceMode>("push-to-talk");
+  const restartRequestedRef = useRef<boolean>(false);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animFrameRef = useRef<number>(0);
   const streamRef = useRef<MediaStream | null>(null);
-  const ttsQueueRef = useRef<SpeechSynthesisUtterance[]>([]);
-  const isProcessingTTSRef = useRef(false);
+
+  useEffect(() => {
+    voiceModeRef.current = state.voiceMode;
+  }, [state.voiceMode]);
 
   // Check support
   useEffect(() => {
@@ -101,6 +107,9 @@ export function useVoiceEngine(options: VoiceEngineOptions) {
       }
       if (audioContextRef.current) {
         audioContextRef.current.close();
+      }
+      if (silenceTimerRef.current) {
+        clearTimeout(silenceTimerRef.current);
       }
     };
   }, []);
@@ -177,23 +186,26 @@ export function useVoiceEngine(options: VoiceEngineOptions) {
         accumulatedRef.current += " " + finalText;
         const trimmed = accumulatedRef.current.trim();
         onTranscript(trimmed, true);
+        interimRef.current = "";
         setState(prev => ({ ...prev, interimTranscript: "" }));
 
         // Reset silence timer for auto-send
         if (silenceTimerRef.current) {
           clearTimeout(silenceTimerRef.current);
         }
-        if (onAutoSend && state.voiceMode === "hands-free") {
+        if (onAutoSend && voiceModeRef.current === "hands-free") {
           silenceTimerRef.current = setTimeout(() => {
             if (accumulatedRef.current.trim()) {
               onAutoSend(accumulatedRef.current.trim());
               accumulatedRef.current = "";
+              interimRef.current = "";
             }
           }, silenceTimeout);
         }
       }
 
       if (interim) {
+        interimRef.current = interim.trim();
         setState(prev => ({ ...prev, interimTranscript: interim }));
         onTranscript(accumulatedRef.current + " " + interim, false);
       }
@@ -202,39 +214,81 @@ export function useVoiceEngine(options: VoiceEngineOptions) {
     recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
       if (event.error === "no-speech" || event.error === "aborted") return;
       console.error("Speech recognition error:", event.error);
+      let message = `Speech recognition error: ${event.error}`;
+      if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+        message = "Microphone access denied. Allow mic permission in your browser and try again.";
+      } else if (event.error === "audio-capture") {
+        message = "No microphone detected. Check your audio input device and try again.";
+      } else if (event.error === "network") {
+        message = "Voice recognition network issue. Check your connection and try again.";
+      }
+      onError?.(message);
+      restartRequestedRef.current = false;
+      if (silenceTimerRef.current) {
+        clearTimeout(silenceTimerRef.current);
+      }
+      stopAudioMonitoring();
       setState(prev => ({ ...prev, isListening: false }));
     };
 
     recognition.onend = () => {
-      // Auto-restart in hands-free mode
-      if (state.voiceMode === "hands-free" && recognitionRef.current) {
+      const shouldRestart = voiceModeRef.current === "hands-free" && restartRequestedRef.current;
+
+      // Auto-restart in hands-free mode if still requested by user.
+      if (shouldRestart && recognitionRef.current) {
         try {
           recognitionRef.current.start();
         } catch {
+          restartRequestedRef.current = false;
+          stopAudioMonitoring();
           setState(prev => ({ ...prev, isListening: false }));
         }
       } else {
+        restartRequestedRef.current = false;
+        if (silenceTimerRef.current) {
+          clearTimeout(silenceTimerRef.current);
+        }
+        stopAudioMonitoring();
         setState(prev => ({ ...prev, isListening: false }));
-        // Auto-send accumulated text when stopping
-        if (accumulatedRef.current.trim() && onAutoSend) {
-          onAutoSend(accumulatedRef.current.trim());
+
+        const combinedText = `${accumulatedRef.current} ${interimRef.current}`.trim();
+
+        // Finalize remaining interim text so user doesn't lose their last words.
+        if (interimRef.current.trim()) {
+          onTranscript(combinedText, true);
+        }
+
+        // Auto-send only in hands-free mode.
+        if (combinedText && onAutoSend && voiceModeRef.current === "hands-free") {
+          onAutoSend(combinedText);
+        }
+
+        if (combinedText) {
           accumulatedRef.current = "";
+          interimRef.current = "";
         }
       }
     };
 
     return recognition;
-  }, [lang, onTranscript, onAutoSend, silenceTimeout, state.voiceMode]);
+  }, [lang, onTranscript, onAutoSend, onError, silenceTimeout, stopAudioMonitoring]);
 
   const startListening = useCallback(() => {
+    if (state.isListening) return;
+
     if (state.isSpeaking) {
       window.speechSynthesis.cancel();
       setState(prev => ({ ...prev, isSpeaking: false }));
     }
 
     accumulatedRef.current = "";
+    interimRef.current = "";
+    restartRequestedRef.current = true;
     const recognition = initRecognition();
-    if (!recognition) return;
+    if (!recognition) {
+      onError?.("Speech recognition is not supported in this browser.");
+      return;
+    }
 
     recognitionRef.current = recognition;
     try {
@@ -242,11 +296,15 @@ export function useVoiceEngine(options: VoiceEngineOptions) {
       setState(prev => ({ ...prev, isListening: true, interimTranscript: "" }));
       startAudioMonitoring();
     } catch (error) {
+      restartRequestedRef.current = false;
+      stopAudioMonitoring();
       console.error("Failed to start recognition:", error);
+      onError?.("Unable to start microphone capture. Check mic permission and try again.");
     }
-  }, [initRecognition, startAudioMonitoring, state.isSpeaking]);
+  }, [initRecognition, onError, startAudioMonitoring, state.isListening, state.isSpeaking, stopAudioMonitoring]);
 
   const stopListening = useCallback(() => {
+    restartRequestedRef.current = false;
     if (recognitionRef.current) {
       try { recognitionRef.current.stop(); } catch (_e) { /* already stopped */ }
       recognitionRef.current = null;
@@ -286,6 +344,7 @@ export function useVoiceEngine(options: VoiceEngineOptions) {
   }, []);
 
   const setVoiceMode = useCallback((mode: VoiceMode) => {
+    voiceModeRef.current = mode;
     if (mode === "off") {
       stopListening();
       stopSpeaking();
