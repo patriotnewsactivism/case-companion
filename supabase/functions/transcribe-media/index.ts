@@ -1,4 +1,4 @@
-import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
+﻿import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import {
   getCorsHeaders,
   createErrorResponse,
@@ -51,6 +51,20 @@ function inferMediaType(
 
 interface TranscribeRequest {
   documentId: string;
+}
+
+type AssemblyAiTranscriptStatus = 'queued' | 'processing' | 'completed' | 'error';
+
+interface AssemblyAiTranscript {
+  id: string;
+  status: AssemblyAiTranscriptStatus;
+  text?: string;
+  error?: string;
+  audio_duration?: number;
+  utterances?: unknown[];
+  auto_highlights_result?: { results?: unknown[] };
+  entities?: unknown[];
+  confidence?: number;
 }
 
 serve(async (req) => {
@@ -224,7 +238,7 @@ serve(async (req) => {
       throw new Error(`Failed to submit transcription: ${errorText}`);
     }
 
-    const transcriptData = await transcriptResponse.json();
+    const transcriptData = (await transcriptResponse.json()) as AssemblyAiTranscript;
     const transcriptId = transcriptData.id;
 
     console.log(`Transcription submitted with ID: ${transcriptId}, polling for results...`);
@@ -232,7 +246,7 @@ serve(async (req) => {
     // Step 3: Poll for transcription completion (max 10 minutes)
     let attempts = 0;
     const maxAttempts = 120; // 120 attempts * 5 seconds = 10 minutes
-    let transcript: any = null;
+    let transcript: AssemblyAiTranscript | null = null;
 
     while (attempts < maxAttempts) {
       await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds
@@ -248,10 +262,10 @@ serve(async (req) => {
         throw new Error(`Failed to poll transcription status: ${pollingResponse.status}`);
       }
 
-      transcript = await pollingResponse.json();
+      transcript = (await pollingResponse.json()) as AssemblyAiTranscript;
 
       if (transcript.status === 'completed') {
-        console.log(`✅ Transcription completed in ${attempts * 5} seconds`);
+        console.log(`Transcription completed in ${attempts * 5} seconds`);
         break;
       } else if (transcript.status === 'error') {
         throw new Error(`Transcription failed: ${transcript.error}`);
@@ -263,7 +277,7 @@ serve(async (req) => {
       }
     }
 
-    if (transcript.status !== 'completed') {
+    if (!transcript || transcript.status !== 'completed') {
       throw new Error('Transcription timed out after 10 minutes');
     }
 
@@ -292,7 +306,7 @@ serve(async (req) => {
         duration_seconds: Math.round(duration),
         // Store additional metadata if columns exist
         // speaker_count: speakers.length,
-        // key_phrases: highlights.map((h: any) => h.text).slice(0, 10),
+        // key_phrases: highlights.map((h: { text?: string }) => h.text).slice(0, 10),
       })
       .eq('id', documentId);
 
@@ -320,3 +334,4 @@ serve(async (req) => {
     return createErrorResponse(error, 500, 'transcribe-media', corsHeaders);
   }
 });
+

@@ -12,6 +12,16 @@ import { validateUUID, validateURL } from '../_shared/validation.ts';
 
 const STORAGE_BUCKET = 'case-documents';
 
+interface OcrSpaceParsedResult {
+  ParsedText?: string;
+}
+
+interface OcrSpaceResponse {
+  OCRExitCode?: number;
+  ParsedResults?: OcrSpaceParsedResult[];
+  ErrorMessage?: string | string[];
+}
+
 function extractStoragePath(fileUrl: string): string | null {
   if (!fileUrl || typeof fileUrl !== 'string') {
     return null;
@@ -338,15 +348,18 @@ Extract now:`;
         throw new Error(`OCR.space API failed: ${response.status} ${response.statusText}`);
       }
 
-      const result = await response.json();
+      const result = (await response.json()) as OcrSpaceResponse;
 
       if (result.OCRExitCode !== 1 || !result.ParsedResults || result.ParsedResults.length === 0) {
-        throw new Error(`OCR.space parsing failed: ${result.ErrorMessage || 'Unknown error'}`);
+        const errorMessage = Array.isArray(result.ErrorMessage)
+          ? result.ErrorMessage.join(', ')
+          : (result.ErrorMessage || 'Unknown error');
+        throw new Error(`OCR.space parsing failed: ${errorMessage}`);
       }
 
       // Combine all parsed text from all pages
       const extractedText = result.ParsedResults
-        .map((page: any, idx: number) => {
+        .map((page, idx: number) => {
           const pageText = page.ParsedText || '';
           return result.ParsedResults.length > 1 ? `=== PAGE ${idx + 1} ===\n${pageText}` : pageText;
         })

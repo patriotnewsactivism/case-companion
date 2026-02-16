@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -65,11 +65,7 @@ export function TrialPrepChecklist({ caseId }: TrialPrepChecklistProps) {
   const [editingInstruction, setEditingInstruction] = useState<JuryInstruction | null>(null);
   const [editingMotion, setEditingMotion] = useState<MotionInLimine | null>(null);
 
-  useEffect(() => {
-    loadData();
-  }, [caseId]);
-
-  async function loadData() {
+  const loadData = useCallback(async () => {
     setLoading(true);
     const [checklistData, docs] = await Promise.all([
       getOrCreateChecklist(caseId),
@@ -90,7 +86,11 @@ export function TrialPrepChecklist({ caseId }: TrialPrepChecklistProps) {
       setMotions(motionData);
     }
     setLoading(false);
-  }
+  }, [caseId]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   const getStatusBadge = (status: string) => {
     const statusConfig: Record<string, { variant: "default" | "secondary" | "destructive" | "outline"; icon: React.ReactNode }> = {

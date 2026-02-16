@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -32,11 +32,7 @@ export function TrialBinder({ caseId, caseName }: TrialBinderProps) {
   const [loading, setLoading] = useState(true);
   const printRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    loadAll();
-  }, [caseId]);
-
-  async function loadAll() {
+  const loadAll = useCallback(async () => {
     setLoading(true);
     const [checklistData, docs] = await Promise.all([
       getOrCreateChecklist(caseId),
@@ -56,7 +52,11 @@ export function TrialBinder({ caseId, caseName }: TrialBinderProps) {
       setMotions(m);
     }
     setLoading(false);
-  }
+  }, [caseId]);
+
+  useEffect(() => {
+    loadAll();
+  }, [loadAll]);
 
   const handlePrint = () => {
     window.print();

@@ -1,6 +1,10 @@
 /// <reference types="vite/client" />
 
+interface SpeechRecognitionConstructor {
+  new (): SpeechRecognition;
+}
+
 interface Window {
-  SpeechRecognition: any;
-  webkitSpeechRecognition: any;
+  SpeechRecognition?: SpeechRecognitionConstructor;
+  webkitSpeechRecognition?: SpeechRecognitionConstructor;
 }

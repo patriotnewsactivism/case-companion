@@ -226,62 +226,58 @@ export async function bulkUploadDocuments(input: BulkDocumentUploadInput): Promi
   for (let i = 0; i < input.files.length; i += batchSize) {
     const batch = input.files.slice(i, i + batchSize);
     const batchPromises = batch.map(async (file, index) => {
-      try {
-        const fileExt = file.name.split('.').pop();
-        const fileName = `${user.id}/${input.case_id}/${Date.now()}-${i + index}.${fileExt}`;
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${user.id}/${input.case_id}/${Date.now()}-${i + index}.${fileExt}`;
 
-        // Upload file to storage
-        const { data: uploadData, error: uploadError } = await supabase.storage
-          .from('case-documents')
-          .upload(fileName, file, {
-            cacheControl: '3600',
-            upsert: false
-          });
+      // Upload file to storage
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('case-documents')
+        .upload(fileName, file, {
+          cacheControl: '3600',
+          upsert: false
+        });
 
-        if (uploadError) {
-          throw new Error(`Failed to upload ${file.name}: ${uploadError.message}`);
-        }
-
-        const { data: { publicUrl } } = supabase.storage
-          .from('case-documents')
-          .getPublicUrl(uploadData.path);
-
-        // Generate Bates number if requested
-        const batesNumber = input.generate_bates 
-          ? `${batesPrefix}-${currentBatesNumber.toString().padStart(4, '0')}`
-          : null;
-
-        if (input.generate_bates) {
-          currentBatesNumber++;
-        }
-
-        // Create document record
-        const documentInput: CreateDocumentInput = {
-          case_id: input.case_id,
-          name: file.name,
-          file_url: publicUrl,
-          file_type: file.type,
-          file_size: file.size,
-          bates_number: batesNumber,
-        };
-
-        const { data: docData, error: docError } = await supabase
-          .from("documents")
-          .insert({
-            ...documentInput,
-            user_id: user.id,
-          })
-          .select()
-          .single();
-
-        if (docError) {
-          throw new Error(`Failed to create document record for ${file.name}: ${docError.message}`);
-        }
-
-        return docData as unknown as Document;
-      } catch (error) {
-        throw error;
+      if (uploadError) {
+        throw new Error(`Failed to upload ${file.name}: ${uploadError.message}`);
       }
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('case-documents')
+        .getPublicUrl(uploadData.path);
+
+      // Generate Bates number if requested
+      const batesNumber = input.generate_bates 
+        ? `${batesPrefix}-${currentBatesNumber.toString().padStart(4, '0')}`
+        : null;
+
+      if (input.generate_bates) {
+        currentBatesNumber++;
+      }
+
+      // Create document record
+      const documentInput: CreateDocumentInput = {
+        case_id: input.case_id,
+        name: file.name,
+        file_url: publicUrl,
+        file_type: file.type,
+        file_size: file.size,
+        bates_number: batesNumber,
+      };
+
+      const { data: docData, error: docError } = await supabase
+        .from("documents")
+        .insert({
+          ...documentInput,
+          user_id: user.id,
+        })
+        .select()
+        .single();
+
+      if (docError) {
+        throw new Error(`Failed to create document record for ${file.name}: ${docError.message}`);
+      }
+
+      return docData as unknown as Document;
     });
 
     try {
