@@ -1,4 +1,4 @@
-project_id = "usyxikgqkcnlzobnqhtz"
+project_id = "rerbrlrxptnusypzpghj"
 
 [functions.create-video-room]
 verify_jwt = false
