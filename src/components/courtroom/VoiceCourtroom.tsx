@@ -293,6 +293,9 @@ export function VoiceCourtroom({ caseId, caseName, mode, modeName, onEnd }: Voic
   const [speechOutputEnabled, setSpeechOutputEnabled] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const manualMicPauseRef = useRef(false);
+  const micBlockedRef = useRef(false);
+  const initializedVoiceModeRef = useRef(false);
 
   // Voice engine
   const voice = useVoiceEngine({
@@ -303,20 +306,42 @@ export function VoiceCourtroom({ caseId, caseName, mode, modeName, onEnd }: Voic
       // Keep the textarea in sync so users can see what the mic captured.
       setCurrentInput(normalized);
 
-      if (isFinal && voice.voiceMode === "hands-free") {
+      if (isFinal) {
         inputRef.current?.blur();
       }
     },
     onAutoSend: (text) => {
-      if (text.trim() && voice.voiceMode === "hands-free") {
+      if (text.trim()) {
         handleSendMessage(text.trim());
       }
     },
     onError: (message) => {
+      const lower = message.toLowerCase();
+      if (
+        lower.includes("denied") ||
+        lower.includes("not supported") ||
+        lower.includes("no microphone")
+      ) {
+        micBlockedRef.current = true;
+      }
       toast.error(message, { duration: 6000 });
     },
+    initialVoiceMode: "hands-free",
     silenceTimeout: 2000,
   });
+  const {
+    isListening,
+    isSpeaking,
+    voiceMode,
+    speechSupported,
+    interimTranscript,
+    audioLevel,
+    startListening,
+    stopListening,
+    speak,
+    stopSpeaking,
+    setVoiceMode,
+  } = voice;
 
   // Auto-scroll
   useEffect(() => {
@@ -333,6 +358,13 @@ export function VoiceCourtroom({ caseId, caseName, mode, modeName, onEnd }: Voic
     };
     setMessages([introMessage]);
   }, [modeName, caseName]);
+
+  // Initialize simulator in hands-free mode for natural turn-taking.
+  useEffect(() => {
+    if (initializedVoiceModeRef.current) return;
+    initializedVoiceModeRef.current = true;
+    setVoiceMode("hands-free");
+  }, [setVoiceMode]);
 
   // AI simulation mutation
   const simulationMutation = useMutation({
@@ -375,7 +407,7 @@ export function VoiceCourtroom({ caseId, caseName, mode, modeName, onEnd }: Voic
 
       // Speak the response
       if (speechOutputEnabled) {
-        voice.speak(data.message, data.role);
+        speak(data.message, data.role);
       }
     },
     onError: (error: Error) => {
@@ -392,13 +424,35 @@ export function VoiceCourtroom({ caseId, caseName, mode, modeName, onEnd }: Voic
     },
   });
 
+  // Auto-arm microphone when appropriate so users do not need to keep tapping the mic.
+  useEffect(() => {
+    if (!speechSupported) return;
+    if (voiceMode !== "hands-free") return;
+    if (isListening || isSpeaking || simulationMutation.isPending) return;
+    if (manualMicPauseRef.current || micBlockedRef.current) return;
+
+    const timer = window.setTimeout(() => {
+      startListening();
+    }, 300);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    isListening,
+    isSpeaking,
+    simulationMutation.isPending,
+    speechSupported,
+    startListening,
+    voiceMode,
+  ]);
+
   const handleSendMessage = useCallback((text?: string) => {
     const messageText = text || currentInput.trim();
     if (!messageText || simulationMutation.isPending) return;
+    manualMicPauseRef.current = false;
 
     // Stop listening/speaking before sending
-    if (voice.isListening) voice.stopListening();
-    if (voice.isSpeaking) voice.stopSpeaking();
+    if (isListening) stopListening();
+    if (isSpeaking) stopSpeaking();
 
     const userMsg: Message = {
       id: `user-${Date.now()}`,
@@ -409,7 +463,7 @@ export function VoiceCourtroom({ caseId, caseName, mode, modeName, onEnd }: Voic
     setMessages(prev => [...prev, userMsg]);
     setCurrentInput("");
     simulationMutation.mutate(messageText);
-  }, [currentInput, simulationMutation, voice]);
+  }, [currentInput, isListening, isSpeaking, simulationMutation, stopListening, stopSpeaking]);
 
   const handleObjection = (type: string) => {
     const objectionText = `Objection, Your Honor! ${type}.`;
@@ -424,29 +478,36 @@ export function VoiceCourtroom({ caseId, caseName, mode, modeName, onEnd }: Voic
   };
 
   const handleVoiceToggle = () => {
-    if (!voice.speechSupported) {
+    if (!speechSupported) {
       toast.error("Voice input is not supported in this browser. Use latest Chrome/Edge on HTTPS.");
       return;
     }
 
-    if (voice.isListening) {
-      voice.stopListening();
+    if (isListening) {
+      manualMicPauseRef.current = true;
+      stopListening();
     } else {
-      voice.startListening();
+      manualMicPauseRef.current = false;
+      micBlockedRef.current = false;
+      startListening();
     }
   };
 
   const cycleVoiceMode = () => {
     const modes: VoiceMode[] = ["push-to-talk", "hands-free", "off"];
-    const currentIdx = modes.indexOf(voice.voiceMode);
+    const currentIdx = modes.indexOf(voiceMode);
     const nextMode = modes[(currentIdx + 1) % modes.length];
-    voice.setVoiceMode(nextMode);
+    manualMicPauseRef.current = nextMode !== "hands-free";
+    if (nextMode === "hands-free") {
+      micBlockedRef.current = false;
+    }
+    setVoiceMode(nextMode);
     toast.info(`Voice mode: ${nextMode}`);
   };
 
   const handleEndSession = () => {
-    voice.stopListening();
-    voice.stopSpeaking();
+    stopListening();
+    stopSpeaking();
     onEnd();
   };
 
@@ -523,26 +584,26 @@ export function VoiceCourtroom({ caseId, caseName, mode, modeName, onEnd }: Voic
               label="Judge"
               icon={<Gavel className="h-4 w-4" />}
               isActive={judgeActive}
-              isSpeaking={voice.isSpeaking && judgeActive}
+              isSpeaking={isSpeaking && judgeActive}
             />
             <CourtroomParticipant
               label="Witness"
               icon={<User className="h-4 w-4" />}
               isActive={witnessActive}
-              isSpeaking={voice.isSpeaking && witnessActive}
+              isSpeaking={isSpeaking && witnessActive}
             />
             <CourtroomParticipant
               label="Opp. Counsel"
               icon={<Scale className="h-4 w-4" />}
               isActive={opposingActive}
-              isSpeaking={voice.isSpeaking && opposingActive}
+              isSpeaking={isSpeaking && opposingActive}
             />
             <Separator orientation="vertical" className="h-12 bg-slate-700" />
             <CourtroomParticipant
               label="You"
               icon={<MessageCircle className="h-4 w-4" />}
               isActive={true}
-              isSpeaking={voice.isListening}
+              isSpeaking={isListening}
               className="ring-1 ring-accent/30"
             />
           </div>
@@ -555,19 +616,19 @@ export function VoiceCourtroom({ caseId, caseName, mode, modeName, onEnd }: Voic
               onClick={cycleVoiceMode}
               className={cn(
                 "text-xs gap-1 h-8",
-                voice.voiceMode === "hands-free" ? "text-emerald-400" : "text-slate-400"
+                voiceMode === "hands-free" ? "text-emerald-400" : "text-slate-400"
               )}
-              title={`Voice mode: ${voice.voiceMode}`}
+              title={`Voice mode: ${voiceMode}`}
             >
-              {voice.voiceMode === "hands-free" ? (
+              {voiceMode === "hands-free" ? (
                 <Radio className="h-3.5 w-3.5" />
-              ) : voice.voiceMode === "push-to-talk" ? (
+              ) : voiceMode === "push-to-talk" ? (
                 <Mic className="h-3.5 w-3.5" />
               ) : (
                 <MicOff className="h-3.5 w-3.5" />
               )}
               <span className="hidden sm:inline">
-                {voice.voiceMode === "hands-free" ? "Hands-free" : voice.voiceMode === "push-to-talk" ? "Push-to-talk" : "Voice off"}
+                {voiceMode === "hands-free" ? "Hands-free" : voiceMode === "push-to-talk" ? "Push-to-talk" : "Voice off"}
               </span>
             </Button>
             <Button
@@ -602,7 +663,7 @@ export function VoiceCourtroom({ caseId, caseName, mode, modeName, onEnd }: Voic
 
         {/* Speaking indicator */}
         <AnimatePresence>
-          {voice.isSpeaking && (
+          {isSpeaking && (
             <motion.div
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: "auto" }}
@@ -736,7 +797,7 @@ export function VoiceCourtroom({ caseId, caseName, mode, modeName, onEnd }: Voic
 
       {/* Input Area */}
       <div className="border-t border-slate-700/50 bg-slate-800/80 backdrop-blur-sm p-3">
-        {!voice.speechSupported && (
+        {!speechSupported && (
           <Alert className="mb-3 bg-amber-950/40 border-amber-500/40 text-amber-200">
             <AlertDescription className="text-xs">
               Voice input is unavailable in this browser. Use the latest Chrome or Edge and ensure microphone permission is enabled.
@@ -746,7 +807,7 @@ export function VoiceCourtroom({ caseId, caseName, mode, modeName, onEnd }: Voic
 
         {/* Voice indicator */}
         <AnimatePresence>
-          {voice.isListening && (
+          {isListening && (
             <motion.div
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: "auto" }}
@@ -760,11 +821,11 @@ export function VoiceCourtroom({ caseId, caseName, mode, modeName, onEnd }: Voic
                   transition={{ duration: 1, repeat: Infinity }}
                 />
                 <span className="text-xs text-red-400 font-medium">Listening...</span>
-                <AudioVisualizer level={voice.audioLevel} isActive={voice.isListening} />
+                <AudioVisualizer level={audioLevel} isActive={isListening} />
               </div>
-              {voice.interimTranscript && (
+              {interimTranscript && (
                 <span className="text-xs text-slate-400 italic truncate max-w-[200px]">
-                  {voice.interimTranscript}
+                  {interimTranscript}
                 </span>
               )}
             </motion.div>
@@ -773,20 +834,20 @@ export function VoiceCourtroom({ caseId, caseName, mode, modeName, onEnd }: Voic
 
         <div className="flex gap-2">
           {/* Mic button */}
-          {voice.speechSupported && voice.voiceMode !== "off" && (
+          {speechSupported && voiceMode !== "off" && (
             <Button
               size="icon"
-              variant={voice.isListening ? "destructive" : "outline"}
+              variant={isListening ? "destructive" : "outline"}
               onClick={handleVoiceToggle}
               disabled={simulationMutation.isPending}
               className={cn(
                 "h-10 w-10 flex-shrink-0 rounded-full",
-                voice.isListening
+                isListening
                   ? "bg-red-500 hover:bg-red-600 border-red-500"
                   : "border-slate-600 text-slate-300 hover:bg-slate-700 hover:text-white"
               )}
             >
-              {voice.isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+              {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
             </Button>
           )}
 
@@ -797,7 +858,7 @@ export function VoiceCourtroom({ caseId, caseName, mode, modeName, onEnd }: Voic
             onChange={(e) => setCurrentInput(e.target.value)}
             onKeyDown={handleKeyPress}
             placeholder={
-              voice.isListening
+              isListening
                 ? "Listening... speak now or type here"
                 : "Speak or type your response..."
             }
