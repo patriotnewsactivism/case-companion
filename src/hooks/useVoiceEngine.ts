@@ -59,7 +59,7 @@ export function useVoiceEngine(options: VoiceEngineOptions) {
     ttsSupported: false,
   });
 
-  const recognitionRef = useRef<any>(null);
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const accumulatedRef = useRef<string>("");
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -71,7 +71,7 @@ export function useVoiceEngine(options: VoiceEngineOptions) {
 
   // Check support
   useEffect(() => {
-    const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const SpeechRecognitionAPI = window.SpeechRecognition ?? window.webkitSpeechRecognition;
     setState(prev => ({
       ...prev,
       speechSupported: !!SpeechRecognitionAPI,
@@ -151,7 +151,7 @@ export function useVoiceEngine(options: VoiceEngineOptions) {
   }, []);
 
   const initRecognition = useCallback(() => {
-    const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const SpeechRecognitionAPI = window.SpeechRecognition ?? window.webkitSpeechRecognition;
     if (!SpeechRecognitionAPI) return null;
 
     const recognition = new SpeechRecognitionAPI();

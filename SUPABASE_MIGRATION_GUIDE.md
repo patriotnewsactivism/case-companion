@@ -96,7 +96,7 @@ Set all required environment variables for edge functions:
 npx supabase secrets set DAILY_API_KEY=014694b5bd863357ff00347ebddd8914465ef71411fac8b48288f921aaa313c8 --project-ref YOUR_PROJECT_REF
 
 # Required for OCR and AI
-npx supabase secrets set LOVABLE_API_KEY=YOUR_LOVABLE_KEY --project-ref YOUR_PROJECT_REF
+npx supabase secrets set GOOGLE_AI_API_KEY=YOUR_GOOGLE_AI_KEY --project-ref YOUR_PROJECT_REF
 
 # Required for audio transcription
 npx supabase secrets set OPENAI_API_KEY=YOUR_OPENAI_KEY --project-ref YOUR_PROJECT_REF
@@ -162,7 +162,7 @@ VITE_GOOGLE_API_KEY=your-api-key
 If you have direct database access to managed hosting's instance:
 ```bash
 # Export
-pg_dump -h LOVABLE_HOST -U postgres -d postgres --data-only > backup.sql
+pg_dump -h SOURCE_HOST -U postgres -d postgres --data-only > backup.sql
 
 # Import
 psql -h YOUR_HOST -U postgres -d postgres -f backup.sql

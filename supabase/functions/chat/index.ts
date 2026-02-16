@@ -10,7 +10,7 @@ serve(async (req) => {
 
   try {
     const { messages } = await req.json();
-    const AI_API_KEY = Deno.env.get("OPENAI_API_KEY") || Deno.env.get("LOVABLE_API_KEY");
+    const AI_API_KEY = Deno.env.get("OPENAI_API_KEY");
     if (!AI_API_KEY) throw new Error("AI API key is not configured (set OPENAI_API_KEY)");
 
     const AI_GATEWAY_URL = Deno.env.get("AI_GATEWAY_URL") || "https://api.openai.com/v1/chat/completions";
