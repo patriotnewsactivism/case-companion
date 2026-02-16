@@ -12,6 +12,8 @@
     "test": "vitest",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest --coverage",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
     "diagnose": "tsx scripts/diagnose-backend.ts",
     "fix:ocr": "supabase functions deploy ocr-document",
     "fix:video": "supabase functions deploy create-video-room && supabase functions deploy join-video-room",
@@ -76,6 +78,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.32.0",
+    "@playwright/test": "^1.58.2",
     "@tailwindcss/typography": "^0.5.16",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",

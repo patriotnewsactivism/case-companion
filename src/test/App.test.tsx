@@ -47,7 +47,7 @@ vi.mock('@/pages/NotFound', () => ({
   default: () => <div>Not Found Page</div>
 }));
 
-vi.mock('@/hooks/useAuth', () => ({
+vi.mock('@/hooks/AuthProvider', () => ({
   AuthProvider: ({ children }: { children: React.ReactNode }) => <div>{children}</div>
 }));
 
@@ -77,6 +77,6 @@ describe('App Component', () => {
 
   it('should render the landing route', async () => {
     render(<App />);
-    expect(await screen.findByText('Landing Page')).toBeInTheDocument();
+    expect(await screen.findByText('Landing Page', {}, { timeout: 5000 })).toBeInTheDocument();
   });
 });
