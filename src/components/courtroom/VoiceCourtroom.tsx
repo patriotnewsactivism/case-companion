@@ -371,7 +371,15 @@ export function VoiceCourtroom({ caseId, caseName, mode, modeName, onEnd }: Voic
     },
     onError: (error: Error) => {
       console.error("Simulation error:", error);
-      toast.error(error.message || "Failed to get AI response");
+      const errorMsg = error.message?.includes("API")
+        ? "AI service is temporarily unavailable. Please try again."
+        : error.message?.includes("authenticated")
+          ? "Your session has expired. Please log in again."
+          : error.message || "Failed to get AI response. Please try again.";
+      toast.error(errorMsg, {
+        description: "Tap 'Send' or speak again to retry.",
+        duration: 6000,
+      });
     },
   });
 
