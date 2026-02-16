@@ -1,5 +1,8 @@
 project_id = "rerbrlrxptnusypzpghj"
 
+[db]
+shadow_port = 54420
+
 [functions.create-video-room]
 verify_jwt = false
 
