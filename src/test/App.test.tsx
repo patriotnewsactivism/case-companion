@@ -1,8 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import App from '../App';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { BrowserRouter } from 'react-router-dom';
 
 // Mock lazy imports to avoid actual component loading in tests
 vi.mock('@/pages/Landing', () => ({
@@ -49,7 +47,7 @@ vi.mock('@/pages/NotFound', () => ({
   default: () => <div>Not Found Page</div>
 }));
 
-vi.mock('@/hooks/useAuth', () => ({
+vi.mock('@/hooks/AuthProvider', () => ({
   AuthProvider: ({ children }: { children: React.ReactNode }) => <div>{children}</div>
 }));
 
@@ -71,33 +69,14 @@ vi.mock('@/components/ui/tooltip', () => ({
 
 describe('App Component', () => {
   it('should render without crashing', () => {
-    const queryClient = new QueryClient();
-    
-    render(
-      <QueryClientProvider client={queryClient}>
-        <BrowserRouter>
-          <App />
-        </BrowserRouter>
-      </QueryClientProvider>
-    );
+    render(<App />);
 
     // The app should render without throwing errors
     expect(document.body).toBeInTheDocument();
   });
 
-  it('should contain router provider', () => {
-    const queryClient = new QueryClient();
-    
-    render(
-      <QueryClientProvider client={queryClient}>
-        <BrowserRouter>
-          <App />
-        </BrowserRouter>
-      </QueryClientProvider>
-    );
-
-    // Check if router is present by looking for common elements
-    const router = screen.getByRole('main');
-    expect(router).toBeInTheDocument();
+  it('should render the landing route', async () => {
+    render(<App />);
+    expect(await screen.findByText('Landing Page', {}, { timeout: 5000 })).toBeInTheDocument();
   });
 });

@@ -1,4 +1,4 @@
-export type Json =
+﻿export type Json =
   | string
   | number
   | boolean
@@ -11,6 +11,31 @@ export type Database = {
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
     PostgrestVersion: "14.1"
+  }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
   }
   public: {
     Tables: {
@@ -312,6 +337,8 @@ export type Database = {
           ocr_processed_at: string | null
           ocr_text: string | null
           summary: string | null
+          transcription: string | null
+          transcription_text: string | null
           updated_at: string
           user_id: string
         }
@@ -333,6 +360,8 @@ export type Database = {
           ocr_processed_at?: string | null
           ocr_text?: string | null
           summary?: string | null
+          transcription?: string | null
+          transcription_text?: string | null
           updated_at?: string
           user_id: string
         }
@@ -354,6 +383,8 @@ export type Database = {
           ocr_processed_at?: string | null
           ocr_text?: string | null
           summary?: string | null
+          transcription?: string | null
+          transcription_text?: string | null
           updated_at?: string
           user_id?: string
         }
@@ -439,17 +470,12 @@ export type Database = {
           completed_at: string | null
           created_at: string
           error_message: string | null
-          failed_file_details: Json | null
-          failed_files: number
+          failed_files: number | null
           id: string
-          processed_files: number
-          source_folder_id: string
-          source_folder_name: string
-          source_folder_path: string
-          started_at: string | null
+          metadata: Json | null
+          processed_files: number | null
           status: string
-          successful_files: number
-          total_files: number
+          total_files: number | null
           updated_at: string
           user_id: string
         }
@@ -458,17 +484,12 @@ export type Database = {
           completed_at?: string | null
           created_at?: string
           error_message?: string | null
-          failed_file_details?: Json | null
-          failed_files?: number
+          failed_files?: number | null
           id?: string
-          processed_files?: number
-          source_folder_id: string
-          source_folder_name: string
-          source_folder_path: string
-          started_at?: string | null
+          metadata?: Json | null
+          processed_files?: number | null
           status?: string
-          successful_files?: number
-          total_files?: number
+          total_files?: number | null
           updated_at?: string
           user_id: string
         }
@@ -477,17 +498,12 @@ export type Database = {
           completed_at?: string | null
           created_at?: string
           error_message?: string | null
-          failed_file_details?: Json | null
-          failed_files?: number
+          failed_files?: number | null
           id?: string
-          processed_files?: number
-          source_folder_id?: string
-          source_folder_name?: string
-          source_folder_path?: string
-          started_at?: string | null
+          metadata?: Json | null
+          processed_files?: number | null
           status?: string
-          successful_files?: number
-          total_files?: number
+          total_files?: number | null
           updated_at?: string
           user_id?: string
         }
@@ -942,58 +958,141 @@ export type Database = {
           },
         ]
       }
+      video_room_participants: {
+        Row: {
+          created_at: string
+          duration_seconds: number | null
+          id: string
+          is_owner: boolean | null
+          joined_at: string
+          left_at: string | null
+          participant_name: string
+          participant_token: string | null
+          room_id: string
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          duration_seconds?: number | null
+          id?: string
+          is_owner?: boolean | null
+          joined_at?: string
+          left_at?: string | null
+          participant_name: string
+          participant_token?: string | null
+          room_id: string
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          duration_seconds?: number | null
+          id?: string
+          is_owner?: boolean | null
+          joined_at?: string
+          left_at?: string | null
+          participant_name?: string
+          participant_token?: string | null
+          room_id?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "video_room_participants_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "video_rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       video_rooms: {
         Row: {
-          case_id: string
+          case_id: string | null
           created_at: string
           daily_room_name: string
           description: string | null
-          enable_recording: boolean
+          enable_recording: boolean | null
           ended_at: string | null
-          expires_at: string
+          expires_at: string | null
           id: string
+          is_active: boolean | null
+          is_private: boolean | null
+          knocking_enabled: boolean | null
+          max_participants: number | null
+          metadata: Json | null
+          participants_log: Json | null
+          recording_started_at: string | null
+          recording_status: string | null
           recording_url: string | null
+          require_authentication: boolean | null
           room_name: string
           room_url: string
-          status: string
+          status: string | null
           title: string
+          transcription_processed_at: string | null
+          transcription_status: string | null
           transcription_text: string | null
+          transcription_url: string | null
           updated_at: string
           user_id: string
         }
         Insert: {
-          case_id: string
+          case_id?: string | null
           created_at?: string
           daily_room_name: string
           description?: string | null
-          enable_recording?: boolean
+          enable_recording?: boolean | null
           ended_at?: string | null
-          expires_at: string
+          expires_at?: string | null
           id?: string
+          is_active?: boolean | null
+          is_private?: boolean | null
+          knocking_enabled?: boolean | null
+          max_participants?: number | null
+          metadata?: Json | null
+          participants_log?: Json | null
+          recording_started_at?: string | null
+          recording_status?: string | null
           recording_url?: string | null
+          require_authentication?: boolean | null
           room_name: string
           room_url: string
-          status?: string
+          status?: string | null
           title: string
+          transcription_processed_at?: string | null
+          transcription_status?: string | null
           transcription_text?: string | null
+          transcription_url?: string | null
           updated_at?: string
           user_id: string
         }
         Update: {
-          case_id?: string
+          case_id?: string | null
           created_at?: string
           daily_room_name?: string
           description?: string | null
-          enable_recording?: boolean
+          enable_recording?: boolean | null
           ended_at?: string | null
-          expires_at?: string
+          expires_at?: string | null
           id?: string
+          is_active?: boolean | null
+          is_private?: boolean | null
+          knocking_enabled?: boolean | null
+          max_participants?: number | null
+          metadata?: Json | null
+          participants_log?: Json | null
+          recording_started_at?: string | null
+          recording_status?: string | null
           recording_url?: string | null
+          require_authentication?: boolean | null
           room_name?: string
           room_url?: string
-          status?: string
+          status?: string | null
           title?: string
+          transcription_processed_at?: string | null
+          transcription_status?: string | null
           transcription_text?: string | null
+          transcription_url?: string | null
           updated_at?: string
           user_id?: string
         }
@@ -1074,7 +1173,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      expire_video_rooms: { Args: never; Returns: undefined }
     }
     Enums: {
       case_status:
@@ -1216,6 +1315,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
       case_status: [
