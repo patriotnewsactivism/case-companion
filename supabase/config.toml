@@ -20,3 +20,6 @@ verify_jwt = false
 
 [functions.transcribe-recording]
 verify_jwt = false
+
+[functions.trial-coach]
+verify_jwt = false

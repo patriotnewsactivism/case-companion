@@ -107,6 +107,9 @@ serve(async (req) => {
     // Extract storage path from URL
     const urlParts = fileUrl.split('/storage/v1/object/public/case-documents/');
     const storagePath = urlParts[1];
+    if (!storagePath) {
+      throw new Error('Invalid file URL format for case-documents bucket');
+    }
 
     // Download file
     const { data: fileBlob, error: downloadError } = await supabase.storage
@@ -130,29 +133,63 @@ serve(async (req) => {
     }
 
     const openaiApiKey = Deno.env.get('OPENAI_API_KEY')!;
+    const transcriptionPrompt =
+      'This is a legal recording. Prioritize accurate legal names, exhibit references, statute/case citations, and dates.';
 
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('model', 'whisper-1');
-    formData.append('response_format', 'verbose_json'); // Get timestamps and metadata
+    const transcribeWithModel = async (model: string) => {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('model', model);
+      formData.append('response_format', 'verbose_json');
+      formData.append('prompt', transcriptionPrompt);
 
-    const transcriptionResponse = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${openaiApiKey}`,
-      },
-      body: formData,
-    });
+      const transcriptionResponse = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${openaiApiKey}`,
+        },
+        body: formData,
+      });
 
-    if (!transcriptionResponse.ok) {
-      const errorText = await transcriptionResponse.text();
-      console.error('Whisper API error:', errorText);
-      throw new Error(`Transcription failed: ${errorText}`);
+      if (!transcriptionResponse.ok) {
+        return {
+          ok: false,
+          error: await transcriptionResponse.text(),
+          data: null,
+        };
+      }
+
+      return {
+        ok: true,
+        error: '',
+        data: await transcriptionResponse.json(),
+      };
+    };
+
+    const models = ['gpt-4o-mini-transcribe', 'whisper-1'];
+    let transcriptionData: any = null;
+    let lastTranscriptionError = '';
+
+    for (const model of models) {
+      const result = await transcribeWithModel(model);
+      if (result.ok && result.data) {
+        transcriptionData = result.data;
+        break;
+      }
+      lastTranscriptionError = result.error;
+      console.warn(`Transcription model ${model} failed:`, result.error);
     }
 
-    const transcriptionData = await transcriptionResponse.json();
-    const transcriptionText = transcriptionData.text;
-    const duration = transcriptionData.duration;
+    if (!transcriptionData) {
+      throw new Error(`Transcription failed: ${lastTranscriptionError}`);
+    }
+
+    const transcriptionText = String(transcriptionData.text || '').trim();
+    const duration = Number(transcriptionData.duration || 0);
+
+    if (!transcriptionText) {
+      throw new Error('Transcription returned empty text');
+    }
 
     console.log(`Transcription completed. Duration: ${duration}s, Text length: ${transcriptionText.length}`);
 

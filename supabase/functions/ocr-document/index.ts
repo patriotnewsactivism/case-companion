@@ -105,11 +105,46 @@ serve(async (req) => {
 
     console.log(`User verified as owner of document ${documentId}: ${documentData.name}`);
 
+    const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    const fetchWithRetry = async (
+      url: string,
+      options: RequestInit,
+      context: string,
+      attempts = 3
+    ) => {
+      let lastError = '';
+
+      for (let attempt = 1; attempt <= attempts; attempt += 1) {
+        const response = await fetch(url, options);
+        if (response.ok) return response;
+
+        lastError = await response.text();
+        if (attempt < attempts && (response.status === 429 || response.status >= 500)) {
+          await delay(attempt * 300);
+          continue;
+        }
+        throw new Error(`${context} failed (${response.status}): ${lastError}`);
+      }
+
+      throw new Error(`${context} failed: ${lastError}`);
+    };
+
+    const extractGeminiText = (payload: any) => {
+      const parts = payload?.candidates?.[0]?.content?.parts;
+      if (!Array.isArray(parts)) return '';
+      return parts.map((part: any) => String(part?.text || '')).join('').trim();
+    };
+
+    const normalizeExtractedText = (text: string) =>
+      text
+        .replace(/\r\n/g, '\n')
+        .replace(/[ \t]+\n/g, '\n')
+        .replace(/\n{4,}/g, '\n\n\n')
+        .trim();
+
     // Fetch the file content
-    const fileResponse = await fetch(fileUrl);
-    if (!fileResponse.ok) {
-      throw new Error(`Failed to fetch file: ${fileResponse.statusText}`);
-    }
+    const fileResponse = await fetchWithRetry(fileUrl, {}, 'File download');
 
     const contentType = fileResponse.headers.get('content-type') || '';
     let extractedText = '';
@@ -137,17 +172,19 @@ serve(async (req) => {
 
       console.log(`Image size: ${sizeInMB}MB, MIME: ${mimeType}`);
 
-      const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-thinking-exp:generateContent?key=${googleApiKey}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                {
-                  text: `You are a professional legal document OCR system. Extract ALL text from this image with maximum accuracy.
+      const aiResponse = await fetchWithRetry(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${googleApiKey}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            contents: [
+              {
+                parts: [
+                  {
+                    text: `You are a professional legal document OCR system. Extract ALL text from this image with maximum accuracy.
 
 EXTRACTION REQUIREMENTS:
 1. Extract EVERY word, number, date, signature, stamp, and annotation visible
@@ -168,31 +205,28 @@ OUTPUT FORMAT:
 - Start with any document identifiers found (Bates #, Exhibit #, file #, date)
 
 Extract now:`
-                },
-                {
-                  inline_data: {
-                    mime_type: mimeType,
-                    data: base64
+                  },
+                  {
+                    inline_data: {
+                      mime_type: mimeType,
+                      data: base64
+                    }
                   }
-                }
-              ]
+                ]
+              }
+            ],
+            generationConfig: {
+              temperature: 0.1,
+              maxOutputTokens: 32768,
+              responseMimeType: 'text/plain',
             }
-          ],
-          generationConfig: {
-            temperature: 0.1,
-            maxOutputTokens: 32768,
-          }
-        }),
-      });
-
-      if (!aiResponse.ok) {
-        const errorText = await aiResponse.text();
-        console.error('AI Image OCR error:', errorText);
-        throw new Error(`AI Image OCR failed: ${errorText}`);
-      }
+          }),
+        },
+        'AI image OCR'
+      );
 
       const aiData = await aiResponse.json();
-      extractedText = aiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      extractedText = normalizeExtractedText(extractGeminiText(aiData));
       console.log(`Extracted ${extractedText.length} characters from image`);
 
     } else if (contentType.includes('pdf') || fileUrl.match(/\.pdf$/i)) {
@@ -205,17 +239,19 @@ Extract now:`
 
       console.log(`PDF size: ${sizeInMB}MB`);
 
-      const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-thinking-exp:generateContent?key=${googleApiKey}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                {
-                  text: `You are a professional legal document OCR system. Extract ALL text from this PDF with maximum accuracy.
+      const aiResponse = await fetchWithRetry(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${googleApiKey}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            contents: [
+              {
+                parts: [
+                  {
+                    text: `You are a professional legal document OCR system. Extract ALL text from this PDF with maximum accuracy.
 
 EXTRACTION REQUIREMENTS:
 1. Process EVERY page of the PDF
@@ -237,40 +273,50 @@ OUTPUT FORMAT:
 - Start each page with any identifiers (Bates #, page #)
 
 Extract now:`
-                },
-                {
-                  inline_data: {
-                    mime_type: 'application/pdf',
-                    data: base64
+                  },
+                  {
+                    inline_data: {
+                      mime_type: 'application/pdf',
+                      data: base64
+                    }
                   }
-                }
-              ]
+                ]
+              }
+            ],
+            generationConfig: {
+              temperature: 0.1,
+              maxOutputTokens: 32768,
+              responseMimeType: 'text/plain',
             }
-          ],
-          generationConfig: {
-            temperature: 0.1,
-            maxOutputTokens: 32768,
-          }
-        }),
-      });
-
-      if (!aiResponse.ok) {
-        const errorText = await aiResponse.text();
-        console.error('AI PDF OCR error:', errorText);
-        throw new Error(`AI PDF OCR failed: ${errorText}`);
-      }
+          }),
+        },
+        'AI PDF OCR'
+      );
 
       const aiData = await aiResponse.json();
-      extractedText = aiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      extractedText = normalizeExtractedText(extractGeminiText(aiData));
       console.log(`Extracted ${extractedText.length} characters from PDF`);
 
-    } else if (contentType.includes('text') || fileUrl.match(/\.(txt|doc|docx)$/i)) {
+    } else if (contentType.includes('text') || fileUrl.match(/\.txt$/i)) {
       // For text files, read directly
       extractedText = await fileResponse.text();
       console.log(`Read ${extractedText.length} characters from text file`);
     } else {
       console.log(`Unsupported file type: ${contentType}`);
       extractedText = `[File type ${contentType} - OCR not available for this format]`;
+    }
+
+    extractedText = normalizeExtractedText(extractedText);
+
+    const isOcrTarget =
+      contentType.includes('image') ||
+      contentType.includes('pdf') ||
+      fileUrl.match(/\.(jpg|jpeg|png|gif|webp|bmp|tiff|pdf)$/i);
+
+    if (isOcrTarget && extractedText.length < 30) {
+      throw new Error(
+        'OCR extraction returned too little text. The file may be corrupted, heavily redacted, or require re-upload.'
+      );
     }
 
     // Now use AI to analyze the extracted text and generate legal insights
@@ -283,17 +329,19 @@ Extract now:`
     if (extractedText && extractedText.length > 50 && !extractedText.startsWith('[File type')) {
       console.log('Analyzing extracted text with AI...');
 
-      const analysisResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${googleApiKey}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                {
-                  text: `You are an expert legal document analyst specializing in litigation support. Analyze documents with precision and identify strategic insights for case preparation.
+      const analysisResponse = await fetchWithRetry(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${googleApiKey}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            contents: [
+              {
+                parts: [
+                  {
+                    text: `You are an expert legal document analyst specializing in litigation support. Analyze documents with precision and identify strategic insights for case preparation.
 
 Analyze this legal document and provide a JSON response with comprehensive legal analysis.
 
@@ -317,41 +365,38 @@ Respond ONLY with valid JSON in this exact format:
 
 Document text:
 ${extractedText.substring(0, 20000)}`
-                }
-              ]
+                  }
+                ]
+              }
+            ],
+            generationConfig: {
+              temperature: 0.2,
+              maxOutputTokens: 2048,
+              responseMimeType: 'application/json',
             }
-          ],
-          generationConfig: {
-            temperature: 0.2,
-            maxOutputTokens: 2048,
-            responseMimeType: 'application/json',
-          }
-        }),
-      });
+          }),
+        },
+        'AI legal analysis'
+      );
 
-      if (analysisResponse.ok) {
-        const analysisData = await analysisResponse.json();
-        const content = analysisData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      const analysisData = await analysisResponse.json();
+      const content = extractGeminiText(analysisData);
 
-        try {
-          // Try to parse JSON from the response
-          const jsonMatch = content.match(/\{[\s\S]*\}/);
-          if (jsonMatch) {
-            const analysis = JSON.parse(jsonMatch[0]);
-            summary = analysis.summary || '';
-            keyFacts = Array.isArray(analysis.key_facts) ? analysis.key_facts : [];
-            favorableFindings = Array.isArray(analysis.favorable_findings) ? analysis.favorable_findings : [];
-            adverseFindings = Array.isArray(analysis.adverse_findings) ? analysis.adverse_findings : [];
-            actionItems = Array.isArray(analysis.action_items) ? analysis.action_items : [];
-            console.log(`Analysis complete: ${keyFacts.length} facts, ${favorableFindings.length} favorable, ${adverseFindings.length} adverse`);
-          }
-        } catch (parseError) {
-          console.error('Failed to parse analysis JSON:', parseError);
-          console.error('Raw content:', content);
-          summary = content.substring(0, 500);
+      try {
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const analysis = JSON.parse(jsonMatch[0]);
+          summary = String(analysis.summary || '').trim();
+          keyFacts = Array.isArray(analysis.key_facts) ? analysis.key_facts : [];
+          favorableFindings = Array.isArray(analysis.favorable_findings) ? analysis.favorable_findings : [];
+          adverseFindings = Array.isArray(analysis.adverse_findings) ? analysis.adverse_findings : [];
+          actionItems = Array.isArray(analysis.action_items) ? analysis.action_items : [];
+          console.log(`Analysis complete: ${keyFacts.length} facts, ${favorableFindings.length} favorable, ${adverseFindings.length} adverse`);
         }
-      } else {
-        console.error('Analysis API error:', await analysisResponse.text());
+      } catch (parseError) {
+        console.error('Failed to parse analysis JSON:', parseError);
+        console.error('Raw content:', content);
+        summary = content.substring(0, 500);
       }
     }
 
@@ -375,7 +420,7 @@ ${extractedText.substring(0, 20000)}`
       throw new Error(`Failed to update document: ${updateError.message}`);
     }
 
-    console.log('✅ Document updated successfully with OCR and analysis results');
+    console.log('Document updated successfully with OCR and analysis results');
 
     return new Response(
       JSON.stringify({
@@ -392,7 +437,8 @@ ${extractedText.substring(0, 20000)}`
     );
 
   } catch (error) {
-    console.error('❌ OCR Error:', error);
+    console.error('OCR Error:', error);
     return createErrorResponse(error, 500, 'ocr-document');
   }
 });
+
