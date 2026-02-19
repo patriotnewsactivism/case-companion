@@ -35,7 +35,8 @@ serve(async (req) => {
       return createErrorResponse(
         new Error(authResult.error || 'Unauthorized'),
         401,
-        'join-video-room'
+        'join-video-room',
+        corsHeaders
       );
     }
 
@@ -200,6 +201,6 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('Error joining video room:', error);
-    return createErrorResponse(error, 500, 'join-video-room');
+    return createErrorResponse(error, 500, 'join-video-room', corsHeaders);
   }
 });

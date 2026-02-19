@@ -1,8 +1,12 @@
 import { Layout } from "@/components/Layout";
-import { useState } from "react";
+import { memo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { FixedSizeList as List, ListChildComponentProps } from "react-window";
 import { GoogleDriveFolderImport } from "@/components/GoogleDriveFolderImport";
 import { ImportJobsViewer } from "@/components/ImportJobsViewer";
+import { BulkDocumentUpload } from "@/components/BulkDocumentUpload";
+import { TrialSimulator } from "@/components/TrialSimulator";
+import { VideoRoom } from "@/components/VideoRoom";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,7 +37,7 @@ import { motion } from "framer-motion";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { useToast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 import { format } from "date-fns";
 import {
   ArrowLeft,
@@ -59,6 +63,7 @@ import {
   MessageSquare,
   Video,
   Gavel,
+  Target,
   Sparkles,
   Search,
   Filter,
@@ -118,6 +123,156 @@ interface Case {
   updated_at: string;
 }
 
+const DOCUMENT_ROW_HEIGHT = 72;
+const DOCUMENT_LIST_MAX_HEIGHT = 640;
+
+type DocumentRowData = {
+  docs: Document[];
+  onView: (doc: Document) => void;
+  onDownload: (doc: Document) => void;
+  onDelete: (id: string) => void;
+  onOcr: (documentId: string, fileUrl: string) => void;
+  onTranscribe: (documentId: string) => void;
+  processingOcr: string | null;
+  transcribing: string | null;
+};
+
+const DocumentRow = memo(({ index, style, data }: ListChildComponentProps<DocumentRowData>) => {
+  const doc = data.docs[index];
+
+  if (!doc) {
+    return null;
+  }
+
+  return (
+    <div
+      style={style}
+      className="grid grid-cols-12 gap-4 px-4 py-3 items-center hover:bg-muted/30 transition-colors border-b border-border"
+    >
+      <div className="col-span-1">
+        <div className="rounded bg-muted p-1.5 w-8 h-8 flex items-center justify-center">
+          <FileText className="h-4 w-4 text-muted-foreground" />
+        </div>
+      </div>
+
+      <div className="col-span-2">
+        {doc.bates_number ? (
+          <span className="font-mono text-xs bg-muted px-2 py-1 rounded">
+            {doc.bates_number}
+          </span>
+        ) : (
+          <span className="text-xs text-muted-foreground">-</span>
+        )}
+      </div>
+
+      <div className="col-span-4 min-w-0">
+        <p className="text-sm font-medium truncate">{doc.name}</p>
+        {doc.summary && (
+          <p className="text-xs text-muted-foreground truncate mt-0.5">
+            {doc.summary}
+          </p>
+        )}
+      </div>
+
+      <div className="col-span-2">
+        <span className="text-xs text-muted-foreground">
+          {doc.file_type?.split('/')[1]?.toUpperCase() || "File"}
+        </span>
+      </div>
+
+      <div className="col-span-1 flex flex-col gap-0.5">
+        {doc.ai_analyzed && (
+                <Badge className="text-[10px] px-1.5 py-0 bg-green-50 text-green-700 border-green-200">
+            AI
+          </Badge>
+        )}
+        {doc.ocr_processed_at && !doc.ai_analyzed && (
+          <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-blue-50 text-blue-700 border-blue-200">
+            OCR
+          </Badge>
+        )}
+        {doc.transcription_text && (
+          <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-purple-50 text-purple-700 border-purple-200">
+            TXT
+          </Badge>
+        )}
+      </div>
+
+      <div className="col-span-2 flex items-center justify-end gap-1">
+        {/* OCR Button for PDF/Image files */}
+        {doc.file_url && (doc.file_type?.includes('pdf') || doc.file_type?.includes('image')) && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            title={doc.ai_analyzed ? "Re-analyze with OCR" : "Analyze with OCR"}
+            onClick={() => data.onOcr(doc.id, doc.file_url!)}
+            disabled={data.processingOcr === doc.id}
+          >
+            {data.processingOcr === doc.id ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Scan className="h-3.5 w-3.5" />
+            )}
+          </Button>
+        )}
+
+        {/* Transcribe Button for Audio/Video files */}
+        {doc.file_url && (doc.file_type?.includes('audio') || doc.file_type?.includes('video')) && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            title={doc.transcription_text ? "Re-transcribe" : "Transcribe"}
+            onClick={() => data.onTranscribe(doc.id)}
+            disabled={data.transcribing === doc.id}
+          >
+            {data.transcribing === doc.id ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Music className="h-3.5 w-3.5" />
+            )}
+          </Button>
+        )}
+
+        {doc.file_url && (
+          <>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              title="View"
+              onClick={() => data.onView(doc)}
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              title="Download"
+              onClick={() => data.onDownload(doc)}
+            >
+              <Download className="h-3.5 w-3.5" />
+            </Button>
+          </>
+        )}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7"
+          title="Delete"
+          onClick={() => data.onDelete(doc.id)}
+        >
+          <Trash2 className="h-3.5 w-3.5 text-destructive" />
+        </Button>
+      </div>
+    </div>
+  );
+});
+
+DocumentRow.displayName = "DocumentRow";
+
 const container = {
   hidden: { opacity: 0 },
   show: {
@@ -168,19 +323,29 @@ export default function CaseDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { toast } = useToast();
   const queryClient = useQueryClient();
 
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [isLinkImportOpen, setIsLinkImportOpen] = useState(false);
+  const [isBulkUploadOpen, setIsBulkUploadOpen] = useState(false);
   const [isEventOpen, setIsEventOpen] = useState(false);
   const [deleteDocId, setDeleteDocId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [processingOcr, setProcessingOcr] = useState<string | null>(null);
   const [transcribing, setTranscribing] = useState<string | null>(null);
   const [selectedDoc, setSelectedDoc] = useState<Document | null>(null);
+  const [batchProcessing, setBatchProcessing] = useState(false);
+  const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0 });
 
   const [searchQuery, setSearchQuery] = useState("");
+  const [filterStatus, setFilterStatus] = useState<"all" | "analyzed" | "pending">("all");
+  const [filterFileType, setFilterFileType] = useState<"all" | "pdf" | "image" | "audio" | "video" | "other">("all");
+  const [filterDateRange, setFilterDateRange] = useState<"all" | "today" | "week" | "month">("all");
+  const [showFilters, setShowFilters] = useState(false);
+
+  // Video room state
+  const [showVideoRoom, setShowVideoRoom] = useState(false);
+  const [videoRoomName, setVideoRoomName] = useState("");
 
   const [docForm, setDocForm] = useState({
     name: "",
@@ -279,10 +444,7 @@ export default function CaseDetail() {
       setIsLinkImportOpen(false);
       setDocForm({ name: "", bates_number: "", file: null });
       setLinkForm({ url: "", name: "", bates_number: "" });
-      toast({
-        title: "Document added",
-        description: "Your document has been added to the case.",
-      });
+      toast.success("Your document has been added to the case.");
       
       // Trigger OCR if there's a file URL
       if (data.file_url) {
@@ -290,11 +452,7 @@ export default function CaseDetail() {
       }
     },
     onError: (error: Error) => {
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-      });
+      toast.error(error.message);
     },
   });
 
@@ -329,17 +487,10 @@ export default function CaseDetail() {
       const data = await response.json();
 
       queryClient.invalidateQueries({ queryKey: ["documents", id] });
-      toast({
-        title: "Document analyzed",
-        description: "OCR and AI analysis complete.",
-      });
+      toast.success("OCR and AI analysis complete.");
     } catch (error) {
       console.error("OCR error:", error);
-      toast({
-        title: "OCR processing failed",
-        description: error instanceof Error ? error.message : "Unknown error",
-        variant: "destructive",
-      });
+      toast.error(error instanceof Error ? error.message : "OCR processing failed");
     } finally {
       setProcessingOcr(null);
     }
@@ -361,20 +512,148 @@ export default function CaseDetail() {
       }
 
       queryClient.invalidateQueries({ queryKey: ["documents", id] });
-      toast({
-        title: "Transcription complete",
-        description: "Audio/video has been transcribed successfully.",
-      });
+      toast.success("Audio/video has been transcribed successfully.");
     } catch (error) {
       console.error("Transcription error:", error);
-      toast({
-        title: "Transcription failed",
-        description: error instanceof Error ? error.message : "Unknown error",
-        variant: "destructive",
-      });
+      toast.error(error instanceof Error ? error.message : "Transcription failed");
     } finally {
       setTranscribing(null);
     }
+  };
+
+  // Batch re-analyze all unprocessed documents
+  const triggerBatchOcr = async () => {
+    const unanalyzedDocs = documents.filter(
+      (doc) => !doc.ai_analyzed && doc.file_url &&
+      (doc.file_type?.includes('pdf') || doc.file_type?.includes('image') || doc.file_type?.includes('text'))
+    );
+
+    if (unanalyzedDocs.length === 0) {
+      toast.info("All documents have already been analyzed.");
+      return;
+    }
+
+    setBatchProcessing(true);
+    setBatchProgress({ current: 0, total: unanalyzedDocs.length });
+
+    toast.info(`Processing ${unanalyzedDocs.length} documents...`);
+
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      toast.error("Please log in to analyze documents.");
+      setBatchProcessing(false);
+      return;
+    }
+
+    const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ocr-document`;
+    let successCount = 0;
+    let failCount = 0;
+
+    // Process in batches of 3 to avoid overwhelming the system
+    const BATCH_SIZE = 3;
+    for (let i = 0; i < unanalyzedDocs.length; i += BATCH_SIZE) {
+      const batch = unanalyzedDocs.slice(i, i + BATCH_SIZE);
+      
+      await Promise.all(
+        batch.map(async (doc) => {
+          try {
+            const response = await fetch(functionUrl, {
+              method: 'POST',
+              mode: 'cors',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${session.access_token}`,
+                'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+              },
+              body: JSON.stringify({ documentId: doc.id, fileUrl: doc.file_url }),
+            });
+
+            if (response.ok) {
+              successCount++;
+            } else {
+              failCount++;
+              console.error(`OCR failed for ${doc.name}:`, await response.text());
+            }
+          } catch (error) {
+            failCount++;
+            console.error(`OCR error for ${doc.name}:`, error);
+          }
+        })
+      );
+
+      setBatchProgress({ current: Math.min(i + BATCH_SIZE, unanalyzedDocs.length), total: unanalyzedDocs.length });
+    }
+
+    setBatchProcessing(false);
+    queryClient.invalidateQueries({ queryKey: ["documents", id] });
+
+    if (failCount > 0) {
+      toast.error(`Successfully analyzed ${successCount} documents, ${failCount} failed.`);
+    } else {
+      toast.success(`Successfully analyzed ${successCount} documents.`);
+    }
+  };
+
+  // Count unanalyzed documents
+  const unanalyzedCount = documents.filter(
+    (doc) => !doc.ai_analyzed && doc.file_url && 
+    (doc.file_type?.includes('pdf') || doc.file_type?.includes('image'))
+  ).length;
+
+  // Filter documents based on search and filters
+  const filteredDocuments = documents.filter((doc) => {
+    // Search filter
+    const searchLower = searchQuery.toLowerCase();
+    const matchesSearch = !searchQuery || 
+      doc.name.toLowerCase().includes(searchLower) ||
+      doc.bates_number?.toLowerCase().includes(searchLower) ||
+      doc.summary?.toLowerCase().includes(searchLower);
+
+    // AI status filter
+    const matchesStatus = 
+      filterStatus === "all" ||
+      (filterStatus === "analyzed" && doc.ai_analyzed) ||
+      (filterStatus === "pending" && !doc.ai_analyzed);
+
+    // File type filter
+    const fileType = doc.file_type?.toLowerCase() || "";
+    const matchesFileType = 
+      filterFileType === "all" ||
+      (filterFileType === "pdf" && fileType.includes("pdf")) ||
+      (filterFileType === "image" && (fileType.includes("image") || fileType.includes("jpeg") || fileType.includes("png") || fileType.includes("gif"))) ||
+      (filterFileType === "audio" && fileType.includes("audio")) ||
+      (filterFileType === "video" && fileType.includes("video")) ||
+      (filterFileType === "other" && !fileType.includes("pdf") && !fileType.includes("image") && !fileType.includes("audio") && !fileType.includes("video"));
+
+    // Date range filter
+    const docDate = new Date(doc.created_at);
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const monthAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
+    
+    const matchesDate = 
+      filterDateRange === "all" ||
+      (filterDateRange === "today" && docDate >= today) ||
+      (filterDateRange === "week" && docDate >= weekAgo) ||
+      (filterDateRange === "month" && docDate >= monthAgo);
+
+    return matchesSearch && matchesStatus && matchesFileType && matchesDate;
+  });
+
+  // Count active filters
+  const activeFilterCount = [
+    filterStatus !== "all",
+    filterFileType !== "all",
+    filterDateRange !== "all"
+  ].filter(Boolean).length;
+
+  // Clear all filters
+  const clearFilters = () => {
+    setSearchQuery("");
+    setFilterStatus("all");
+    setFilterFileType("all");
+    setFilterDateRange("all");
   };
 
   // Delete document mutation
@@ -403,17 +682,10 @@ export default function CaseDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["documents", id] });
       setDeleteDocId(null);
-      toast({
-        title: "Document deleted",
-        description: "The document has been removed from the case.",
-      });
+      toast.success("The document has been removed from the case.");
     },
     onError: (error: Error) => {
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-      });
+      toast.error(error.message);
     },
   });
 
@@ -441,17 +713,10 @@ export default function CaseDetail() {
       queryClient.invalidateQueries({ queryKey: ["timeline_events", id] });
       setIsEventOpen(false);
       setEventForm({ title: "", event_date: "", event_type: "", description: "", importance: "medium" });
-      toast({
-        title: "Event added",
-        description: "The timeline event has been added to the case.",
-      });
+      toast.success("The timeline event has been added to the case.");
     },
     onError: (error: Error) => {
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-      });
+      toast.error(error.message);
     },
   });
 
@@ -493,11 +758,7 @@ export default function CaseDetail() {
         file_size: docForm.file?.size,
       });
     } catch (error) {
-      toast({
-        title: "Upload failed",
-        description: error instanceof Error ? error.message : "Failed to upload document",
-        variant: "destructive",
-      });
+      toast.error(error instanceof Error ? error.message : "Failed to upload document");
     } finally {
       setUploading(false);
     }
@@ -531,11 +792,7 @@ export default function CaseDetail() {
 
   const handleViewDocument = async (doc: Document) => {
     if (!doc.file_url) {
-      toast({
-        title: "No file available",
-        description: "This document doesn't have an associated file.",
-        variant: "destructive",
-      });
+      toast.error("This document doesn't have an associated file.");
       return;
     }
     window.open(doc.file_url, '_blank');
@@ -543,11 +800,7 @@ export default function CaseDetail() {
 
   const handleDownloadDocument = async (doc: Document) => {
     if (!doc.file_url) {
-      toast({
-        title: "No file available",
-        description: "This document doesn't have an associated file.",
-        variant: "destructive",
-      });
+      toast.error("This document doesn't have an associated file.");
       return;
     }
 
@@ -563,21 +816,14 @@ export default function CaseDetail() {
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
     } catch (error) {
-      toast({
-        title: "Download failed",
-        description: "Could not download the document.",
-        variant: "destructive",
-      });
+      toast.error("Could not download the document.");
     }
   };
 
   const copyDocumentLink = (doc: Document) => {
     if (doc.file_url) {
       navigator.clipboard.writeText(doc.file_url);
-      toast({
-        title: "Link copied",
-        description: "Document link copied to clipboard.",
-      });
+      toast.success("Document link copied to clipboard.");
     }
   };
 
@@ -632,7 +878,7 @@ export default function CaseDetail() {
             {/* Top row with badges and actions */}
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div className="flex items-center gap-3">
-                <Badge variant="outline" className="font-mono text-xs">
+                <Badge className="font-mono text-xs">
                   {`CV-${new Date(caseData.created_at).getFullYear()}-${caseData.id.substring(0, 5).toUpperCase()}`}
                 </Badge>
                 <Badge className={getStatusColor(caseData.status)}>{caseData.status}</Badge>
@@ -646,7 +892,15 @@ export default function CaseDetail() {
                   <MessageSquare className="h-4 w-4" />
                   Chat
                 </Button>
-                <Button variant="outline" size="sm" className="gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  onClick={() => {
+                    setVideoRoomName(`${caseData.name} - Video Conference`);
+                    setShowVideoRoom(true);
+                  }}
+                >
                   <Video className="h-4 w-4" />
                   Video Call
                 </Button>
@@ -703,38 +957,157 @@ export default function CaseDetail() {
               <TabsContent value="discovery" className="space-y-4">
                 {/* Search and Filter Bar */}
                 <Card className="glass-card">
-                  <CardContent className="p-4">
+                  <CardContent className="p-4 space-y-4">
                     <div className="flex items-center gap-4">
                       <div className="relative flex-1">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                         <Input
-                          placeholder="Search Bates, files..."
+                          placeholder="Search Bates, files, summaries..."
                           value={searchQuery}
                           onChange={(e) => setSearchQuery(e.target.value)}
                           className="pl-10"
                         />
                       </div>
-                      <Button variant="outline" className="gap-2">
+                      <Button 
+                        variant={showFilters || activeFilterCount > 0 ? "default" : "outline"} 
+                        className="gap-2"
+                        onClick={() => setShowFilters(!showFilters)}
+                      >
                         <Filter className="h-4 w-4" />
                         Filters
+                        {activeFilterCount > 0 && (
+                          <Badge className="ml-1 h-5 w-5 p-0 flex items-center justify-center text-xs">
+                            {activeFilterCount}
+                          </Badge>
+                        )}
                       </Button>
                     </div>
+
+                    {/* Expanded Filters */}
+                    {showFilters && (
+                      <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-border">
+                        {/* AI Status Filter */}
+                        <div className="flex items-center gap-2">
+                          <Label className="text-sm text-muted-foreground whitespace-nowrap">AI Status:</Label>
+                          <select
+                            value={filterStatus}
+                            onChange={(e) => setFilterStatus(e.target.value as typeof filterStatus)}
+                            className="h-9 px-3 rounded-md border border-input bg-background text-sm"
+                          >
+                            <option value="all">All</option>
+                            <option value="analyzed">Analyzed</option>
+                            <option value="pending">Pending</option>
+                          </select>
+                        </div>
+
+                        {/* File Type Filter */}
+                        <div className="flex items-center gap-2">
+                          <Label className="text-sm text-muted-foreground whitespace-nowrap">Type:</Label>
+                          <select
+                            value={filterFileType}
+                            onChange={(e) => setFilterFileType(e.target.value as typeof filterFileType)}
+                            className="h-9 px-3 rounded-md border border-input bg-background text-sm"
+                          >
+                            <option value="all">All Types</option>
+                            <option value="pdf">PDF</option>
+                            <option value="image">Images</option>
+                            <option value="audio">Audio</option>
+                            <option value="video">Video</option>
+                            <option value="other">Other</option>
+                          </select>
+                        </div>
+
+                        {/* Date Range Filter */}
+                        <div className="flex items-center gap-2">
+                          <Label className="text-sm text-muted-foreground whitespace-nowrap">Added:</Label>
+                          <select
+                            value={filterDateRange}
+                            onChange={(e) => setFilterDateRange(e.target.value as typeof filterDateRange)}
+                            className="h-9 px-3 rounded-md border border-input bg-background text-sm"
+                          >
+                            <option value="all">Any Time</option>
+                            <option value="today">Today</option>
+                            <option value="week">Last 7 Days</option>
+                            <option value="month">Last 30 Days</option>
+                          </select>
+                        </div>
+
+                        {/* Clear Filters */}
+                        {activeFilterCount > 0 && (
+                          <Button variant="ghost" size="sm" onClick={clearFilters} className="text-muted-foreground">
+                            Clear all
+                          </Button>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Results count */}
+                    {(searchQuery || activeFilterCount > 0) && (
+                      <div className="text-sm text-muted-foreground">
+                        Showing {filteredDocuments.length} of {documents.length} documents
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
 
                 <div className="flex flex-wrap justify-end items-center gap-2">
                   <div className="flex gap-2">
+                    {/* Batch Re-analyze Button */}
+                    {unanalyzedCount > 0 && (
+                      <Button
+                        variant="outline"
+                        className="gap-2"
+                        onClick={triggerBatchOcr}
+                        disabled={batchProcessing}
+                      >
+                        {batchProcessing ? (
+                          <>
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Analyzing {batchProgress.current}/{batchProgress.total}
+                          </>
+                        ) : (
+                          <>
+                            <Brain className="h-4 w-4" />
+                            Analyze All ({unanalyzedCount})
+                          </>
+                        )}
+                      </Button>
+                    )}
+
                     {/* Google Drive Folder Import */}
                     <GoogleDriveFolderImport
                       caseId={id!}
                       onImportStarted={(importJobId) => {
-                        toast({
-                          title: "Import Started",
-                          description: `Import job ${importJobId} has been started.`,
-                        });
+                        toast.success(`Import job ${importJobId} has been started.`);
                         queryClient.invalidateQueries({ queryKey: ['documents', id] });
                       }}
                     />
+
+                    {/* Bulk Document Upload Dialog */}
+                    <Dialog open={isBulkUploadOpen} onOpenChange={setIsBulkUploadOpen}>
+                      <DialogTrigger asChild>
+                        <Button variant="outline" className="gap-2">
+                          <Upload className="h-4 w-4" />
+                          Bulk Upload
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+                        <DialogHeader>
+                          <DialogTitle>Bulk Document Upload</DialogTitle>
+                          <DialogDescription>
+                            Upload multiple documents at once. All documents will be automatically processed with OCR and AI analysis.
+                          </DialogDescription>
+                        </DialogHeader>
+                        <BulkDocumentUpload 
+                          caseId={id!}
+                          onUploadComplete={(uploadedDocs) => {
+                            toast.success(`Successfully uploaded ${uploadedDocs.length} documents.`);
+                            queryClient.invalidateQueries({ queryKey: ['documents', id] });
+                            setIsBulkUploadOpen(false);
+                          }}
+                        />
+                      </DialogContent>
+                    </Dialog>
 
                     {/* Link Import Dialog */}
                     <Dialog open={isLinkImportOpen} onOpenChange={setIsLinkImportOpen}>
@@ -890,127 +1263,75 @@ export default function CaseDetail() {
                 {/* Import Jobs Viewer */}
                 <ImportJobsViewer caseId={id!} />
 
-                {/* Filter documents based on search */}
-                {(() => {
-                  const filteredDocs = documents.filter(doc => {
-                    if (!searchQuery) return true;
-                    const query = searchQuery.toLowerCase();
-                    return (
-                      doc.name?.toLowerCase().includes(query) ||
-                      doc.bates_number?.toLowerCase().includes(query) ||
-                      doc.summary?.toLowerCase().includes(query)
-                    );
-                  });
-
-                  if (docsLoading) {
-                    return (
-                      <div className="flex items-center justify-center py-8">
-                        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                {/* Document List */}
+                {docsLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  </div>
+                ) : documents.length === 0 ? (
+                  <Card className="glass-card">
+                    <CardContent className="flex flex-col items-center justify-center py-12">
+                      <File className="h-12 w-12 text-muted-foreground mb-4" />
+                      <h3 className="text-lg font-medium mb-2">No discovery files yet. Add evidence to get started.</h3>
+                      <div className="flex gap-2 mt-4">
+                        <Button variant="outline" onClick={() => setIsLinkImportOpen(true)}>
+                          <Link className="h-4 w-4 mr-2" />
+                          Import from Link
+                        </Button>
+                        <Button onClick={() => setIsUploadOpen(true)}>
+                          <Upload className="h-4 w-4 mr-2" />
+                          Upload File
+                        </Button>
                       </div>
-                    );
-                  }
+                    </CardContent>
+                  </Card>
+                ) : filteredDocuments.length === 0 ? (
+                  <Card className="glass-card">
+                    <CardContent className="flex flex-col items-center justify-center py-12">
+                      <Search className="h-12 w-12 text-muted-foreground mb-4" />
+                      <h3 className="text-lg font-medium mb-2">No documents match your filters.</h3>
+                      <p className="text-sm text-muted-foreground mb-4">
+                        Try adjusting your search or clearing filters.
+                      </p>
+                      <Button variant="outline" onClick={clearFilters}>
+                        Clear all filters
+                      </Button>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <Card className="glass-card overflow-hidden">
+                    {/* Table Header */}
+                    <div className="grid grid-cols-12 gap-4 px-4 py-3 border-b border-border bg-muted/30 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                      <div className="col-span-1">Type</div>
+                      <div className="col-span-2">Bates Number</div>
+                      <div className="col-span-4">File Name / Summary</div>
+                      <div className="col-span-2">Source</div>
+                      <div className="col-span-1">Tags</div>
+                      <div className="col-span-2 text-right">Actions</div>
+                    </div>
 
-                  if (documents.length === 0) {
-                    return (
-                      <Card className="glass-card">
-                        <CardContent className="flex flex-col items-center justify-center py-12">
-                          <File className="h-12 w-12 text-muted-foreground mb-4" />
-                          <h3 className="text-lg font-medium mb-2">No discovery files yet. Add evidence to get started.</h3>
-                          <div className="flex gap-2 mt-4">
-                            <Button variant="outline" onClick={() => setIsLinkImportOpen(true)}>
-                              <Link className="h-4 w-4 mr-2" />
-                              Import from Link
-                            </Button>
-                            <Button onClick={() => setIsUploadOpen(true)}>
-                              <Upload className="h-4 w-4 mr-2" />
-                              Upload File
-                            </Button>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    );
-                  }
-
-                  return (
-                    <Card className="glass-card overflow-hidden">
-                      {/* Table Header */}
-                      <div className="grid grid-cols-12 gap-4 px-4 py-3 border-b border-border bg-muted/30 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                        <div className="col-span-1">Type</div>
-                        <div className="col-span-2">Bates Number</div>
-                        <div className="col-span-4">File Name / Summary</div>
-                        <div className="col-span-2">Source</div>
-                        <div className="col-span-1">Tags</div>
-                        <div className="col-span-2 text-right">Actions</div>
-                      </div>
-
-                      {/* Table Body */}
-                      <div className="divide-y divide-border">
-                        {filteredDocs.map((doc) => (
-                          <div key={doc.id} className="grid grid-cols-12 gap-4 px-4 py-3 items-center hover:bg-muted/30 transition-colors">
-                            {/* Type */}
-                            <div className="col-span-1">
-                              <div className="rounded bg-muted p-1.5 w-8 h-8 flex items-center justify-center">
-                                <FileText className="h-4 w-4 text-muted-foreground" />
-                              </div>
-                            </div>
-
-                            {/* Bates Number */}
-                            <div className="col-span-2">
-                              {doc.bates_number ? (
-                                <span className="font-mono text-xs bg-muted px-2 py-1 rounded">
-                                  {doc.bates_number}
-                                </span>
-                              ) : (
-                                <span className="text-xs text-muted-foreground">-</span>
-                              )}
-                            </div>
-
-                            {/* File Name / Summary */}
-                            <div className="col-span-4 min-w-0">
-                              <p className="text-sm font-medium truncate">{doc.name}</p>
-                              {doc.summary && (
-                                <p className="text-xs text-muted-foreground truncate mt-0.5">{doc.summary}</p>
-                              )}
-                            </div>
-
-                            {/* Source */}
-                            <div className="col-span-2">
-                              <span className="text-xs text-muted-foreground">
-                                {doc.file_type?.split('/')[1]?.toUpperCase() || 'File'}
-                              </span>
-                            </div>
-
-                            {/* Tags */}
-                            <div className="col-span-1">
-                              {doc.ai_analyzed && (
-                                <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-green-50 text-green-700 border-green-200">
-                                  AI
-                                </Badge>
-                              )}
-                            </div>
-
-                            {/* Actions */}
-                            <div className="col-span-2 flex items-center justify-end gap-1">
-                              {doc.file_url && (
-                                <>
-                                  <Button variant="ghost" size="icon" className="h-7 w-7" title="View" onClick={() => handleViewDocument(doc)}>
-                                    <ExternalLink className="h-3.5 w-3.5" />
-                                  </Button>
-                                  <Button variant="ghost" size="icon" className="h-7 w-7" title="Download" onClick={() => handleDownloadDocument(doc)}>
-                                    <Download className="h-3.5 w-3.5" />
-                                  </Button>
-                                </>
-                              )}
-                              <Button variant="ghost" size="icon" className="h-7 w-7" title="Delete" onClick={() => setDeleteDocId(doc.id)}>
-                                <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                              </Button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </Card>
-                  );
-                })()}
+                    {/* Table Body */}
+                    <List
+                      height={Math.min(DOCUMENT_LIST_MAX_HEIGHT, Math.max(filteredDocuments.length * DOCUMENT_ROW_HEIGHT, DOCUMENT_ROW_HEIGHT))}
+                      itemCount={filteredDocuments.length}
+                      itemSize={DOCUMENT_ROW_HEIGHT}
+                      width="100%"
+                      itemData={{
+                        docs: filteredDocuments,
+                        onView: handleViewDocument,
+                        onDownload: handleDownloadDocument,
+                        onDelete: setDeleteDocId,
+                        onOcr: triggerOcr,
+                        onTranscribe: triggerTranscription,
+                        processingOcr,
+                        transcribing,
+                      }}
+                      itemKey={(index, data) => data.docs[index]?.id ?? index}
+                    >
+                      {DocumentRow}
+                    </List>
+                  </Card>
+                )}
               </TabsContent>
 
               {/* Timeline Tab */}
@@ -1142,7 +1463,7 @@ export default function CaseDetail() {
                                 <Clock className="h-3 w-3" />
                                 {format(new Date(event.event_date), "PPP")}
                                 {event.event_type && (
-                                  <Badge variant="outline" className="text-xs">
+                                   <Badge className="text-xs">
                                     {event.event_type}
                                   </Badge>
                                 )}
@@ -1163,19 +1484,59 @@ export default function CaseDetail() {
 
               {/* Trial Prep Tab */}
               <TabsContent value="trial-prep" className="space-y-4">
-                <Card className="glass-card">
-                  <CardContent className="flex flex-col items-center justify-center py-12">
-                    <Gavel className="h-12 w-12 text-muted-foreground mb-4" />
-                    <h3 className="text-lg font-medium mb-2">Trial Preparation</h3>
-                    <p className="text-sm text-muted-foreground mb-4 text-center max-w-md">
-                      Organize witnesses, exhibits, and prepare your trial strategy for this case
-                    </p>
-                    <Button onClick={() => navigate(`/trial-prep?caseId=${id}`)}>
-                      <Plus className="h-4 w-4 mr-2" />
-                      Start Trial Prep
-                    </Button>
-                  </CardContent>
-                </Card>
+                <div className="grid gap-6">
+                  <Card className="glass-card">
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <Gavel className="h-5 w-5" />
+                        Trial Preparation Tools
+                      </CardTitle>
+                      <CardDescription>
+                        Organize witnesses, exhibits, and prepare your trial strategy for this case
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="grid md:grid-cols-2 gap-4">
+                        <Card className="border-border hover:border-gold-300 transition-colors">
+                          <CardContent className="pt-6">
+                            <div className="flex items-start gap-3">
+                              <div className="rounded-lg bg-blue-100 p-2">
+                                <Brain className="h-5 w-5 text-blue-600" />
+                              </div>
+                              <div>
+                                <h3 className="font-medium">Trial Simulator</h3>
+                                <p className="text-sm text-muted-foreground mt-1">
+                                  Practice deposition questions and cross-examination techniques with AI assistance
+                                </p>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                        
+                        <Card className="border-border hover:border-gold-300 transition-colors">
+                          <CardContent className="pt-6">
+                            <div className="flex items-start gap-3">
+                              <div className="rounded-lg bg-purple-100 p-2">
+                                <Target className="h-5 w-5 text-purple-600" />
+                              </div>
+                              <div>
+                                <h3 className="font-medium">Deposition Questions</h3>
+                                <p className="text-sm text-muted-foreground mt-1">
+                                  Generate trap questions and impeachment material from your documents
+                                </p>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      </div>
+                      
+                      <TrialSimulator 
+                        caseData={caseData}
+                        documents={documents}
+                      />
+                    </CardContent>
+                  </Card>
+                </div>
               </TabsContent>
 
               {/* Briefs Tab */}
@@ -1290,6 +1651,28 @@ export default function CaseDetail() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Video Room Dialog */}
+      <Dialog open={showVideoRoom} onOpenChange={setShowVideoRoom}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Video className="h-5 w-5 text-accent" />
+              Video Conference
+            </DialogTitle>
+            <DialogDescription>
+              Secure, encrypted video conference for case collaboration
+            </DialogDescription>
+          </DialogHeader>
+          {showVideoRoom && id && (
+            <VideoRoom
+              caseId={id}
+              roomName={videoRoomName}
+              onLeave={() => setShowVideoRoom(false)}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </Layout>
   );
 }

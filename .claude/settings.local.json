@@ -1,6 +1,44 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(npm run dev:*)",
+      "Bash(git push:*)",
+      "Bash(git pull:*)",
+      "Bash(git stash:*)",
+      "Bash(git stash pop:*)",
+      "Bash(npx supabase migration:*)",
+      "Bash(npx supabase:*)",
+      "Bash(grep:*)",
+      "Bash(curl:*)",
+      "Bash(npx tsc:*)",
+      "Bash(ls:*)",
+      "Bash(find:*)",
+      "Bash(npm ls:*)",
+      "Bash(test:*)",
+      "Bash(npm outdated:*)",
+      "Bash(findstr:*)",
+      "Bash(npm run lint)",
+      "Bash(npm test:*)",
+      "Bash(supabase status:*)",
+      "Bash(supabase secrets list:*)",
+      "Bash(npm install:*)",
+      "Bash(supabase functions deploy:*)",
+      "Bash(powershell -File:*)",
+      "Bash(cmd /c scripts\\\\test-fixes.bat)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(supabase functions logs:*)",
+      "Bash(supabase db push:*)",
+      "Bash(supabase db execute:*)",
+      "Bash(supabase migration new:*)",
+      "Bash(supabase db remote commit:*)",
+      "Bash(supabase migration list:*)",
+      "Bash(supabase projects:*)",
+      "Bash(supabase db query:*)"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [
     "supabase"
-  ],
-  "enableAllProjectMcpServers": true
+  ]
 }

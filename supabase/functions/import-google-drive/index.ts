@@ -1,5 +1,5 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import {
   getCorsHeaders,
   createErrorResponse,
@@ -27,8 +27,21 @@ interface DriveFile {
 }
 
 const handler = async (req: Request): Promise<Response> => {
+  const corsHeaders = getCorsHeaders(req);
+
+  console.log('import-google-drive: Request received', {
+    method: req.method,
+    url: req.url,
+    hasAuth: !!req.headers.get('Authorization'),
+  });
+
   // Validate environment variables
-  validateEnvVars(['SUPABASE_URL', 'SUPABASE_ANON_KEY']);
+  try {
+    validateEnvVars(['SUPABASE_URL', 'SUPABASE_ANON_KEY']);
+  } catch (error) {
+    console.error('Environment validation failed:', error);
+    return createErrorResponse(error, 500, 'import-google-drive', corsHeaders);
+  }
 
   const supabase = createClient(
     Deno.env.get('SUPABASE_URL')!,
@@ -39,6 +52,7 @@ const handler = async (req: Request): Promise<Response> => {
       },
     }
   );
+  const authHeader = req.headers.get('Authorization') || '';
 
   // Verify user is authenticated
   const {
@@ -51,7 +65,7 @@ const handler = async (req: Request): Promise<Response> => {
       JSON.stringify({ error: 'Unauthorized', message: 'User authentication required' }),
       {
         status: 401,
-        headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       }
     );
   }
@@ -68,7 +82,7 @@ const handler = async (req: Request): Promise<Response> => {
       {
         status: 429,
         headers: {
-          ...getCorsHeaders(req),
+          ...corsHeaders,
           'Content-Type': 'application/json',
           'Retry-After': String(Math.ceil((rateLimitCheck.resetAt - Date.now()) / 1000)),
         },
@@ -77,24 +91,35 @@ const handler = async (req: Request): Promise<Response> => {
   }
 
   // Parse and validate request body
-  let requestBody: any;
+  let requestBody: Record<string, unknown>;
   try {
-    requestBody = await req.json();
+    requestBody = (await req.json()) as Record<string, unknown>;
   } catch (error) {
     return createErrorResponse(
       new Error('Invalid JSON in request body'),
       400,
-      'import-google-drive'
+      'import-google-drive',
+      corsHeaders
     );
   }
 
-  validateRequestBody<ImportRequest>(requestBody, [
-    'folderId',
-    'folderName',
-    'folderPath',
-    'caseId',
-    'accessToken',
-  ]);
+  // Validate required fields
+  try {
+    validateRequestBody<ImportRequest>(requestBody, [
+      'folderId',
+      'folderName',
+      'folderPath',
+      'caseId',
+      'accessToken',
+    ]);
+  } catch (error) {
+    return createErrorResponse(
+      error,
+      400,
+      'import-google-drive',
+      corsHeaders
+    );
+  }
 
   const { folderId, folderName, folderPath, caseId, accessToken } = requestBody as ImportRequest;
 
@@ -114,7 +139,7 @@ const handler = async (req: Request): Promise<Response> => {
       }),
       {
         status: 403,
-        headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       }
     );
   }
@@ -139,7 +164,8 @@ const handler = async (req: Request): Promise<Response> => {
     return createErrorResponse(
       new Error(`Failed to create import job: ${jobError.message}`),
       500,
-      'import-google-drive'
+      'import-google-drive',
+      corsHeaders
     );
   }
 
@@ -153,7 +179,8 @@ const handler = async (req: Request): Promise<Response> => {
     folderPath,
     caseId,
     user.id,
-    accessToken
+    accessToken,
+    authHeader
   ).catch(async (error) => {
     console.error(`Import job ${importJob.id} failed:`, error);
     await supabase
@@ -174,7 +201,7 @@ const handler = async (req: Request): Promise<Response> => {
     }),
     {
       status: 202, // Accepted
-      headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     }
   );
 };
@@ -185,13 +212,14 @@ serve(withErrorHandling(handler, 'import-google-drive'));
  * Recursively process all files in a Google Drive folder
  */
 async function processGoogleDriveFolder(
-  supabase: any,
+  supabase: SupabaseClient,
   importJobId: string,
   folderId: string,
   currentPath: string,
   caseId: string,
   userId: string,
-  accessToken: string
+  accessToken: string,
+  authHeader: string
 ): Promise<void> {
   const stats = {
     total: 0,
@@ -222,7 +250,7 @@ async function processGoogleDriveFolder(
       await Promise.all(
         batch.map(async (file) => {
           try {
-            await processFile(supabase, file, caseId, userId, accessToken, importJobId);
+            await processFile(supabase, file, caseId, userId, accessToken, importJobId, authHeader);
             stats.successful++;
           } catch (error) {
             console.error(`Failed to process file ${file.name}:`, error);
@@ -282,7 +310,9 @@ async function collectAllFiles(
   accessToken: string
 ): Promise<Array<DriveFile & { path: string }>> {
   const files: Array<DriveFile & { path: string }> = [];
-  const foldersToProcess: Array<{ id: string; path: string }> = [{ id: folderId, path: currentPath }];
+  const foldersToProcess: Array<{ id: string; path: string; depth: number }> = [
+    { id: folderId, path: currentPath, depth: 0 },
+  ];
 
   // Supported MIME types
   const supportedMimeTypes = new Set([
@@ -320,10 +350,12 @@ async function collectAllFiles(
   const MAX_FILES = 1000; // Safety limit
   const MAX_DEPTH = 10; // Safety limit for folder depth
 
-  let depth = 0;
-  while (foldersToProcess.length > 0 && depth < MAX_DEPTH) {
-    const { id: currentFolderId, path } = foldersToProcess.shift()!;
-    depth++;
+  while (foldersToProcess.length > 0) {
+    const { id: currentFolderId, path, depth } = foldersToProcess.shift()!;
+    if (depth > MAX_DEPTH) {
+      console.warn(`Reached maximum folder depth (${MAX_DEPTH}). Skipping ${path}.`);
+      continue;
+    }
 
     // List all items in current folder
     let pageToken: string | undefined;
@@ -352,10 +384,15 @@ async function collectAllFiles(
       for (const item of data.files || []) {
         if (item.mimeType === 'application/vnd.google-apps.folder') {
           // Add subfolder to processing queue
-          foldersToProcess.push({
-            id: item.id,
-            path: `${path}/${item.name}`,
-          });
+          if (depth + 1 > MAX_DEPTH) {
+            console.warn(`Reached maximum folder depth (${MAX_DEPTH}). Skipping ${path}/${item.name}.`);
+          } else {
+            foldersToProcess.push({
+              id: item.id,
+              path: `${path}/${item.name}`,
+              depth: depth + 1,
+            });
+          }
         } else if (supportedMimeTypes.has(item.mimeType)) {
           // Add file to results
           files.push({
@@ -375,10 +412,6 @@ async function collectAllFiles(
     } while (pageToken);
   }
 
-  if (depth >= MAX_DEPTH) {
-    console.warn(`Reached maximum folder depth (${MAX_DEPTH}). Some nested folders may not be processed.`);
-  }
-
   return files;
 }
 
@@ -386,12 +419,13 @@ async function collectAllFiles(
  * Process a single file: download, upload to Supabase, create document record, trigger OCR
  */
 async function processFile(
-  supabase: any,
+  supabase: SupabaseClient,
   file: DriveFile & { path: string },
   caseId: string,
   userId: string,
   accessToken: string,
-  importJobId: string
+  importJobId: string,
+  authHeader: string
 ): Promise<void> {
   console.log(`Processing file: ${file.name} (${file.mimeType})`);
 
@@ -478,11 +512,18 @@ async function processFile(
     if (mediaType === 'document' || mediaType === 'image') {
       try {
         const ocrUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/ocr-document`;
+        const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+        const ocrAuthorization = serviceRoleKey ? `Bearer ${serviceRoleKey}` : authHeader;
+
+        if (!ocrAuthorization) {
+          console.warn('Skipping OCR: missing authorization header.');
+          return;
+        }
         const ocrResponse = await fetch(ocrUrl, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+            'Authorization': ocrAuthorization,
           },
           body: JSON.stringify({
             documentId: docData.id,

@@ -112,8 +112,17 @@ Located in `supabase/functions/`:
 1. **`create-video-room`** - Creates Jitsi Meet room with JWT token
 2. **`join-video-room`** - Joins existing video room
 3. **`import-google-drive`** - Recursively imports folders from Google Drive to Supabase Storage
-4. **`ocr-document`** - OCR processing for PDF/images
+4. **`ocr-document`** - OCR processing with triple-tier fallback
+   - **Primary**: Microsoft Azure Computer Vision (5,000/month free, best quality)
+   - **Fallback**: OCR.space (25,000/month free)
+   - **Last Resort**: Google Gemini 2.0 Flash (1,500/day free)
+   - Extracts text from PDFs (multi-page), images, and text files
+   - Performs AI legal analysis: summary, key facts, favorable/adverse findings, action items
+   - Auto-generates timeline events from dates found in documents
+   - Handles Bates numbers, exhibits, redactions, tables, and marginalia
+   - Automatically cascades through providers on failure (Azure → OCR.space → Gemini)
 5. **`transcribe-media`** - Calls OpenAI Whisper API for audio/video transcription
+6. **`trial-simulation`** - AI-powered trial simulation with coaching (cross-exam, depositions, etc.)
 
 All functions require JWT verification (`verify_jwt: true` in config.toml).
 
@@ -125,7 +134,20 @@ Required in `.env` (see `.env.example`):
 - `VITE_SUPABASE_URL` - Supabase API URL
 - `VITE_GOOGLE_CLIENT_ID` - Google OAuth client ID
 - `VITE_GOOGLE_API_KEY` - Google API key for Drive integration
-- `OPENAI_API_KEY` - For Whisper transcription (edge functions only)
+
+**Supabase Secrets** (set via `npx supabase secrets set KEY=value`):
+- `AZURE_VISION_ENDPOINT` - Primary OCR (Azure Computer Vision, 5,000/month free) ✅ CONFIGURED
+- `AZURE_VISION_API_KEY` - Azure API key ✅ CONFIGURED
+- `OCR_SPACE_API_KEY` - Fallback OCR (25,000/month free) ✅ CONFIGURED
+- `GOOGLE_AI_API_KEY` - Last resort OCR (Gemini, 1,500/day free, optional)
+- `OPENAI_API_KEY` - For Whisper audio/video transcription (optional)
+
+**OCR Strategy**: Triple-tier fallback for maximum reliability:
+1. Azure Computer Vision (best quality, industry-leading)
+2. OCR.space (good quality, high limits)
+3. Gemini (AI-powered, last resort)
+
+Total: 30,000+ free OCRs/month with automatic failover!
 
 Current project ID: `plcvjadartxntnurhcua`
 
@@ -165,9 +187,15 @@ Components are added to `src/components/ui/` with Tailwind styling.
 ### Document Processing Pipeline
 1. User uploads file or imports from Drive
 2. File stored in Supabase Storage `case-documents` bucket
-3. For PDFs/images: `ocr-document` function extracts text → stored in `documents.ocr_text`
-4. For audio/video: Storage trigger calls `transcribe-media` → Whisper API → stored in document record
-5. AI analysis fields (`summary`, `key_facts`, `favorable_findings`, etc.) populated separately
+3. **Automatic OCR trigger** for PDFs/images:
+   - `ocr-document` edge function called automatically
+   - Google Gemini 2.5 Flash extracts text → stored in `documents.ocr_text`
+   - AI analyzes text → generates `summary`, `key_facts`, `favorable_findings`, `adverse_findings`, `action_items`
+   - Timeline events auto-extracted from dates → inserted into `timeline_events` table
+   - Document marked as `ai_analyzed = true` when complete
+4. **Manual OCR trigger**: Click Scan icon (📄) on any document to reprocess
+5. **Batch OCR**: "Analyze All" button processes all unanalyzed documents in batches of 3
+6. For audio/video: Click Music icon (🎵) → `transcribe-media` → Whisper API → stored in `transcription_text`
 
 ## Styling Conventions
 
@@ -199,7 +227,7 @@ Components are added to `src/components/ui/` with Tailwind styling.
 ## Build & Deployment
 
 - **Build output:** `/dist` directory
-- **Deployment:** Via Lovable platform (see README.md)
+- **Deployment:** Via Vercel, Netlify, or any static hosting (see README.md)
 - **Environment:** Vite env vars must be prefixed with `VITE_`
 - **Production mode:** `npm run build` creates optimized bundles with code splitting
 - **Hot reload:** Dev server supports HMR for instant updates

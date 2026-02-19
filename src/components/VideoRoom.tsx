@@ -30,6 +30,10 @@ interface VideoRoomProps {
 }
 
 // Daily.co types
+type DailyParticipantMap = Record<string, Record<string, unknown>>;
+type DailyEventPayload = Record<string, unknown>;
+type DailyErrorEvent = DailyEventPayload & { errorMsg?: string };
+
 interface DailyCallObject {
   join: (options: { url: string; token: string }) => Promise<void>;
   leave: () => Promise<void>;
@@ -40,9 +44,9 @@ interface DailyCallObject {
   stopScreenShare: () => void;
   startRecording: () => Promise<void>;
   stopRecording: () => Promise<void>;
-  participants: () => Record<string, any>;
-  on: (event: string, callback: (event?: any) => void) => void;
-  off: (event: string, callback: (event?: any) => void) => void;
+  participants: () => DailyParticipantMap;
+  on: (event: string, callback: (event?: DailyEventPayload) => void) => void;
+  off: (event: string, callback: (event?: DailyEventPayload) => void) => void;
 }
 
 declare global {
@@ -68,6 +72,46 @@ export function VideoRoom({ caseId, roomName, roomId, onLeave }: VideoRoomProps)
   const [isOwner, setIsOwner] = useState(false);
   const [sessionDuration, setSessionDuration] = useState(0);
   const [joinTime, setJoinTime] = useState<Date | null>(null);
+
+  const updateParticipantCount = useCallback(() => {
+    if (callObjectRef.current) {
+      const participants = callObjectRef.current.participants();
+      setParticipantCount(Object.keys(participants).length);
+    }
+  }, []);
+
+  const handleJoinedMeeting = useCallback(() => {
+    setIsJoined(true);
+    updateParticipantCount();
+    toast.success('Connected to video room');
+  }, [updateParticipantCount]);
+
+  const handleLeftMeeting = useCallback(() => {
+    setIsJoined(false);
+    if (onLeave) {
+      onLeave();
+    }
+  }, [onLeave]);
+
+  const handleParticipantUpdate = useCallback(() => {
+    updateParticipantCount();
+  }, [updateParticipantCount]);
+
+  const handleRecordingStarted = useCallback(() => {
+    setIsRecording(true);
+    toast.info('Recording started');
+  }, []);
+
+  const handleRecordingStopped = useCallback(() => {
+    setIsRecording(false);
+    toast.info('Recording stopped');
+  }, []);
+
+  const handleError = useCallback((error?: DailyErrorEvent) => {
+    const message = error?.errorMsg ?? 'Unknown error';
+    console.error('Daily.co error:', error);
+    toast.error('Video call error: ' + message);
+  }, []);
 
   const initializeRoom = useCallback(async () => {
     try {
@@ -151,7 +195,18 @@ export function VideoRoom({ caseId, roomName, roomId, onLeave }: VideoRoomProps)
       setIsLoading(false);
       toast.error('Failed to join video room');
     }
-  }, [roomId, roomName, caseId, enableRecording]);
+  }, [
+    roomId,
+    roomName,
+    caseId,
+    enableRecording,
+    handleJoinedMeeting,
+    handleLeftMeeting,
+    handleParticipantUpdate,
+    handleRecordingStarted,
+    handleRecordingStopped,
+    handleError,
+  ]);
 
   // Load Daily.co script
   useEffect(() => {
@@ -159,7 +214,6 @@ export function VideoRoom({ caseId, roomName, roomId, onLeave }: VideoRoomProps)
     script.src = 'https://unpkg.com/@daily-co/daily-js';
     script.async = true;
     script.onload = () => {
-      console.log('Daily.co script loaded');
       initializeRoom();
     };
     script.onerror = () => {
@@ -189,49 +243,6 @@ export function VideoRoom({ caseId, roomName, roomId, onLeave }: VideoRoomProps)
     }
   }, [joinTime]);
 
-
-  const handleJoinedMeeting = () => {
-    console.log('Joined meeting');
-    setIsJoined(true);
-    updateParticipantCount();
-    toast.success('Connected to video room');
-  };
-
-  const handleLeftMeeting = () => {
-    console.log('Left meeting');
-    setIsJoined(false);
-    if (onLeave) {
-      onLeave();
-    }
-  };
-
-  const handleParticipantUpdate = () => {
-    updateParticipantCount();
-  };
-
-  const handleRecordingStarted = () => {
-    console.log('Recording started');
-    setIsRecording(true);
-    toast.info('Recording started');
-  };
-
-  const handleRecordingStopped = () => {
-    console.log('Recording stopped');
-    setIsRecording(false);
-    toast.info('Recording stopped');
-  };
-
-  const handleError = (error: any) => {
-    console.error('Daily.co error:', error);
-    toast.error('Video call error: ' + (error.errorMsg || 'Unknown error'));
-  };
-
-  const updateParticipantCount = () => {
-    if (callObjectRef.current) {
-      const participants = callObjectRef.current.participants();
-      setParticipantCount(Object.keys(participants).length);
-    }
-  };
 
   const toggleVideo = () => {
     if (callObjectRef.current) {

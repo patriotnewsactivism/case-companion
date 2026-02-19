@@ -92,16 +92,21 @@ serve(async (req) => {
         throw new Error(`Whisper API error: ${errorText}`);
       }
 
+      type WhisperSegment = { start: number; end: number; text: string };
+
       const transcriptionData = await whisperResponse.json();
       const transcriptionText = transcriptionData.text;
-      const segments = transcriptionData.segments || [];
+      const rawSegments = Array.isArray(transcriptionData.segments)
+        ? transcriptionData.segments
+        : [];
+      const segments = rawSegments as WhisperSegment[];
 
       console.log(`Transcription completed for room ${roomId}`);
 
       // Format transcription with timestamps
       let formattedTranscription = transcriptionText;
       if (segments.length > 0) {
-        formattedTranscription = segments.map((segment: any) => {
+        formattedTranscription = segments.map((segment) => {
           const start = formatTimestamp(segment.start);
           const end = formatTimestamp(segment.end);
           return `[${start} - ${end}] ${segment.text}`;

@@ -1,43 +1,21 @@
 import { Layout } from "@/components/Layout";
 import { Link } from "react-router-dom";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
-import { getCases } from "@/lib/api";
+import { getCases, getDocumentStats } from "@/lib/api";
 import {
   ArrowRight,
   Plus,
   TrendingUp,
   AlertCircle,
-  TrendingDown,
-  ExternalLink,
+  FileText,
   Loader2,
-  Calendar,
+  Scale,
   FolderOpen,
 } from "lucide-react";
 import { format } from "date-fns";
-
-const newsArticles = [
-  {
-    title: "Journalist returns to Galveston, TX ...",
-    description: "This was a False, Staged Arrest from the Very...",
-    date: "11/22/2025",
-    url: "#",
-  },
-  {
-    title: "Journalist Assaulted by...",
-    description: "Independent Journalist Don Matthews Charge...",
-    date: "11/13/2025",
-    url: "#",
-  },
-  {
-    title: "Judge Whitehurst Recuses After Ex...",
-    description: "Lafayette, Louisiana — In a stunning...",
-    date: "11/13/2025",
-    url: "#",
-  },
-];
 
 const container = {
   hidden: { opacity: 0 },
@@ -67,9 +45,15 @@ export default function Dashboard() {
     queryFn: getCases,
   });
 
+  const { data: documentStats } = useQuery({
+    queryKey: ["document-stats"],
+    queryFn: getDocumentStats,
+  });
+
   const activeCases = cases.filter((c) => c.status === "active").length;
   const casesWithDeadlines = cases.filter((c) => c.next_deadline).length;
-  const totalDocuments = 0; // Would come from documents query
+  const totalDocuments = documentStats?.total ?? 0;
+  const analyzedDocuments = documentStats?.analyzed ?? 0;
 
   const recentCases = cases.slice(0, 5);
 
@@ -101,7 +85,7 @@ export default function Dashboard() {
           </motion.div>
 
           {/* Stats Grid */}
-          <motion.div variants={item} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <motion.div variants={item} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {/* Active Matters */}
             <Card className="glass-card overflow-hidden">
               <div className="flex">
@@ -124,7 +108,7 @@ export default function Dashboard() {
             {/* Upcoming Deadlines */}
             <Card className="glass-card overflow-hidden">
               <div className="flex">
-                <div className="w-1.5 bg-amber-500" />
+                <div className="w-1.5 bg-red-500" />
                 <CardContent className="p-6 flex-1">
                   <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                     UPCOMING DEADLINES
@@ -140,54 +124,43 @@ export default function Dashboard() {
               </div>
             </Card>
 
-            {/* Documents Processed */}
+            {/* Total Documents */}
             <Card className="glass-card overflow-hidden">
               <div className="flex">
-                <div className="w-1.5 bg-amber-500" />
+                <div className="w-1.5 bg-blue-500" />
                 <CardContent className="p-6 flex-1">
                   <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                    DOCUMENTS PROCESSED
+                    TOTAL DOCUMENTS
                   </p>
                   <p className="text-4xl font-serif font-bold mt-2">
                     {isLoading ? <Loader2 className="h-10 w-10 animate-spin" /> : totalDocuments}
                   </p>
                   <div className="flex items-center gap-1.5 mt-3 text-sm text-muted-foreground">
-                    <TrendingDown className="h-4 w-4" />
-                    <span>Total documents in system</span>
+                    <FileText className="h-4 w-4" />
+                    <span>In discovery system</span>
                   </div>
                 </CardContent>
               </div>
             </Card>
-          </motion.div>
 
-          {/* Legal News & Updates */}
-          <motion.div variants={item}>
-            <div className="flex items-center gap-2 mb-4">
-              <div className="p-1.5 rounded bg-muted">
-                <Calendar className="h-4 w-4 text-muted-foreground" />
+            {/* AI Analyzed */}
+            <Card className="glass-card overflow-hidden">
+              <div className="flex">
+                <div className="w-1.5 bg-green-500" />
+                <CardContent className="p-6 flex-1">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    AI ANALYZED
+                  </p>
+                  <p className="text-4xl font-serif font-bold mt-2">
+                    {isLoading ? <Loader2 className="h-10 w-10 animate-spin" /> : analyzedDocuments}
+                  </p>
+                  <div className="flex items-center gap-1.5 mt-3 text-sm text-green-600">
+                    <Scale className="h-4 w-4" />
+                    <span>Documents processed</span>
+                  </div>
+                </CardContent>
               </div>
-              <h2 className="text-lg font-semibold">Legal News & Updates</h2>
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {newsArticles.map((article, index) => (
-                <Card key={index} className="glass-card group cursor-pointer hover:shadow-md transition-shadow">
-                  <CardContent className="p-4">
-                    <div className="flex items-start justify-between gap-2">
-                      <h3 className="font-medium text-sm group-hover:text-accent transition-colors line-clamp-2">
-                        {article.title}
-                      </h3>
-                      <ExternalLink className="h-4 w-4 text-muted-foreground shrink-0" />
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-2 line-clamp-2">
-                      {article.description}
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-3">
-                      {article.date}
-                    </p>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+            </Card>
           </motion.div>
 
           {/* Recent Activity */}

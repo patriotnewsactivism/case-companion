@@ -1,6 +1,5 @@
-import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import {
   getCorsHeaders,
   createErrorResponse,
@@ -10,6 +9,72 @@ import {
 } from '../_shared/errorHandler.ts';
 import { verifyAuth, forbiddenResponse } from '../_shared/auth.ts';
 import { validateUUID, validateURL } from '../_shared/validation.ts';
+
+const STORAGE_BUCKET = 'case-documents';
+
+interface OcrSpaceParsedResult {
+  ParsedText?: string;
+}
+
+interface OcrSpaceResponse {
+  OCRExitCode?: number;
+  ParsedResults?: OcrSpaceParsedResult[];
+  ErrorMessage?: string | string[];
+}
+
+function extractStoragePath(fileUrl: string): string | null {
+  if (!fileUrl || typeof fileUrl !== 'string') {
+    return null;
+  }
+
+  if (!fileUrl.startsWith('http')) {
+    return fileUrl.replace(/^\/+/, '');
+  }
+
+  const lower = fileUrl.toLowerCase();
+  if (!lower.includes('/storage/v1/object/')) {
+    return null;
+  }
+
+  const marker = `/${STORAGE_BUCKET}/`;
+  const markerIndex = lower.indexOf(marker);
+  if (markerIndex === -1) {
+    return null;
+  }
+
+  const pathWithQuery = fileUrl.slice(markerIndex + marker.length);
+  return pathWithQuery.split('?')[0];
+}
+
+async function loadFileBlob(
+  supabase: SupabaseClient,
+  fileUrl: string
+): Promise<{ blob: Blob; contentType: string }> {
+  const storagePath = extractStoragePath(fileUrl);
+
+  if (storagePath) {
+    const { data, error } = await supabase.storage
+      .from(STORAGE_BUCKET)
+      .download(storagePath);
+
+    if (!error && data) {
+      return { blob: data, contentType: data.type || '' };
+    }
+  }
+
+  if (!fileUrl.startsWith('http')) {
+    throw new Error('File URL is not a valid URL');
+  }
+
+  const response = await fetch(fileUrl);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch file: ${response.status} ${response.statusText}`);
+  }
+
+  const contentType = response.headers.get('content-type') || '';
+  const blob = await response.blob();
+  return { blob, contentType };
+}
 
 serve(async (req) => {
   const corsHeaders = getCorsHeaders(req);
@@ -21,15 +86,31 @@ serve(async (req) => {
 
   try {
     // Validate environment variables
-    validateEnvVars(['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'GOOGLE_AI_API_KEY']);
+    validateEnvVars(['SUPABASE_URL', 'SUPABASE_ANON_KEY']);
 
-    const googleApiKey = Deno.env.get('GOOGLE_AI_API_KEY')!;
+    const googleApiKey = Deno.env.get('GOOGLE_AI_API_KEY');
+    const ocrSpaceApiKey = Deno.env.get('OCR_SPACE_API_KEY');
+
+    // Check if at least one OCR provider is configured
+    if (!googleApiKey && !ocrSpaceApiKey) {
+      console.error('No OCR service configured');
+      return createErrorResponse(
+        new Error('OCR service not configured. Please set GOOGLE_AI_API_KEY or OCR_SPACE_API_KEY.'),
+        500,
+        'ocr-document',
+        corsHeaders
+      );
+    }
+
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || "eyJhbGciOiJFUzI1NiIsImtpZCI6ImI4MTI2OWYxLTIxZDgtNGYyZS1iNzE5LWMyMjQwYTg0MGQ5MCIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MjA4NDUzNzY4Mn0.sZ9Z2QoERcdAxXInqq5YRpH5JLlv4Z8wqTz81X9gZ4Sah4w2XXINGPb8WQC5n3QsSHhKENOCgWOvqm3BD_61DA";
     const authHeader = req.headers.get('Authorization') || '';
 
-    let user: any;
-    let supabase: any;
+    type AuthUser = { id: string };
+    type DocumentOwner = { cases?: { user_id?: string } };
+
+    let user: AuthUser;
+    let supabase: SupabaseClient;
     let isServiceRole = false;
 
     // Check if this is a service role call (internal from import-google-drive)
@@ -45,7 +126,8 @@ serve(async (req) => {
         return createErrorResponse(
           new Error(authResult.error || 'Unauthorized'),
           401,
-          'ocr-document'
+          'ocr-document',
+          corsHeaders
         );
       }
       user = authResult.user;
@@ -70,19 +152,23 @@ serve(async (req) => {
     }
 
     // Parse and validate request body
-    const requestBody = await req.json();
-    validateRequestBody(requestBody, ['documentId', 'fileUrl']);
+    const requestBody = (await req.json()) as Record<string, unknown>;
+    validateRequestBody<{ documentId: string; fileUrl: string }>(
+      requestBody,
+      ['documentId', 'fileUrl']
+    );
 
-    const documentId = validateUUID(requestBody.documentId, 'documentId');
-    const fileUrl = validateURL(requestBody.fileUrl);
+    const { documentId, fileUrl } = requestBody;
+    const validatedDocumentId = validateUUID(documentId, 'documentId');
+    const validatedFileUrl = validateURL(fileUrl);
 
-    console.log(`Processing OCR for document: ${documentId}`);
+    console.log(`Processing OCR for document: ${validatedDocumentId}`);
 
     // Verify user owns this document by checking the associated case
     const { data: documentData, error: docError } = await supabase
       .from('documents')
       .select('case_id, name, cases!inner(user_id)')
-      .eq('id', documentId)
+      .eq('id', validatedDocumentId)
       .single();
 
     if (docError || !documentData) {
@@ -90,12 +176,14 @@ serve(async (req) => {
       return createErrorResponse(
         new Error('Document not found'),
         404,
-        'ocr-document'
+        'ocr-document',
+        corsHeaders
       );
     }
 
     // Check if user owns the case (skip for service role)
-    if (!isServiceRole && (documentData.cases as any).user_id !== user.id) {
+    const ownerId = (documentData as DocumentOwner).cases?.user_id;
+    if (!isServiceRole && ownerId !== user.id) {
       console.error('User does not own this document');
       return forbiddenResponse(
         'You do not have access to this document',
@@ -103,7 +191,7 @@ serve(async (req) => {
       );
     }
 
-    console.log(`User verified as owner of document ${documentId}: ${documentData.name}`);
+    console.log(`User verified as owner of document ${validatedDocumentId}: ${documentData.name}`);
 
     const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -144,9 +232,8 @@ serve(async (req) => {
         .trim();
 
     // Fetch the file content
-    const fileResponse = await fetchWithRetry(fileUrl, {}, 'File download');
-
-    const contentType = fileResponse.headers.get('content-type') || '';
+    const { blob: fileBlob, contentType } = await loadFileBlob(supabase, validatedFileUrl);
+    const resolvedContentType = contentType || fileBlob.type || '';
     let extractedText = '';
 
     // Helper function to convert ArrayBuffer to base64 efficiently
@@ -161,30 +248,19 @@ serve(async (req) => {
       return btoa(binary);
     };
 
-    // For images, use AI vision to extract text
-    if (contentType.includes('image') || fileUrl.match(/\.(jpg|jpeg|png|gif|webp|bmp|tiff)$/i)) {
-      console.log('Processing image with AI vision...');
+    // Gemini 2.5 Flash OCR (PRIMARY - Best Quality)
+    const geminiOcr = async (fileBlob: Blob, mimeType: string, isImage: boolean): Promise<string> => {
+      if (!googleApiKey) {
+        throw new Error('Google AI API key not configured');
+      }
 
-      const arrayBuffer = await fileResponse.arrayBuffer();
+      console.log('Using Gemini 2.5 Flash for OCR (best quality)...');
+
+      const arrayBuffer = await fileBlob.arrayBuffer();
       const base64 = arrayBufferToBase64(arrayBuffer);
-      const mimeType = contentType || 'image/jpeg';
-      const sizeInMB = (arrayBuffer.byteLength / 1024 / 1024).toFixed(2);
 
-      console.log(`Image size: ${sizeInMB}MB, MIME: ${mimeType}`);
-
-      const aiResponse = await fetchWithRetry(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${googleApiKey}`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            contents: [
-              {
-                parts: [
-                  {
-                    text: `You are a professional legal document OCR system. Extract ALL text from this image with maximum accuracy.
+      const prompt = isImage
+        ? `You are a professional legal document OCR system. Extract ALL text from this image with maximum accuracy.
 
 EXTRACTION REQUIREMENTS:
 1. Extract EVERY word, number, date, signature, stamp, and annotation visible
@@ -205,53 +281,7 @@ OUTPUT FORMAT:
 - Start with any document identifiers found (Bates #, Exhibit #, file #, date)
 
 Extract now:`
-                  },
-                  {
-                    inline_data: {
-                      mime_type: mimeType,
-                      data: base64
-                    }
-                  }
-                ]
-              }
-            ],
-            generationConfig: {
-              temperature: 0.1,
-              maxOutputTokens: 32768,
-              responseMimeType: 'text/plain',
-            }
-          }),
-        },
-        'AI image OCR'
-      );
-
-      const aiData = await aiResponse.json();
-      extractedText = normalizeExtractedText(extractGeminiText(aiData));
-      console.log(`Extracted ${extractedText.length} characters from image`);
-
-    } else if (contentType.includes('pdf') || fileUrl.match(/\.pdf$/i)) {
-      // For PDFs, use Gemini 2.0 Flash with native PDF support
-      console.log('PDF detected - using advanced AI processing...');
-
-      const arrayBuffer = await fileResponse.arrayBuffer();
-      const base64 = arrayBufferToBase64(arrayBuffer);
-      const sizeInMB = (arrayBuffer.byteLength / 1024 / 1024).toFixed(2);
-
-      console.log(`PDF size: ${sizeInMB}MB`);
-
-      const aiResponse = await fetchWithRetry(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${googleApiKey}`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            contents: [
-              {
-                parts: [
-                  {
-                    text: `You are a professional legal document OCR system. Extract ALL text from this PDF with maximum accuracy.
+        : `You are a professional legal document OCR system. Extract ALL text from this PDF with maximum accuracy.
 
 EXTRACTION REQUIREMENTS:
 1. Process EVERY page of the PDF
@@ -272,46 +302,200 @@ OUTPUT FORMAT:
 - Use "---" to separate sections within a page
 - Start each page with any identifiers (Bates #, page #)
 
-Extract now:`
-                  },
-                  {
-                    inline_data: {
-                      mime_type: 'application/pdf',
-                      data: base64
-                    }
-                  }
-                ]
-              }
-            ],
-            generationConfig: {
-              temperature: 0.1,
-              maxOutputTokens: 32768,
-              responseMimeType: 'text/plain',
-            }
-          }),
+Extract now:`;
+
+      const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-04-17:generateContent?key=${googleApiKey}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
-        'AI PDF OCR'
-      );
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                { text: prompt },
+                {
+                  inline_data: {
+                    mime_type: mimeType,
+                    data: base64
+                  }
+                }
+              ]
+            }
+          ],
+          generationConfig: {
+            temperature: 0.1,
+            maxOutputTokens: 65536,
+          }
+        }),
+      });
+
+      if (!aiResponse.ok) {
+        const errorText = await aiResponse.text();
+        console.error('Gemini OCR error:', errorText);
+
+        // Check for rate limit errors
+        if (aiResponse.status === 429) {
+          throw new Error('Gemini rate limit exceeded. Falling back to OCR.space...');
+        }
+        throw new Error(`Gemini OCR failed: ${errorText}`);
+      }
 
       const aiData = await aiResponse.json();
-      extractedText = normalizeExtractedText(extractGeminiText(aiData));
-      console.log(`Extracted ${extractedText.length} characters from PDF`);
+      const text = aiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
-    } else if (contentType.includes('text') || fileUrl.match(/\.txt$/i)) {
+      if (!text || text.trim().length === 0) {
+        throw new Error('Gemini returned empty text');
+      }
+
+      console.log(`Gemini extracted ${text.length} characters`);
+      return text;
+    };
+
+    // OCR.space fallback function (FREE: 25,000 requests/month)
+    const ocrSpaceExtract = async (fileBlob: Blob, isImage: boolean, contentType?: string): Promise<string> => {
+      if (!ocrSpaceApiKey) {
+        throw new Error('OCR.space API key not configured');
+      }
+
+      console.log('Using OCR.space fallback OCR service...');
+
+      // Create a File object with proper extension so OCR.space can detect file type
+      const extension = isImage ? 'jpg' : 'pdf';
+      const fileName = `document.${extension}`;
+      const file = new File([fileBlob], fileName, {
+        type: contentType || (isImage ? 'image/jpeg' : 'application/pdf')
+      });
+
+      const formData = new FormData();
+      formData.append('file', file, fileName);
+      formData.append('apikey', ocrSpaceApiKey);
+      formData.append('language', 'eng');
+      formData.append('isOverlayRequired', 'false');
+      formData.append('detectOrientation', 'true');
+      formData.append('scale', 'true');
+      formData.append('OCREngine', '2'); // Use OCR Engine 2 for better accuracy
+      formData.append('filetype', extension.toUpperCase()); // Explicitly set file type
+
+      const response = await fetch('https://api.ocr.space/parse/image', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error(`OCR.space API failed: ${response.status} ${response.statusText}`);
+      }
+
+      const result = (await response.json()) as OcrSpaceResponse;
+
+      if (result.OCRExitCode !== 1 || !result.ParsedResults || result.ParsedResults.length === 0) {
+        const errorMessage = Array.isArray(result.ErrorMessage)
+          ? result.ErrorMessage.join(', ')
+          : (result.ErrorMessage || 'Unknown error');
+        throw new Error(`OCR.space parsing failed: ${errorMessage}`);
+      }
+
+      // Combine all parsed text from all pages
+      const extractedText = result.ParsedResults
+        .map((page, idx: number) => {
+          const pageText = page.ParsedText || '';
+          return result.ParsedResults!.length > 1 ? `=== PAGE ${idx + 1} ===\n${pageText}` : pageText;
+        })
+        .join('\n\n');
+
+      console.log(`OCR.space extracted ${extractedText.length} characters`);
+      return extractedText;
+    };
+
+    // For images, use OCR to extract text
+    if (resolvedContentType.includes('image') || validatedFileUrl.match(/\.(jpg|jpeg|png|gif|webp|bmp|tiff)$/i)) {
+      console.log('Processing image with OCR...');
+
+      const mimeType = resolvedContentType || 'image/jpeg';
+      const sizeInMB = (fileBlob.size / 1024 / 1024).toFixed(2);
+
+      console.log(`Image size: ${sizeInMB}MB, MIME: ${mimeType}`);
+
+      // Try Gemini 2.5 first (best quality)
+      if (googleApiKey) {
+        try {
+          extractedText = await geminiOcr(fileBlob, mimeType, true);
+        } catch (error) {
+          console.error('Gemini OCR error:', error);
+
+          // Fall back to OCR.space
+          if (ocrSpaceApiKey) {
+            console.log('Falling back to OCR.space...');
+            try {
+              extractedText = await ocrSpaceExtract(fileBlob, true, mimeType);
+            } catch (ocrError) {
+              console.error('OCR.space also failed:', ocrError);
+              throw new Error(`All OCR providers failed. Gemini: ${error instanceof Error ? error.message : String(error)}, OCR.space: ${ocrError instanceof Error ? ocrError.message : String(ocrError)}`);
+            }
+          } else {
+            throw error;
+          }
+        }
+      } else if (ocrSpaceApiKey) {
+        // No Gemini, use OCR.space directly
+        extractedText = await ocrSpaceExtract(fileBlob, true, mimeType);
+      }
+
+      if (!extractedText) {
+        throw new Error('No OCR service was able to process this image');
+      }
+
+    } else if (resolvedContentType.includes('pdf') || validatedFileUrl.match(/\.pdf$/i)) {
+      // For PDFs, use OCR
+      console.log('PDF detected - processing with OCR...');
+
+      const sizeInMB = (fileBlob.size / 1024 / 1024).toFixed(2);
+      console.log(`PDF size: ${sizeInMB}MB`);
+
+      // Try Gemini 2.5 first (best quality)
+      if (googleApiKey) {
+        try {
+          extractedText = await geminiOcr(fileBlob, 'application/pdf', false);
+        } catch (error) {
+          console.error('Gemini OCR error:', error);
+
+          // Fall back to OCR.space
+          if (ocrSpaceApiKey) {
+            console.log('Falling back to OCR.space...');
+            try {
+              extractedText = await ocrSpaceExtract(fileBlob, false, 'application/pdf');
+            } catch (ocrError) {
+              console.error('OCR.space also failed:', ocrError);
+              throw new Error(`All OCR providers failed. Gemini: ${error instanceof Error ? error.message : String(error)}, OCR.space: ${ocrError instanceof Error ? ocrError.message : String(ocrError)}`);
+            }
+          } else {
+            throw error;
+          }
+        }
+      } else if (ocrSpaceApiKey) {
+        // No Gemini, use OCR.space directly
+        extractedText = await ocrSpaceExtract(fileBlob, false, 'application/pdf');
+      }
+
+      if (!extractedText) {
+        throw new Error('No OCR service was able to process this PDF');
+      }
+
+    } else if (resolvedContentType.includes('text') || validatedFileUrl.match(/\.(txt|doc|docx)$/i)) {
       // For text files, read directly
-      extractedText = await fileResponse.text();
+      extractedText = await fileBlob.text();
       console.log(`Read ${extractedText.length} characters from text file`);
     } else {
-      console.log(`Unsupported file type: ${contentType}`);
-      extractedText = `[File type ${contentType} - OCR not available for this format]`;
+      console.log(`Unsupported file type: ${resolvedContentType || 'unknown'}`);
+      extractedText = `[File type ${resolvedContentType || 'unknown'} - OCR not available for this format]`;
     }
 
     extractedText = normalizeExtractedText(extractedText);
 
     const isOcrTarget =
-      contentType.includes('image') ||
-      contentType.includes('pdf') ||
-      fileUrl.match(/\.(jpg|jpeg|png|gif|webp|bmp|tiff|pdf)$/i);
+      resolvedContentType.includes('image') ||
+      resolvedContentType.includes('pdf') ||
+      validatedFileUrl.match(/\.(jpg|jpeg|png|gif|webp|bmp|tiff|pdf)$/i);
 
     if (isOcrTarget && extractedText.length < 30) {
       throw new Error(
@@ -325,25 +509,24 @@ Extract now:`
     let adverseFindings: string[] = [];
     let actionItems: string[] = [];
     let summary = '';
+    let timelineEvents: unknown[] = [];
 
-    if (extractedText && extractedText.length > 50 && !extractedText.startsWith('[File type')) {
+    if (extractedText && extractedText.length > 50 && !extractedText.startsWith('[File type') && googleApiKey) {
       console.log('Analyzing extracted text with AI...');
 
-      const analysisResponse = await fetchWithRetry(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${googleApiKey}`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            contents: [
-              {
-                parts: [
-                  {
-                    text: `You are an expert legal document analyst specializing in litigation support. Analyze documents with precision and identify strategic insights for case preparation.
+      const analysisResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-04-17:generateContent?key=${googleApiKey}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                {
+                  text: `You are an expert legal document analyst specializing in litigation support. Analyze documents with precision and identify strategic insights for case preparation.
 
-Analyze this legal document and provide a JSON response with comprehensive legal analysis.
+Analyze this legal document and provide a JSON response with comprehensive legal analysis, including chronological timeline events.
 
 ANALYSIS REQUIREMENTS:
 1. SUMMARY: 2-4 sentence executive summary of the document's content and significance
@@ -351,6 +534,12 @@ ANALYSIS REQUIREMENTS:
 3. FAVORABLE_FINDINGS: 3-5 findings that could support the case (admissions, favorable testimony, helpful evidence)
 4. ADVERSE_FINDINGS: 3-5 findings that could hurt the case (contradictions, damaging statements, weaknesses)
 5. ACTION_ITEMS: 3-5 specific follow-up actions (witnesses to interview, documents to request, issues to research)
+6. TIMELINE_EVENTS: Extract chronological events found in the document. For each event provide:
+   - "event_date": YYYY-MM-DD format (if approximate, use first of month/year)
+   - "title": Short title (5-10 words)
+   - "description": Detailed description (1-2 sentences)
+   - "importance": "high", "medium", or "low"
+   - "event_type": e.g., "communication", "filing", "incident", "meeting"
 
 Be thorough, precise, and strategic. Focus on facts that matter for litigation.
 
@@ -360,38 +549,41 @@ Respond ONLY with valid JSON in this exact format:
   "key_facts": ["fact1", "fact2", ...],
   "favorable_findings": ["finding1", "finding2", ...],
   "adverse_findings": ["finding1", "finding2", ...],
-  "action_items": ["action1", "action2", ...]
+  "action_items": ["action1", "action2", ...],
+  "timeline_events": [
+    { "event_date": "2023-01-01", "title": "...", "description": "...", "importance": "high", "event_type": "..." }
+  ]
 }
 
 Document text:
 ${extractedText.substring(0, 20000)}`
-                  }
-                ]
-              }
-            ],
-            generationConfig: {
-              temperature: 0.2,
-              maxOutputTokens: 2048,
-              responseMimeType: 'application/json',
+                }
+              ]
             }
-          }),
-        },
-        'AI legal analysis'
-      );
+          ],
+          generationConfig: {
+            temperature: 0.2,
+            maxOutputTokens: 4096,
+            responseMimeType: 'application/json',
+          }
+        }),
+      });
 
       const analysisData = await analysisResponse.json();
       const content = extractGeminiText(analysisData);
 
       try {
+        // Try to parse JSON from the response
         const jsonMatch = content.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
           const analysis = JSON.parse(jsonMatch[0]);
-          summary = String(analysis.summary || '').trim();
+          summary = analysis.summary || '';
           keyFacts = Array.isArray(analysis.key_facts) ? analysis.key_facts : [];
           favorableFindings = Array.isArray(analysis.favorable_findings) ? analysis.favorable_findings : [];
           adverseFindings = Array.isArray(analysis.adverse_findings) ? analysis.adverse_findings : [];
           actionItems = Array.isArray(analysis.action_items) ? analysis.action_items : [];
-          console.log(`Analysis complete: ${keyFacts.length} facts, ${favorableFindings.length} favorable, ${adverseFindings.length} adverse`);
+          timelineEvents = Array.isArray(analysis.timeline_events) ? analysis.timeline_events : [];
+          console.log(`Analysis complete: ${keyFacts.length} facts, ${timelineEvents.length} events found`);
         }
       } catch (parseError) {
         console.error('Failed to parse analysis JSON:', parseError);
@@ -413,11 +605,39 @@ ${extractedText.substring(0, 20000)}`
         adverse_findings: adverseFindings.length > 0 ? adverseFindings : null,
         action_items: actionItems.length > 0 ? actionItems : null,
       })
-      .eq('id', documentId);
+      .eq('id', validatedDocumentId);
 
     if (updateError) {
       console.error('Failed to update document:', updateError);
       throw new Error(`Failed to update document: ${updateError.message}`);
+    }
+
+    // Insert extracted timeline events
+    if (timelineEvents.length > 0) {
+      console.log(`Inserting ${timelineEvents.length} timeline events...`);
+      const eventsToInsert = (timelineEvents as Array<{event_date?: string; title?: string; description?: string; importance?: string; event_type?: string}>).map((event) => ({
+        case_id: documentData.case_id,
+        user_id: user.id, // Or ownerId if different
+        linked_document_id: validatedDocumentId,
+        event_date: event.event_date || new Date().toISOString().split('T')[0],
+        title: event.title || 'Untitled Event',
+        description: event.description || '',
+        importance: event.importance || 'medium',
+        event_type: event.event_type || 'general',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }));
+
+      const { error: timelineError } = await supabase
+        .from('timeline_events')
+        .insert(eventsToInsert);
+
+      if (timelineError) {
+        console.error('Failed to insert timeline events:', timelineError);
+        // We don't throw here to avoid failing the whole OCR process just because timeline insertion failed
+      } else {
+        console.log('Timeline events inserted successfully');
+      }
     }
 
     console.log('Document updated successfully with OCR and analysis results');
@@ -436,9 +656,11 @@ ${extractedText.substring(0, 20000)}`
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('OCR Error:', error);
-    return createErrorResponse(error, 500, 'ocr-document');
+    if (error instanceof Error) {
+        return createErrorResponse(error, 500, 'ocr-document', corsHeaders);
+    }
+    return createErrorResponse(new Error('An unknown error occurred'), 500, 'ocr-document', corsHeaders);
   }
 });
-

@@ -13,7 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Progress } from '@/components/ui/progress';
 import { FolderOpen, Loader2, AlertCircle, CheckCircle2, FileText, Music, Video, Image } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import {
   loadGoogleAPI,
@@ -44,7 +44,6 @@ export function GoogleDriveFolderImport({ caseId, onImportStarted }: GoogleDrive
   const [isImporting, setIsImporting] = useState(false);
   const [isApiLoading, setIsApiLoading] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
-  const { toast } = useToast();
 
   // Load Google API when dialog opens
   useEffect(() => {
@@ -60,14 +59,10 @@ export function GoogleDriveFolderImport({ caseId, onImportStarted }: GoogleDrive
           setIsApiLoading(false);
           const errorMessage = error instanceof Error ? error.message : 'Failed to load Google Drive integration';
           setApiError(errorMessage);
-          toast({
-            title: 'Error',
-            description: errorMessage,
-            variant: 'destructive',
-          });
+          toast.error(errorMessage);
         });
     }
-  }, [isOpen, toast]);
+  }, [isOpen]);
 
   const handleSelectFolder = async () => {
     try {
@@ -90,22 +85,14 @@ export function GoogleDriveFolderImport({ caseId, onImportStarted }: GoogleDrive
           setFileCounts(counts);
         } catch (error) {
           console.error('Error counting files:', error);
-          toast({
-            title: 'Warning',
-            description: 'Could not count files in folder, but import can still proceed.',
-            variant: 'default',
-          });
+          toast.warning('Could not count files in folder, but import can still proceed.');
         } finally {
           setIsCountingFiles(false);
         }
       }
     } catch (error) {
       console.error('Error selecting folder:', error);
-      toast({
-        title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to select folder',
-        variant: 'destructive',
-      });
+      toast.error(error instanceof Error ? error.message : 'Failed to select folder');
     } finally {
       setIsLoading(false);
     }
@@ -139,10 +126,7 @@ export function GoogleDriveFolderImport({ caseId, onImportStarted }: GoogleDrive
 
       if (error) throw error;
 
-      toast({
-        title: 'Import Started',
-        description: `Importing files from "${selectedFolder.name}". This may take a while for large folders.`,
-      });
+      toast.success(`Importing files from "${selectedFolder.name}". This may take a while for large folders.`);
 
       // Notify parent component
       if (onImportStarted && data.importJobId) {
@@ -156,11 +140,7 @@ export function GoogleDriveFolderImport({ caseId, onImportStarted }: GoogleDrive
       setIsOpen(false);
     } catch (error) {
       console.error('Error starting import:', error);
-      toast({
-        title: 'Import Failed',
-        description: error instanceof Error ? error.message : 'Failed to start import',
-        variant: 'destructive',
-      });
+      toast.error(error instanceof Error ? error.message : 'Failed to start import');
     } finally {
       setIsImporting(false);
     }

@@ -1,4 +1,7 @@
-project_id = "usyxikgqkcnlzobnqhtz"
+project_id = "rerbrlrxptnusypzpghj"
+
+[db]
+shadow_port = 54420
 
 [functions.create-video-room]
 verify_jwt = false
@@ -22,4 +25,10 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.trial-coach]
+verify_jwt = false
+
+[functions.chat]
+verify_jwt = false
+
+[functions.trial-simulation]
 verify_jwt = false

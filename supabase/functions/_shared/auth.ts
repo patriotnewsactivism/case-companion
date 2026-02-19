@@ -3,11 +3,11 @@
  * Phase 1B: Edge Function Authentication
  */
 
-import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createClient, type SupabaseClient, type User } from 'https://esm.sh/@supabase/supabase-js@2';
 
 export interface AuthResult {
   authorized: boolean;
-  user: any | null;
+  user: User | null;
   supabase: SupabaseClient | null;
   error?: string;
 }
@@ -128,9 +128,12 @@ export async function verifyResourceOwnership(
     };
   }
 
-  // deno-lint-ignore no-explicit-any
-  const record = data as any;
-  if (record?.[userColumn] !== userId) {
+  const record = data as unknown as Record<string, unknown> | null;
+  const ownerId = record && typeof record[userColumn] === 'string'
+    ? record[userColumn]
+    : null;
+
+  if (ownerId !== userId) {
     return {
       authorized: false,
       error: 'You do not have access to this resource',

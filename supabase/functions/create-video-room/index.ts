@@ -38,7 +38,8 @@ serve(async (req) => {
       return createErrorResponse(
         new Error(authResult.error || 'Unauthorized'),
         401,
-        'create-video-room'
+        'create-video-room',
+        corsHeaders
       );
     }
 
@@ -176,10 +177,8 @@ serve(async (req) => {
         title: name,
         description: description,
         enable_recording: enableRecording,
-        max_participants: maxParticipants,
         expires_at: new Date(exp * 1000).toISOString(),
         status: 'active',
-        recording_status: enableRecording ? 'pending' : null,
       })
       .select()
       .single();
@@ -203,6 +202,6 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('Error creating video room:', error);
-    return createErrorResponse(error, 500, 'create-video-room');
+    return createErrorResponse(error, 500, 'create-video-room', corsHeaders);
   }
 });
