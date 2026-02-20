@@ -1,6 +1,11 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { getCorsHeaders } from '../_shared/errorHandler.ts';
+import {
+  getCorsHeaders,
+  createErrorResponse,
+  validateEnvVars,
+  validateRequestBody,
+} from '../_shared/errorHandler.ts';
+import { validateUUID, validateURL } from '../_shared/validation.ts';
 
 interface TranscribeRequest {
   roomId: string;
@@ -8,26 +13,27 @@ interface TranscribeRequest {
 }
 
 serve(async (req) => {
-  // Handle CORS preflight requests
+  const corsHeaders = getCorsHeaders(req);
+
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: getCorsHeaders(req) });
+    return new Response("ok", { headers: corsHeaders });
   }
 
   try {
+    validateEnvVars(['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY']);
+
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+
+    const { createClient } = await import('https://esm.sh/@supabase/supabase-js@2');
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    const { roomId, recordingUrl } = await req.json() as TranscribeRequest;
+    const requestBody = (await req.json()) as Record<string, unknown>;
+    validateRequestBody<TranscribeRequest>(requestBody, ['roomId', 'recordingUrl']);
 
-    if (!roomId || !recordingUrl) {
-      return new Response(
-        JSON.stringify({ error: 'Room ID and recording URL are required' }),
-        { status: 400, headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' } }
-      );
-    }
+    const roomId = validateUUID(requestBody.roomId, 'roomId');
+    const recordingUrl = validateURL(requestBody.recordingUrl);
 
-    // Update status to processing
     await supabase
       .from('video_rooms')
       .update({
@@ -37,13 +43,11 @@ serve(async (req) => {
 
     console.log(`Starting transcription for room ${roomId}`);
 
-    // Use OpenAI Whisper API or other transcription service
     const openaiApiKey = Deno.env.get('OPENAI_API_KEY');
 
     if (!openaiApiKey) {
       console.error('OPENAI_API_KEY not configured');
 
-      // Update status to indicate transcription is not available
       await supabase
         .from('video_rooms')
         .update({
@@ -57,12 +61,11 @@ serve(async (req) => {
           error: 'Transcription service not configured',
           message: 'Add OPENAI_API_KEY environment variable to enable transcription'
         }),
-        { status: 500, headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' } }
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
     try {
-      // Download the recording
       const recordingResponse = await fetch(recordingUrl);
       if (!recordingResponse.ok) {
         throw new Error('Failed to download recording');
@@ -70,7 +73,6 @@ serve(async (req) => {
 
       const audioBlob = await recordingResponse.blob();
 
-      // Prepare form data for Whisper API
       const formData = new FormData();
       formData.append('file', audioBlob, 'recording.mp4');
       formData.append('model', 'whisper-1');
@@ -78,7 +80,6 @@ serve(async (req) => {
       formData.append('response_format', 'verbose_json');
       formData.append('timestamp_granularities[]', 'segment');
 
-      // Call OpenAI Whisper API
       const whisperResponse = await fetch('https://api.openai.com/v1/audio/transcriptions', {
         method: 'POST',
         headers: {
@@ -103,7 +104,6 @@ serve(async (req) => {
 
       console.log(`Transcription completed for room ${roomId}`);
 
-      // Format transcription with timestamps
       let formattedTranscription = transcriptionText;
       if (segments.length > 0) {
         formattedTranscription = segments.map((segment) => {
@@ -113,7 +113,6 @@ serve(async (req) => {
         }).join('\n\n');
       }
 
-      // Update video room with transcription
       const { error: updateError } = await supabase
         .from('video_rooms')
         .update({
@@ -127,7 +126,6 @@ serve(async (req) => {
         throw new Error(`Failed to update room: ${updateError.message}`);
       }
 
-      // Also create a document in the case for the transcription
       const { data: videoRoom } = await supabase
         .from('video_rooms')
         .select('case_id, user_id, title')
@@ -154,13 +152,12 @@ serve(async (req) => {
           transcription: formattedTranscription,
           segments: segments.length,
         }),
-        { headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' } }
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
 
     } catch (transcriptionError) {
       console.error('Transcription error:', transcriptionError);
 
-      // Update status to failed
       await supabase
         .from('video_rooms')
         .update({
@@ -174,15 +171,10 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('Error:', error);
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    return new Response(
-      JSON.stringify({ error: message }),
-      { status: 500, headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' } }
-    );
+    return createErrorResponse(error, 500, 'transcribe-recording', getCorsHeaders(req));
   }
 });
 
-// Helper function to format seconds to HH:MM:SS
 function formatTimestamp(seconds: number): string {
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);

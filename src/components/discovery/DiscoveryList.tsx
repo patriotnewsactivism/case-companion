@@ -48,7 +48,7 @@ export function DiscoveryList({
   const [isBulkUpdating, setIsBulkUpdating] = useState(false);
 
   const filteredRequests = useMemo(() => {
-    let filtered = requests.filter((req) => {
+    const filtered = requests.filter((req) => {
       const matchesSearch = !searchQuery || 
         req.question.toLowerCase().includes(searchQuery.toLowerCase()) ||
         req.requestNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||

@@ -1,10 +1,13 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import {
+  getCorsHeaders,
+  createErrorResponse,
+  validateEnvVars,
+  validateRequestBody,
+  checkRateLimit,
+} from '../_shared/errorHandler.ts';
+import { verifyAuth } from '../_shared/auth.ts';
+import { validateUUID, sanitizeString, validateEnum } from '../_shared/validation.ts';
 
 interface DiscoveryRequest {
   id: string;
@@ -16,41 +19,58 @@ interface DiscoveryRequest {
   objections: string[];
 }
 
+const REQUEST_TYPES = [
+  'interrogatory',
+  'request_for_production',
+  'request_for_admission',
+  'deposition',
+] as const;
+
 serve(async (req) => {
+  const corsHeaders = getCorsHeaders(req);
+
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+    return new Response("ok", { headers: corsHeaders });
   }
 
   try {
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const openaiApiKey = Deno.env.get("OPENAI_API_KEY");
+    validateEnvVars(['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'OPENAI_API_KEY']);
 
-    if (!openaiApiKey) {
-      throw new Error("OPENAI_API_KEY is not configured");
+    const authResult = await verifyAuth(req);
+    if (!authResult.authorized || !authResult.user || !authResult.supabase) {
+      return createErrorResponse(
+        new Error(authResult.error || 'Unauthorized'),
+        401,
+        'discovery-response',
+        corsHeaders
+      );
     }
 
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const { user, supabase } = authResult;
 
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      throw new Error("Missing authorization header");
+    const rateLimitCheck = checkRateLimit(`discovery:${user.id}`, 20, 60000);
+    if (!rateLimitCheck.allowed) {
+      return new Response(
+        JSON.stringify({
+          error: 'Rate limit exceeded',
+          resetAt: new Date(rateLimitCheck.resetAt).toISOString(),
+        }),
+        {
+          status: 429,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      );
     }
 
-    const token = authHeader.replace("Bearer ", "");
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    
-    if (authError || !user) {
-      throw new Error("Unauthorized");
-    }
-
-    const { requestId, question, requestType } = await req.json();
+    const requestBody = (await req.json()) as Record<string, unknown>;
 
     let discoveryRequest: DiscoveryRequest | null = null;
-    let actualQuestion = question;
-    let actualType = requestType;
+    let actualQuestion: string;
+    let actualType: string;
 
-    if (requestId) {
+    if (requestBody.requestId) {
+      const requestId = validateUUID(requestBody.requestId, 'requestId');
+
       const { data, error } = await supabase
         .from("discovery_requests")
         .select("*")
@@ -58,14 +78,22 @@ serve(async (req) => {
         .single();
 
       if (error) throw error;
-      discoveryRequest = data;
+      discoveryRequest = data as DiscoveryRequest;
       actualQuestion = discoveryRequest.question;
       actualType = discoveryRequest.requestType;
+    } else {
+      validateRequestBody(requestBody, ['question']);
+      actualQuestion = sanitizeString(requestBody.question as string, 'question', 10000);
+      actualType = requestBody.requestType
+        ? validateEnum(requestBody.requestType as string, 'requestType', [...REQUEST_TYPES])
+        : 'interrogatory';
     }
 
     if (!actualQuestion) {
       throw new Error("No question provided");
     }
+
+    const openaiApiKey = Deno.env.get("OPENAI_API_KEY");
 
     const typeInstructions: Record<string, string> = {
       interrogatory: `This is an interrogatory question. Draft a formal, legally compliant response.
@@ -96,7 +124,7 @@ serve(async (req) => {
     const systemPrompt = `You are an experienced litigation attorney drafting discovery responses.
 Your task is to generate professional, legally sound responses to discovery requests.
 
-${typeInstructions[actualType || "interrogatory"]}
+${typeInstructions[actualType] || typeInstructions.interrogatory}
 
 Guidelines:
 - Be precise and factual
@@ -228,14 +256,6 @@ Request: ${actualQuestion}`;
     );
   } catch (error) {
     console.error("Discovery response error:", error);
-    return new Response(
-      JSON.stringify({
-        error: error instanceof Error ? error.message : "Unknown error",
-      }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
-    );
+    return createErrorResponse(error, 500, 'discovery-response', corsHeaders);
   }
 });

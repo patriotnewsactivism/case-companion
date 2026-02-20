@@ -18,7 +18,7 @@ interface FoundationSuggestionsProps {
 
 function parseSuggestion(suggestion: string): FoundationSuggestion {
   const lines = suggestion.split('\n');
-  let question = suggestion;
+  const question = suggestion;
   let witnessType = 'Witness';
   let requiredDocuments: string[] = [];
 

@@ -1,17 +1,48 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
-};
+import {
+  getCorsHeaders,
+  createErrorResponse,
+  validateEnvVars,
+  checkRateLimit,
+} from '../_shared/errorHandler.ts';
+import { verifyAuth } from '../_shared/auth.ts';
 
 serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  const corsHeaders = getCorsHeaders(req);
+
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
+    validateEnvVars(['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'OPENAI_API_KEY']);
+
+    const authResult = await verifyAuth(req);
+    if (!authResult.authorized || !authResult.user || !authResult.supabase) {
+      return createErrorResponse(
+        new Error(authResult.error || 'Unauthorized'),
+        401,
+        'chat',
+        corsHeaders
+      );
+    }
+
+    const { user } = authResult;
+
+    const rateLimitCheck = checkRateLimit(`chat:${user.id}`, 30, 60000);
+    if (!rateLimitCheck.allowed) {
+      return new Response(
+        JSON.stringify({
+          error: 'Rate limit exceeded',
+          resetAt: new Date(rateLimitCheck.resetAt).toISOString(),
+        }),
+        {
+          status: 429,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      );
+    }
+
     const { messages } = await req.json();
     const AI_API_KEY = Deno.env.get("OPENAI_API_KEY");
-    if (!AI_API_KEY) throw new Error("AI API key is not configured (set OPENAI_API_KEY)");
 
     const AI_GATEWAY_URL = Deno.env.get("AI_GATEWAY_URL") || "https://api.openai.com/v1/chat/completions";
 
@@ -58,9 +89,6 @@ serve(async (req) => {
     });
   } catch (e) {
     console.error("chat error:", e);
-    return new Response(JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return createErrorResponse(e, 500, 'chat', corsHeaders);
   }
 });
