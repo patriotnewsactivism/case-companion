@@ -225,10 +225,10 @@ serve(async (req) => {
       throw new Error(`${context} failed: ${lastError}`);
     };
 
-    const extractGeminiText = (payload: any) => {
+    const extractGeminiText = (payload: { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> }) => {
       const parts = payload?.candidates?.[0]?.content?.parts;
       if (!Array.isArray(parts)) return '';
-      return parts.map((part: any) => String(part?.text || '')).join('').trim();
+      return parts.map((part) => String(part?.text || '')).join('').trim();
     };
 
     const normalizeExtractedText = (text: string) =>
