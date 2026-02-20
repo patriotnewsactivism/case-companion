@@ -4,10 +4,15 @@ This guide explains how to set up and use the OCR (Optical Character Recognition
 
 ## Overview
 
-The OCR system uses **Google's Gemini 2.5 Flash AI** to extract text from:
+The OCR system uses a **three-tier fallback architecture** to extract text from:
 - **PDF documents** (all pages)
 - **Images** (JPG, PNG, GIF, WebP, BMP, TIFF)
 - **Text files** (TXT, DOC, DOCX)
+
+**OCR Provider Priority:**
+1. **Azure Computer Vision** (Primary - Best Quality)
+2. **OCR.space** (Fallback - Reliable)
+3. **Google Gemini** (Last Resort)
 
 After extracting text, the system automatically:
 1. Performs legal document analysis
@@ -17,11 +22,7 @@ After extracting text, the system automatically:
 
 ## Setup Instructions
 
-The OCR system uses **three providers** with automatic fallback:
-
-1. **Primary**: Microsoft Azure Computer Vision (Best Quality - 5,000 requests/month free)
-2. **Fallback**: OCR.space (25,000 requests/month free)
-3. **Last Resort**: Google Gemini 2.0 Flash (1,500 requests/day free)
+Configure at least ONE OCR provider. The system will automatically cascade through available providers.
 
 ### Option 1: Azure Computer Vision (Primary - BEST QUALITY)
 
