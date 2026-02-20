@@ -206,7 +206,7 @@ JSON schema:
 }`;
 
     const googleApiKey = Deno.env.get("GOOGLE_AI_API_KEY")!;
-    const aiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${googleApiKey}`;
+    const aiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${googleApiKey}`;
 
     let aiText = "";
     let lastError = "";

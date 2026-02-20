@@ -407,7 +407,7 @@ ${messages.length === 0 ? `This is the beginning of the session. The attorney ha
       { role: 'user', content: systemPrompt + '\n\n' + messages.map((m: { role: string; content: string }) => `${m.role}: ${m.content}`).join('\n') },
     ];
 
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GOOGLE_AI_KEY}`;
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GOOGLE_AI_KEY}`;
 
     const response = await fetch(geminiUrl, {
       method: 'POST',

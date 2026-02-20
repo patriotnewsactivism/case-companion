@@ -304,7 +304,7 @@ OUTPUT FORMAT:
 
 Extract now:`;
 
-      const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-04-17:generateContent?key=${googleApiKey}`, {
+      const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${googleApiKey}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -514,7 +514,7 @@ Extract now:`;
     if (extractedText && extractedText.length > 50 && !extractedText.startsWith('[File type') && googleApiKey) {
       console.log('Analyzing extracted text with AI...');
 
-      const analysisResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-04-17:generateContent?key=${googleApiKey}`, {
+      const analysisResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${googleApiKey}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
