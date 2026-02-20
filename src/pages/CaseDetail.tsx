@@ -487,6 +487,7 @@ export default function CaseDetail() {
       const data = await response.json();
 
       queryClient.invalidateQueries({ queryKey: ["documents", id] });
+      queryClient.invalidateQueries({ queryKey: ["timeline_events", id] });
       toast.success("OCR and AI analysis complete.");
     } catch (error) {
       console.error("OCR error:", error);
@@ -586,6 +587,7 @@ export default function CaseDetail() {
 
     setBatchProcessing(false);
     queryClient.invalidateQueries({ queryKey: ["documents", id] });
+    queryClient.invalidateQueries({ queryKey: ["timeline_events", id] });
 
     if (failCount > 0) {
       toast.error(`Successfully analyzed ${successCount} documents, ${failCount} failed.`);

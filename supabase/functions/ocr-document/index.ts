@@ -255,13 +255,138 @@ serve(async (req) => {
       return btoa(binary);
     };
 
-    // Gemini 2.5 Flash OCR (PRIMARY - Best Quality)
+    // Azure Computer Vision OCR (PRIMARY - Industry-leading accuracy)
+    const azureOcr = async (fileBlob: Blob, isImage: boolean): Promise<string> => {
+      if (!azureVisionKey || !azureVisionEndpoint) {
+        throw new Error('Azure Vision API not configured');
+      }
+
+      console.log('Using Azure Computer Vision for OCR (best quality)...');
+
+      const endpoint = azureVisionEndpoint.endsWith('/') 
+        ? azureVisionEndpoint.slice(0, -1) 
+        : azureVisionEndpoint;
+
+      let allText = '';
+      
+      if (isImage) {
+        const arrayBuffer = await fileBlob.arrayBuffer();
+        const response = await fetch(`${endpoint}/vision/v3.2/ocr?detectOrientation=true`, {
+          method: 'POST',
+          headers: {
+            'Ocp-Apim-Subscription-Key': azureVisionKey,
+            'Content-Type': 'application/octet-stream',
+          },
+          body: arrayBuffer,
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          if (response.status === 429) {
+            throw new Error('Azure rate limit exceeded');
+          }
+          throw new Error(`Azure OCR failed: ${response.status} ${errorText}`);
+        }
+
+        const result = await response.json();
+        allText = extractAzureText(result);
+      } else {
+        const formData = new FormData();
+        formData.append('file', fileBlob, 'document.pdf');
+
+        const response = await fetch(`${endpoint}/vision/v3.2/read/analyze`, {
+          method: 'POST',
+          headers: {
+            'Ocp-Apim-Subscription-Key': azureVisionKey,
+          },
+          body: formData,
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          if (response.status === 429) {
+            throw new Error('Azure rate limit exceeded');
+          }
+          throw new Error(`Azure PDF OCR failed: ${response.status} ${errorText}`);
+        }
+
+        const operationLocation = response.headers.get('Operation-Location');
+        if (!operationLocation) {
+          throw new Error('Azure did not return Operation-Location header');
+        }
+
+        let attempts = 0;
+        let readResult = null;
+        while (attempts < 30) {
+          await delay(1000);
+          const statusResponse = await fetch(operationLocation, {
+            headers: { 'Ocp-Apim-Subscription-Key': azureVisionKey },
+          });
+          const statusData = await statusResponse.json();
+          if (statusData.status === 'succeeded') {
+            readResult = statusData;
+            break;
+          }
+          if (statusData.status === 'failed') {
+            throw new Error('Azure PDF OCR analysis failed');
+          }
+          attempts += 1;
+        }
+
+        if (!readResult) {
+          throw new Error('Azure PDF OCR timed out');
+        }
+
+        allText = extractAzureReadResult(readResult);
+      }
+
+      if (!allText || allText.trim().length === 0) {
+        throw new Error('Azure returned empty text');
+      }
+
+      console.log(`Azure extracted ${allText.length} characters`);
+      return allText;
+    };
+
+    const extractAzureText = (result: any): string => {
+      const lines: string[] = [];
+      const regions = result.regions || [];
+      for (const region of regions) {
+        for (const line of region.lines || []) {
+          const lineText = (line.words || []).map((w: any) => w.text || '').join(' ');
+          if (lineText) lines.push(lineText);
+        }
+      }
+      return lines.join('\n');
+    };
+
+    const extractAzureReadResult = (result: any): string => {
+      const pages: string[] = [];
+      const analyzeResult = result.analyzeResult || {};
+      const readResults = analyzeResult.readResults || [];
+      
+      for (let i = 0; i < readResults.length; i += 1) {
+        const page = readResults[i];
+        const pageLines: string[] = [];
+        for (const line of page.lines || []) {
+          if (line.text) pageLines.push(line.text);
+        }
+        if (readResults.length > 1) {
+          pages.push(`=== PAGE ${i + 1} ===\n${pageLines.join('\n')}`);
+        } else {
+          pages.push(pageLines.join('\n'));
+        }
+      }
+      return pages.join('\n\n');
+    };
+
+    // Gemini 2.5 Flash OCR (LAST RESORT - Used when Azure and OCR.space fail)
     const geminiOcr = async (fileBlob: Blob, mimeType: string, isImage: boolean): Promise<string> => {
       if (!googleApiKey) {
         throw new Error('Google AI API key not configured');
       }
 
-      console.log('Using Gemini 2.5 Flash for OCR (best quality)...');
+      console.log('Using Gemini 2.5 Flash for OCR (last resort)...');
 
       const arrayBuffer = await fileBlob.arrayBuffer();
       const base64 = arrayBufferToBase64(arrayBuffer);
@@ -423,33 +548,40 @@ Extract now:`;
 
       console.log(`Image size: ${sizeInMB}MB, MIME: ${mimeType}`);
 
-      // Try Gemini 2.5 first (best quality)
-      if (googleApiKey) {
+      // Try Azure first (best quality), then OCR.space, then Gemini (last resort)
+      const errors: string[] = [];
+      
+      if (hasAzure) {
+        try {
+          extractedText = await azureOcr(fileBlob, true);
+        } catch (error) {
+          console.error('Azure OCR error:', error);
+          errors.push(`Azure: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+      
+      if (!extractedText && hasOcrSpace) {
+        console.log('Trying OCR.space fallback...');
+        try {
+          extractedText = await ocrSpaceExtract(fileBlob, true, mimeType);
+        } catch (error) {
+          console.error('OCR.space OCR error:', error);
+          errors.push(`OCR.space: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+      
+      if (!extractedText && hasGemini) {
+        console.log('Trying Gemini (last resort)...');
         try {
           extractedText = await geminiOcr(fileBlob, mimeType, true);
         } catch (error) {
           console.error('Gemini OCR error:', error);
-
-          // Fall back to OCR.space
-          if (ocrSpaceApiKey) {
-            console.log('Falling back to OCR.space...');
-            try {
-              extractedText = await ocrSpaceExtract(fileBlob, true, mimeType);
-            } catch (ocrError) {
-              console.error('OCR.space also failed:', ocrError);
-              throw new Error(`All OCR providers failed. Gemini: ${error instanceof Error ? error.message : String(error)}, OCR.space: ${ocrError instanceof Error ? ocrError.message : String(ocrError)}`);
-            }
-          } else {
-            throw error;
-          }
+          errors.push(`Gemini: ${error instanceof Error ? error.message : String(error)}`);
         }
-      } else if (ocrSpaceApiKey) {
-        // No Gemini, use OCR.space directly
-        extractedText = await ocrSpaceExtract(fileBlob, true, mimeType);
       }
 
       if (!extractedText) {
-        throw new Error('No OCR service was able to process this image');
+        throw new Error(`All OCR providers failed. ${errors.join('; ')}`);
       }
 
     } else if (resolvedContentType.includes('pdf') || validatedFileUrl.match(/\.pdf$/i)) {
@@ -459,33 +591,40 @@ Extract now:`;
       const sizeInMB = (fileBlob.size / 1024 / 1024).toFixed(2);
       console.log(`PDF size: ${sizeInMB}MB`);
 
-      // Try Gemini 2.5 first (best quality)
-      if (googleApiKey) {
+      // Try Azure first (best quality), then OCR.space, then Gemini (last resort)
+      const errors: string[] = [];
+      
+      if (hasAzure) {
+        try {
+          extractedText = await azureOcr(fileBlob, false);
+        } catch (error) {
+          console.error('Azure OCR error:', error);
+          errors.push(`Azure: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+      
+      if (!extractedText && hasOcrSpace) {
+        console.log('Trying OCR.space fallback...');
+        try {
+          extractedText = await ocrSpaceExtract(fileBlob, false, 'application/pdf');
+        } catch (error) {
+          console.error('OCR.space OCR error:', error);
+          errors.push(`OCR.space: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+      
+      if (!extractedText && hasGemini) {
+        console.log('Trying Gemini (last resort)...');
         try {
           extractedText = await geminiOcr(fileBlob, 'application/pdf', false);
         } catch (error) {
           console.error('Gemini OCR error:', error);
-
-          // Fall back to OCR.space
-          if (ocrSpaceApiKey) {
-            console.log('Falling back to OCR.space...');
-            try {
-              extractedText = await ocrSpaceExtract(fileBlob, false, 'application/pdf');
-            } catch (ocrError) {
-              console.error('OCR.space also failed:', ocrError);
-              throw new Error(`All OCR providers failed. Gemini: ${error instanceof Error ? error.message : String(error)}, OCR.space: ${ocrError instanceof Error ? ocrError.message : String(ocrError)}`);
-            }
-          } else {
-            throw error;
-          }
+          errors.push(`Gemini: ${error instanceof Error ? error.message : String(error)}`);
         }
-      } else if (ocrSpaceApiKey) {
-        // No Gemini, use OCR.space directly
-        extractedText = await ocrSpaceExtract(fileBlob, false, 'application/pdf');
       }
 
       if (!extractedText) {
-        throw new Error('No OCR service was able to process this PDF');
+        throw new Error(`All OCR providers failed. ${errors.join('; ')}`);
       }
 
     } else if (resolvedContentType.includes('text') || validatedFileUrl.match(/\.(txt|doc|docx)$/i)) {
@@ -518,20 +657,14 @@ Extract now:`;
     let summary = '';
     let timelineEvents: unknown[] = [];
 
-    if (extractedText && extractedText.length > 50 && !extractedText.startsWith('[File type') && googleApiKey) {
+    if (extractedText && extractedText.length > 50 && !extractedText.startsWith('[File type') && (hasAzure || hasGemini)) {
       console.log('Analyzing extracted text with AI...');
 
-      const analysisResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${googleApiKey}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                {
-                  text: `You are an expert legal document analyst specializing in litigation support. Analyze documents with precision and identify strategic insights for case preparation.
+      const openaiApiKey = Deno.env.get('OPENAI_API_KEY');
+      const aiGatewayUrl = Deno.env.get('AI_GATEWAY_URL');
+      const hasOpenAI = !!openaiApiKey;
+      
+      const analysisPrompt = `You are an expert legal document analyst specializing in litigation support. Analyze documents with precision and identify strategic insights for case preparation.
 
 Analyze this legal document and provide a JSON response with comprehensive legal analysis, including chronological timeline events.
 
@@ -563,21 +696,74 @@ Respond ONLY with valid JSON in this exact format:
 }
 
 Document text:
-${extractedText.substring(0, 20000)}`
-                }
-              ]
-            }
-          ],
-          generationConfig: {
-            temperature: 0.2,
-            maxOutputTokens: 4096,
-            responseMimeType: 'application/json',
-          }
-        }),
-      });
+${extractedText.substring(0, 20000)}`;
 
-      const analysisData = await analysisResponse.json();
-      const content = extractGeminiText(analysisData);
+      let content = '';
+      
+      // Try OpenAI/AI Gateway first (if configured)
+      if (hasOpenAI) {
+        try {
+          const apiUrl = aiGatewayUrl || 'https://api.openai.com/v1/chat/completions';
+          const analysisResponse = await fetch(apiUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${openaiApiKey}`,
+            },
+            body: JSON.stringify({
+              model: 'gpt-4o',
+              messages: [{ role: 'user', content: analysisPrompt }],
+              temperature: 0.2,
+              max_tokens: 4096,
+              response_format: { type: 'json_object' },
+            }),
+          });
+
+          if (analysisResponse.ok) {
+            const analysisData = await analysisResponse.json();
+            content = analysisData.choices?.[0]?.message?.content || '';
+            console.log('OpenAI analysis completed successfully');
+          } else {
+            console.error('OpenAI analysis failed:', await analysisResponse.text());
+          }
+        } catch (openaiError) {
+          console.error('OpenAI analysis error:', openaiError);
+        }
+      }
+      
+      // Fallback to Gemini if OpenAI didn't work
+      if (!content && hasGemini) {
+        try {
+          const analysisResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${googleApiKey}`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              contents: [
+                {
+                  parts: [{ text: analysisPrompt }]
+                }
+              ],
+              generationConfig: {
+                temperature: 0.2,
+                maxOutputTokens: 4096,
+                responseMimeType: 'application/json',
+              }
+            }),
+          });
+
+          if (analysisResponse.ok) {
+            const analysisData = await analysisResponse.json();
+            content = extractGeminiText(analysisData);
+            console.log('Gemini analysis completed');
+          } else {
+            console.error('Gemini analysis failed:', await analysisResponse.text());
+          }
+        } catch (geminiError) {
+          console.error('Gemini analysis error:', geminiError);
+        }
+      }
 
       try {
         // Try to parse JSON from the response
