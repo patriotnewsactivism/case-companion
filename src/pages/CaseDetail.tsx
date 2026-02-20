@@ -731,6 +731,7 @@ export default function CaseDetail() {
       const batesNumber = docForm.bates_number || generateNextBatesNumber(documents, caseData?.name?.substring(0, 3).toUpperCase() || 'DOC');
 
       if (docForm.file && user) {
+        console.log("Attempting to upload file:", docForm.file.name, "Type:", docForm.file.type, "Size:", docForm.file.size);
         const fileExt = docForm.file.name.split('.').pop();
         const fileName = `${user.id}/${id}/${Date.now()}.${fileExt}`;
 

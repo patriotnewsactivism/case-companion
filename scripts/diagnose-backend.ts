@@ -3,7 +3,9 @@
  * Tests all backend connections and features
  */
 
-import 'dotenv/config';
+import dotenv from 'dotenv';
+dotenv.config({ path: '.env' });
+dotenv.config({ path: 'supabase/.env.local', override: true });
 import { createClient } from '@supabase/supabase-js';
 
 const SUPABASE_URL =
@@ -91,11 +93,9 @@ async function testStorageBucket() {
     }
 
     const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-    const { data, error } = await adminClient
-      .from('buckets', { schema: 'storage' })
-      .select('id, public')
-      .eq('id', 'case-documents')
-      .maybeSingle();
+    const { data, error } = await adminClient.storage.getBucket('case-documents');
+
+    if (error) throw error;
 
     if (error) throw error;
     if (!data) {
@@ -117,7 +117,7 @@ async function testStorageBucket() {
     results.push({
       test: 'Storage Bucket',
       status: 'fail',
-      message: `Storage bucket check failed: ${error}`,
+      message: `Storage bucket check failed: ${error instanceof Error ? error.message : JSON.stringify(error)}`,
     });
   }
 }

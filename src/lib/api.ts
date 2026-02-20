@@ -283,15 +283,24 @@ export async function bulkUploadDocuments(input: BulkDocumentUploadInput): Promi
     try {
       const batchResults = await Promise.allSettled(batchPromises);
       
-      batchResults.forEach((result, index) => {
+      await Promise.all(batchResults.map(async (result, index) => {
         if (result.status === 'fulfilled') {
           results.successful++;
           results.documents.push(result.value);
+          // Trigger document analysis for successful uploads
+          if (result.value.file_url) {
+            try {
+              await triggerDocumentAnalysis(result.value.id, result.value.file_url);
+            } catch (analysisError) {
+              console.error(`Failed to trigger analysis for document ${result.value.id}:`, analysisError);
+              results.errors.push(`File ${batch[index].name}: Failed to trigger analysis - ${analysisError instanceof Error ? analysisError.message : 'Unknown error'}`);
+            }
+          }
         } else {
           results.failed++;
           results.errors.push(`File ${batch[index].name}: ${result.reason.message || 'Unknown error'}`);
         }
-      });
+      }));
     } catch (error) {
       results.failed += batch.length;
       results.errors.push(`Batch upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -322,9 +331,9 @@ export async function deleteDocument(id: string): Promise<void> {
   if (error) throw error;
 }
 
-export async function triggerDocumentAnalysis(documentId: string): Promise<void> {
+export async function triggerDocumentAnalysis(documentId: string, fileUrl: string): Promise<void> {
   const { error } = await supabase.functions.invoke('ocr-document', {
-    body: { documentId },
+    body: { documentId, fileUrl },
   });
 
   if (error) throw error;
