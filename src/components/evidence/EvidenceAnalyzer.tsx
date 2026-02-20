@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Target, History, Loader2, RefreshCw } from "lucide-react";
-import { getCases, getDocumentsByCase, Document, Case } from "@/lib/api";
+import { getCases, getAllDocuments, Document } from "@/lib/api";
 import {
   analyzeEvidence,
   getEvidenceAnalyses,
@@ -36,8 +36,7 @@ export function EvidenceAnalyzer({ caseId: propCaseId }: EvidenceAnalyzerProps) 
 
   const { data: documents = [] } = useQuery({
     queryKey: ["documents"],
-    queryFn: () => getDocumentsByCase(selectedCaseId),
-    enabled: !!selectedCaseId,
+    queryFn: getAllDocuments,
   });
 
   const { data: analyses = [], isLoading: analysesLoading } = useQuery({
