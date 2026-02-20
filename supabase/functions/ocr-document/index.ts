@@ -348,19 +348,33 @@ serve(async (req) => {
       return allText;
     };
 
-    const extractAzureText = (result: any): string => {
+    interface AzureOcrRegion {
+      lines?: Array<{ words?: Array<{ text?: string }> }>;
+    }
+
+    interface AzureOcrResult {
+      regions?: AzureOcrRegion[];
+    }
+
+    interface AzureReadResult {
+      analyzeResult?: {
+        readResults?: Array<{ lines?: Array<{ text?: string }> }>;
+      };
+    }
+
+    const extractAzureText = (result: AzureOcrResult): string => {
       const lines: string[] = [];
       const regions = result.regions || [];
       for (const region of regions) {
         for (const line of region.lines || []) {
-          const lineText = (line.words || []).map((w: any) => w.text || '').join(' ');
+          const lineText = (line.words || []).map((w) => w.text || '').join(' ');
           if (lineText) lines.push(lineText);
         }
       }
       return lines.join('\n');
     };
 
-    const extractAzureReadResult = (result: any): string => {
+    const extractAzureReadResult = (result: AzureReadResult): string => {
       const pages: string[] = [];
       const analyzeResult = result.analyzeResult || {};
       const readResults = analyzeResult.readResults || [];
