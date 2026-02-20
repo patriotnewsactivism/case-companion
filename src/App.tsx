@@ -81,6 +81,7 @@ const Video = lazy(() => import("./pages/Video"));
 const Billing = lazy(() => import("./pages/Billing"));
 const Settings = lazy(() => import("./pages/Settings"));
 const NotFound = lazy(() => import("./pages/NotFound"));
+const Analytics = lazy(() => import("./pages/Analytics"));
 
 // Optimized React Query configuration for better performance
 const queryClient = new QueryClient({
@@ -189,7 +190,7 @@ const App = () => (
                     </ProtectedRoute>
                   }
                 />
-                <Route
+<Route
                   path="/settings"
                   element={
                     <ProtectedRoute>
@@ -197,7 +198,15 @@ const App = () => (
                     </ProtectedRoute>
                   }
                 />
-                
+                <Route
+                  path="/analytics"
+                  element={
+                    <ProtectedRoute>
+                      <Analytics />
+                    </ProtectedRoute>
+                  }
+                />
+
                 {/* 404 page */}
                 <Route path="*" element={<NotFound />} />
               </Routes>

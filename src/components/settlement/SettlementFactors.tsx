@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Trash2, Sparkles, TrendingUp, TrendingDown, Minus, Loader2 } from "lucide-react";
+import { Plus, Trash2, Sparkles, TrendingUp, TrendingDown, Minus, Loader2, Scale } from "lucide-react";
 import type { SettlementFactor } from "@/lib/settlement-api";
 
 interface SettlementFactorsProps {
