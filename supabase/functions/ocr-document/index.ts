@@ -96,18 +96,21 @@ serve(async (req) => {
     const hasAzure = !!(azureVisionKey && azureVisionEndpoint);
     const hasOcrSpace = !!ocrSpaceApiKey;
     const hasGemini = !!googleApiKey;
+    const allowFallbackProviders = Deno.env.get('OCR_ENABLE_FALLBACKS') === 'true';
 
-    if (!hasAzure && !hasOcrSpace && !hasGemini) {
-      console.error('No OCR service configured');
+    if (!hasAzure) {
+      console.error('Azure OCR is not configured');
       return createErrorResponse(
-        new Error('OCR service not configured. Please set AZURE_VISION_API_KEY, OCR_SPACE_API_KEY, or GOOGLE_AI_API_KEY.'),
+        new Error('Azure OCR is not configured. Please set AZURE_VISION_API_KEY and AZURE_VISION_ENDPOINT.'),
         500,
         'ocr-document',
         corsHeaders
       );
     }
 
-    console.log(`OCR providers available: Azure=${hasAzure}, OCR.space=${hasOcrSpace}, Gemini=${hasGemini}`);
+    console.log(
+      `OCR providers available: Azure=${hasAzure}, OCR.space=${hasOcrSpace}, Gemini=${hasGemini}, FallbacksEnabled=${allowFallbackProviders}`
+    );
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || "eyJhbGciOiJFUzI1NiIsImtpZCI6ImI4MTI2OWYxLTIxZDgtNGYyZS1iNzE5LWMyMjQwYTg0MGQ5MCIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MjA4NDUzNzY4Mn0.sZ9Z2QoERcdAxXInqq5YRpH5JLlv4Z8wqTz81X9gZ4Sah4w2XXINGPb8WQC5n3QsSHhKENOCgWOvqm3BD_61DA";
@@ -562,7 +565,7 @@ Extract now:`;
 
       console.log(`Image size: ${sizeInMB}MB, MIME: ${mimeType}`);
 
-      // Try Azure first (best quality), then OCR.space, then Gemini (last resort)
+      // Use Azure OCR by default. OCR.space and Gemini are optional fallbacks.
       const errors: string[] = [];
       
       if (hasAzure) {
@@ -574,7 +577,7 @@ Extract now:`;
         }
       }
       
-      if (!extractedText && hasOcrSpace) {
+      if (!extractedText && allowFallbackProviders && hasOcrSpace) {
         console.log('Trying OCR.space fallback...');
         try {
           extractedText = await ocrSpaceExtract(fileBlob, true, mimeType);
@@ -584,7 +587,7 @@ Extract now:`;
         }
       }
       
-      if (!extractedText && hasGemini) {
+      if (!extractedText && allowFallbackProviders && hasGemini) {
         console.log('Trying Gemini (last resort)...');
         try {
           extractedText = await geminiOcr(fileBlob, mimeType, true);
@@ -595,7 +598,8 @@ Extract now:`;
       }
 
       if (!extractedText) {
-        throw new Error(`All OCR providers failed. ${errors.join('; ')}`);
+        const modePrefix = allowFallbackProviders ? 'All OCR providers failed.' : 'Azure OCR failed.';
+        throw new Error(`${modePrefix} ${errors.join('; ')}`.trim());
       }
 
     } else if (resolvedContentType.includes('pdf') || validatedFileUrl.match(/\.pdf$/i)) {
@@ -605,7 +609,7 @@ Extract now:`;
       const sizeInMB = (fileBlob.size / 1024 / 1024).toFixed(2);
       console.log(`PDF size: ${sizeInMB}MB`);
 
-      // Try Azure first (best quality), then OCR.space, then Gemini (last resort)
+      // Use Azure OCR by default. OCR.space and Gemini are optional fallbacks.
       const errors: string[] = [];
       
       if (hasAzure) {
@@ -617,7 +621,7 @@ Extract now:`;
         }
       }
       
-      if (!extractedText && hasOcrSpace) {
+      if (!extractedText && allowFallbackProviders && hasOcrSpace) {
         console.log('Trying OCR.space fallback...');
         try {
           extractedText = await ocrSpaceExtract(fileBlob, false, 'application/pdf');
@@ -627,7 +631,7 @@ Extract now:`;
         }
       }
       
-      if (!extractedText && hasGemini) {
+      if (!extractedText && allowFallbackProviders && hasGemini) {
         console.log('Trying Gemini (last resort)...');
         try {
           extractedText = await geminiOcr(fileBlob, 'application/pdf', false);
@@ -638,7 +642,8 @@ Extract now:`;
       }
 
       if (!extractedText) {
-        throw new Error(`All OCR providers failed. ${errors.join('; ')}`);
+        const modePrefix = allowFallbackProviders ? 'All OCR providers failed.' : 'Azure OCR failed.';
+        throw new Error(`${modePrefix} ${errors.join('; ')}`.trim());
       }
 
     } else if (resolvedContentType.includes('text') || validatedFileUrl.match(/\.(txt|doc|docx)$/i)) {

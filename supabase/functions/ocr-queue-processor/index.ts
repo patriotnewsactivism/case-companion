@@ -577,9 +577,13 @@ async function processOcrJob(
   const hasAzure = !!(azureVisionKey && azureVisionEndpoint);
   const hasOcrSpace = !!ocrSpaceApiKey;
   const hasGemini = !!googleApiKey;
+  const allowFallbackProviders = Deno.env.get('OCR_ENABLE_FALLBACKS') === 'true';
 
-  if (!hasAzure && !hasOcrSpace && !hasGemini) {
-    return { success: false, error: 'No OCR service configured' };
+  if (!hasAzure) {
+    return {
+      success: false,
+      error: 'Azure OCR is not configured. Please set AZURE_VISION_API_KEY and AZURE_VISION_ENDPOINT.',
+    };
   }
 
   const { data: document, error: docError } = await supabase
@@ -620,7 +624,7 @@ async function processOcrJob(
         }
       }
 
-      if (!extractedText && hasOcrSpace) {
+      if (!extractedText && allowFallbackProviders && hasOcrSpace) {
         try {
           extractedText = await ocrSpaceExtract(ocrSpaceApiKey!, fileBlob, !!isImage, mimeType);
           console.log(`OCR.space extracted ${extractedText.length} characters`);
@@ -631,7 +635,7 @@ async function processOcrJob(
         }
       }
 
-      if (!extractedText && hasGemini) {
+      if (!extractedText && allowFallbackProviders && hasGemini) {
         try {
           extractedText = await geminiOcr(googleApiKey!, fileBlob, mimeType, !!isImage);
           console.log(`Gemini extracted ${extractedText.length} characters`);
@@ -643,7 +647,8 @@ async function processOcrJob(
       }
 
       if (!extractedText) {
-        return { success: false, error: `All OCR providers failed. ${errors.join('; ')}` };
+        const modePrefix = allowFallbackProviders ? 'All OCR providers failed.' : 'Azure OCR failed.';
+        return { success: false, error: `${modePrefix} ${errors.join('; ')}`.trim() };
       }
     } else if (resolvedContentType.includes('text') || doc.file_url.match(/\.(txt|doc|docx)$/i)) {
       extractedText = await fileBlob.text();
