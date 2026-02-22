@@ -28,6 +28,36 @@ interface TrialCoachRequest {
   askedQuestions?: string[];
 }
 
+interface GeminiResponse {
+  candidates?: Array<{
+    content?: {
+      parts?: Array<{ text?: string }>;
+    };
+  }>;
+}
+
+interface CaseData {
+  id: string;
+  user_id: string;
+  name: string;
+  case_type: string;
+  client_name: string;
+  case_theory?: string;
+  key_issues?: string[];
+  winning_factors?: string[];
+  notes?: string;
+}
+
+interface DocumentData {
+  name?: string;
+  summary?: string;
+  key_facts?: string[];
+  favorable_findings?: string[];
+  adverse_findings?: string[];
+  action_items?: string[];
+  ocr_text?: string;
+}
+
 const modeQuestions: Record<Mode, string[]> = {
   "cross-examination": [
     "You gave a different timeline earlier, correct?",
@@ -74,7 +104,7 @@ const toScore = (value: unknown) => {
   return Math.max(0, Math.min(100, Math.round(num)));
 };
 
-const extractGeminiText = (payload: any) => {
+const extractGeminiText = (payload: GeminiResponse) => {
   const parts = payload?.candidates?.[0]?.content?.parts;
   if (!Array.isArray(parts)) return "";
   return parts.map((part) => String(part?.text || "")).join("").trim();
@@ -144,7 +174,7 @@ serve(async (req) => {
       return createErrorResponse(new Error("Case not found"), 404, "trial-coach");
     }
 
-    if ((caseData as any).user_id !== user.id) {
+    if ((caseData as CaseData).user_id !== user.id) {
       return forbiddenResponse("You do not have access to this case", corsHeaders);
     }
 
@@ -156,7 +186,7 @@ serve(async (req) => {
       .limit(6);
 
     const docContext = (docs || [])
-      .map((doc: any, index: number) => {
+      .map((doc: DocumentData, index: number) => {
         const ocrExcerpt = String(doc.ocr_text || "").replace(/\s+/g, " ").slice(0, 700);
         return [
           `DOC ${index + 1}: ${doc.name || "Untitled"}`,
