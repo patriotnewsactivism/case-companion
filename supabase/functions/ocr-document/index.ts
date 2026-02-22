@@ -91,17 +91,14 @@ serve(async (req) => {
     const azureVisionKey = Deno.env.get('AZURE_VISION_API_KEY');
     const azureVisionEndpoint = Deno.env.get('AZURE_VISION_ENDPOINT');
     const ocrSpaceApiKey = Deno.env.get('OCR_SPACE_API_KEY');
-    const googleApiKey = Deno.env.get('GOOGLE_AI_API_KEY');
 
     const hasAzure = !!(azureVisionKey && azureVisionEndpoint);
     const hasOcrSpace = !!ocrSpaceApiKey;
-    const hasGemini = !!googleApiKey;
-    const allowFallbackProviders = Deno.env.get('OCR_ENABLE_FALLBACKS') === 'true';
 
-    if (!hasAzure) {
-      console.error('Azure OCR is not configured');
+    if (!hasAzure && !hasOcrSpace) {
+      console.error('No OCR providers configured');
       return createErrorResponse(
-        new Error('Azure OCR is not configured. Please set AZURE_VISION_API_KEY and AZURE_VISION_ENDPOINT.'),
+        new Error('No OCR providers configured. Please set AZURE_VISION_API_KEY and AZURE_VISION_ENDPOINT, or OCR_SPACE_API_KEY.'),
         500,
         'ocr-document',
         corsHeaders
@@ -109,7 +106,7 @@ serve(async (req) => {
     }
 
     console.log(
-      `OCR providers available: Azure=${hasAzure}, OCR.space=${hasOcrSpace}, Gemini=${hasGemini}, FallbacksEnabled=${allowFallbackProviders}`
+      `OCR providers available: Azure=${hasAzure}, OCR.space=${hasOcrSpace}`
     );
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
@@ -228,12 +225,6 @@ serve(async (req) => {
       throw new Error(`${context} failed: ${lastError}`);
     };
 
-    const extractGeminiText = (payload: { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> }) => {
-      const parts = payload?.candidates?.[0]?.content?.parts;
-      if (!Array.isArray(parts)) return '';
-      return parts.map((part) => String(part?.text || '')).join('').trim();
-    };
-
     const normalizeExtractedText = (text: string) =>
       text
         .replace(/\r\n/g, '\n')
@@ -245,18 +236,6 @@ serve(async (req) => {
     const { blob: fileBlob, contentType } = await loadFileBlob(supabase, validatedFileUrl);
     const resolvedContentType = contentType || fileBlob.type || '';
     let extractedText = '';
-
-    // Helper function to convert ArrayBuffer to base64 efficiently
-    const arrayBufferToBase64 = (buffer: ArrayBuffer): string => {
-      const bytes = new Uint8Array(buffer);
-      let binary = '';
-      const chunkSize = 8192;
-      for (let i = 0; i < bytes.length; i += chunkSize) {
-        const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.length));
-        binary += String.fromCharCode.apply(null, Array.from(chunk));
-      }
-      return btoa(binary);
-    };
 
     // Azure Computer Vision OCR (PRIMARY - Industry-leading accuracy)
     const azureOcr = async (fileBlob: Blob, isImage: boolean): Promise<string> => {
@@ -397,110 +376,6 @@ serve(async (req) => {
       return pages.join('\n\n');
     };
 
-    // Gemini 2.5 Flash OCR (LAST RESORT - Used when Azure and OCR.space fail)
-    const geminiOcr = async (fileBlob: Blob, mimeType: string, isImage: boolean): Promise<string> => {
-      if (!googleApiKey) {
-        throw new Error('Google AI API key not configured');
-      }
-
-      console.log('Using Gemini 2.5 Flash for OCR (last resort)...');
-
-      const arrayBuffer = await fileBlob.arrayBuffer();
-      const base64 = arrayBufferToBase64(arrayBuffer);
-
-      const prompt = isImage
-        ? `You are a professional legal document OCR system. Extract ALL text from this image with maximum accuracy.
-
-EXTRACTION REQUIREMENTS:
-1. Extract EVERY word, number, date, signature, stamp, and annotation visible
-2. Preserve document structure: headings, paragraphs, lists, tables
-3. For tables: use pipe (|) separators and preserve column alignment
-4. Include ALL metadata: dates, case numbers, file stamps, Bates numbers, exhibit numbers
-5. Preserve legal citations exactly as written (case names, statute numbers, etc.)
-6. Include handwritten notes and marginalia if visible
-7. Mark unclear text with [UNCLEAR: your best guess]
-8. Note document quality issues: [FADED], [SMUDGED], [REDACTED], [WATERMARK], etc.
-9. If text is rotated or upside down, still extract it
-10. Extract text from headers, footers, and page numbers
-
-OUTPUT FORMAT:
-- Plain text only, no markdown formatting
-- Preserve original line breaks and paragraph spacing
-- Use "---" to separate distinct sections
-- Start with any document identifiers found (Bates #, Exhibit #, file #, date)
-
-Extract now:`
-        : `You are a professional legal document OCR system. Extract ALL text from this PDF with maximum accuracy.
-
-EXTRACTION REQUIREMENTS:
-1. Process EVERY page of the PDF
-2. Extract EVERY word, number, date, signature, stamp, and annotation
-3. Preserve document structure: headings, paragraphs, lists, tables
-4. For tables: use pipe (|) separators and preserve alignment
-5. Include ALL metadata: dates, case numbers, file stamps, Bates numbers, exhibit numbers
-6. Preserve legal citations exactly as written
-7. Include handwritten notes and marginalia if visible
-8. Mark unclear text with [UNCLEAR: best guess]
-9. Note document quality issues: [FADED], [SMUDGED], [REDACTED]
-10. Extract headers, footers, and page numbers
-
-OUTPUT FORMAT:
-- Plain text only, no markdown
-- Preserve line breaks and spacing
-- Use "=== PAGE X ===" to separate pages
-- Use "---" to separate sections within a page
-- Start each page with any identifiers (Bates #, page #)
-
-Extract now:`;
-
-      const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${googleApiKey}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                { text: prompt },
-                {
-                  inline_data: {
-                    mime_type: mimeType,
-                    data: base64
-                  }
-                }
-              ]
-            }
-          ],
-          generationConfig: {
-            temperature: 0.1,
-            maxOutputTokens: 65536,
-          }
-        }),
-      });
-
-      if (!aiResponse.ok) {
-        const errorText = await aiResponse.text();
-        console.error('Gemini OCR error:', errorText);
-
-        // Check for rate limit errors
-        if (aiResponse.status === 429) {
-          throw new Error('Gemini rate limit exceeded. Falling back to OCR.space...');
-        }
-        throw new Error(`Gemini OCR failed: ${errorText}`);
-      }
-
-      const aiData = await aiResponse.json();
-      const text = aiData.candidates?.[0]?.content?.parts?.[0]?.text || '';
-
-      if (!text || text.trim().length === 0) {
-        throw new Error('Gemini returned empty text');
-      }
-
-      console.log(`Gemini extracted ${text.length} characters`);
-      return text;
-    };
-
     // OCR.space fallback function (FREE: 25,000 requests/month)
     const ocrSpaceExtract = async (fileBlob: Blob, isImage: boolean, contentType?: string): Promise<string> => {
       if (!ocrSpaceApiKey) {
@@ -565,7 +440,7 @@ Extract now:`;
 
       console.log(`Image size: ${sizeInMB}MB, MIME: ${mimeType}`);
 
-      // Use Azure OCR by default. OCR.space and Gemini are optional fallbacks.
+      // Use Azure OCR primarily, OCR.space as fallback
       const errors: string[] = [];
       
       if (hasAzure) {
@@ -577,7 +452,7 @@ Extract now:`;
         }
       }
       
-      if (!extractedText && allowFallbackProviders && hasOcrSpace) {
+      if (!extractedText && hasOcrSpace) {
         console.log('Trying OCR.space fallback...');
         try {
           extractedText = await ocrSpaceExtract(fileBlob, true, mimeType);
@@ -586,20 +461,9 @@ Extract now:`;
           errors.push(`OCR.space: ${error instanceof Error ? error.message : String(error)}`);
         }
       }
-      
-      if (!extractedText && allowFallbackProviders && hasGemini) {
-        console.log('Trying Gemini (last resort)...');
-        try {
-          extractedText = await geminiOcr(fileBlob, mimeType, true);
-        } catch (error) {
-          console.error('Gemini OCR error:', error);
-          errors.push(`Gemini: ${error instanceof Error ? error.message : String(error)}`);
-        }
-      }
 
       if (!extractedText) {
-        const modePrefix = allowFallbackProviders ? 'All OCR providers failed.' : 'Azure OCR failed.';
-        throw new Error(`${modePrefix} ${errors.join('; ')}`.trim());
+        throw new Error(`OCR failed. ${errors.join('; ')}`.trim());
       }
 
     } else if (resolvedContentType.includes('pdf') || validatedFileUrl.match(/\.pdf$/i)) {
@@ -609,7 +473,7 @@ Extract now:`;
       const sizeInMB = (fileBlob.size / 1024 / 1024).toFixed(2);
       console.log(`PDF size: ${sizeInMB}MB`);
 
-      // Use Azure OCR by default. OCR.space and Gemini are optional fallbacks.
+      // Use Azure OCR primarily, OCR.space as fallback
       const errors: string[] = [];
       
       if (hasAzure) {
@@ -621,7 +485,7 @@ Extract now:`;
         }
       }
       
-      if (!extractedText && allowFallbackProviders && hasOcrSpace) {
+      if (!extractedText && hasOcrSpace) {
         console.log('Trying OCR.space fallback...');
         try {
           extractedText = await ocrSpaceExtract(fileBlob, false, 'application/pdf');
@@ -630,20 +494,9 @@ Extract now:`;
           errors.push(`OCR.space: ${error instanceof Error ? error.message : String(error)}`);
         }
       }
-      
-      if (!extractedText && allowFallbackProviders && hasGemini) {
-        console.log('Trying Gemini (last resort)...');
-        try {
-          extractedText = await geminiOcr(fileBlob, 'application/pdf', false);
-        } catch (error) {
-          console.error('Gemini OCR error:', error);
-          errors.push(`Gemini: ${error instanceof Error ? error.message : String(error)}`);
-        }
-      }
 
       if (!extractedText) {
-        const modePrefix = allowFallbackProviders ? 'All OCR providers failed.' : 'Azure OCR failed.';
-        throw new Error(`${modePrefix} ${errors.join('; ')}`.trim());
+        throw new Error(`OCR failed. ${errors.join('; ')}`.trim());
       }
 
     } else if (resolvedContentType.includes('text') || validatedFileUrl.match(/\.(txt|doc|docx)$/i)) {
@@ -676,7 +529,7 @@ Extract now:`;
     let summary = '';
     let timelineEvents: unknown[] = [];
 
-    if (extractedText && extractedText.length > 50 && !extractedText.startsWith('[File type') && (hasAzure || hasGemini)) {
+    if (extractedText && extractedText.length > 50 && !extractedText.startsWith('[File type') && hasAzure) {
       console.log('Analyzing extracted text with AI...');
 
       const openaiApiKey = Deno.env.get('OPENAI_API_KEY');
@@ -747,40 +600,6 @@ ${extractedText.substring(0, 20000)}`;
           }
         } catch (openaiError) {
           console.error('OpenAI analysis error:', openaiError);
-        }
-      }
-      
-      // Fallback to Gemini if OpenAI didn't work
-      if (!content && hasGemini) {
-        try {
-          const analysisResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${googleApiKey}`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              contents: [
-                {
-                  parts: [{ text: analysisPrompt }]
-                }
-              ],
-              generationConfig: {
-                temperature: 0.2,
-                maxOutputTokens: 4096,
-                responseMimeType: 'application/json',
-              }
-            }),
-          });
-
-          if (analysisResponse.ok) {
-            const analysisData = await analysisResponse.json();
-            content = extractGeminiText(analysisData);
-            console.log('Gemini analysis completed');
-          } else {
-            console.error('Gemini analysis failed:', await analysisResponse.text());
-          }
-        } catch (geminiError) {
-          console.error('Gemini analysis error:', geminiError);
         }
       }
 
