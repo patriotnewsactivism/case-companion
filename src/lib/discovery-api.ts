@@ -1,4 +1,11 @@
 import { supabase } from "@/integrations/supabase/client";
+import { extractText, type ExtractionResult } from "./extraction-service";
+import { chunkText, type TextChunk } from "./text-chunking";
+import {
+  cacheAnalysisResult,
+  getCachedAnalysis,
+  createContentHash,
+} from "./cache";
 
 export type DiscoveryType = 'interrogatory' | 'request_for_production' | 'request_for_admission' | 'deposition';
 export type DiscoveryStatus = 'pending' | 'responded' | 'objected' | 'overdue' | 'draft';
@@ -216,3 +223,137 @@ export const DISCOVERY_STATUS_COLORS: Record<DiscoveryStatus, string> = {
   overdue: "bg-red-100 text-red-800 border-red-200",
   draft: "bg-gray-100 text-gray-800 border-gray-200",
 };
+
+export interface DiscoveryDocumentExtraction {
+  documentId: string;
+  extractedText: string;
+  chunks: TextChunk[];
+  metadata: {
+    fileType: string;
+    wordCount: number;
+    charCount: number;
+    isScanned?: boolean;
+  };
+}
+
+export async function extractDiscoveryDocument(
+  file: File,
+  documentId: string
+): Promise<DiscoveryDocumentExtraction> {
+  const cachedResult = getCachedAnalysis<DiscoveryDocumentExtraction>(documentId, 'extraction');
+  if (cachedResult) {
+    return cachedResult;
+  }
+
+  const result = await extractText(file, file.name);
+  const contentHash = createContentHash(result.text);
+  
+  const chunks = chunkText(result.text, {
+    maxChunkSize: 8000,
+    minChunkSize: 500,
+    overlapSize: 200,
+    respectSentenceBoundaries: true,
+  });
+
+  const extraction: DiscoveryDocumentExtraction = {
+    documentId,
+    extractedText: result.text,
+    chunks,
+    metadata: {
+      fileType: result.metadata.fileType,
+      wordCount: result.metadata.wordCount,
+      charCount: result.metadata.charCount,
+      isScanned: result.metadata.isScanned,
+    },
+  };
+
+  cacheAnalysisResult(documentId, 'extraction', extraction);
+
+  return extraction;
+}
+
+export interface BatchExtractionProgress {
+  total: number;
+  completed: number;
+  current: string;
+  results: DiscoveryDocumentExtraction[];
+}
+
+export async function batchExtractDiscoveryDocuments(
+  files: Array<{ file: File; documentId: string }>,
+  onProgress?: (progress: BatchExtractionProgress) => void
+): Promise<DiscoveryDocumentExtraction[]> {
+  const results: DiscoveryDocumentExtraction[] = [];
+  const progress: BatchExtractionProgress = {
+    total: files.length,
+    completed: 0,
+    current: '',
+    results,
+  };
+
+  for (const { file, documentId } of files) {
+    progress.current = file.name;
+    onProgress?.(progress);
+
+    try {
+      const extraction = await extractDiscoveryDocument(file, documentId);
+      results.push(extraction);
+    } catch (error) {
+      console.error(`Failed to extract ${file.name}:`, error);
+      results.push({
+        documentId,
+        extractedText: '',
+        chunks: [],
+        metadata: {
+          fileType: 'unknown',
+          wordCount: 0,
+          charCount: 0,
+        },
+      });
+    }
+
+    progress.completed++;
+    onProgress?.(progress);
+  }
+
+  return results;
+}
+
+export function getDiscoveryDocumentChunks(
+  extractedText: string,
+  options?: { maxChunkSize?: number; overlapSize?: number }
+): TextChunk[] {
+  return chunkText(extractedText, {
+    maxChunkSize: options?.maxChunkSize ?? 8000,
+    minChunkSize: 500,
+    overlapSize: options?.overlapSize ?? 200,
+    respectSentenceBoundaries: true,
+  });
+}
+
+export function findRelevantDiscoveryChunks(
+  chunks: TextChunk[],
+  query: string,
+  topK: number = 5
+): TextChunk[] {
+  const queryTerms = query.toLowerCase().split(/\s+/).filter(t => t.length > 2);
+  
+  const scored = chunks.map(chunk => {
+    const content = chunk.content.toLowerCase();
+    let score = 0;
+    
+    for (const term of queryTerms) {
+      const regex = new RegExp(term, 'gi');
+      const matches = content.match(regex);
+      if (matches) {
+        score += matches.length;
+      }
+    }
+    
+    return { chunk, score };
+  });
+  
+  scored.sort((a, b) => b.score - a.score);
+  
+  return scored.slice(0, topK).map(s => s.chunk);
+}

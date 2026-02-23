@@ -116,6 +116,10 @@ export interface Document {
   adverse_findings: string[] | null;
   action_items: string[] | null;
   ai_analyzed: boolean;
+  ocr_text: string | null;
+  ocr_processed_at: string | null;
+  ocr_provider: string | null;
+  extracted_tables: unknown | null;
   created_at: string;
   updated_at: string;
 }
@@ -503,6 +507,241 @@ export async function updateProfile(updates: Partial<Profile>): Promise<Profile>
 }
 
 // Video Room API
+
+export interface AnalysisResult {
+  success: boolean;
+  textLength: number;
+  ocrProvider: string;
+  hasAnalysis: boolean;
+  summary?: string;
+  keyFacts?: string[];
+  favorableFindings?: string[];
+  adverseFindings?: string[];
+  actionItems?: string[];
+  tablesExtracted?: number;
+}
+
+export interface TableExtractionResult {
+  tables: Array<{
+    rowCount: number;
+    columnCount: number;
+    cells: Array<{
+      rowIndex: number;
+      columnIndex: number;
+      content: string;
+    }>;
+  }>;
+}
+
+export interface DocumentChunk {
+  id: string;
+  content: string;
+  startIndex: number;
+  endIndex: number;
+  pageNumber?: number;
+  metadata: {
+    chunkIndex: number;
+    totalChunks: number;
+    wordCount: number;
+    charCount: number;
+  };
+}
+
+export async function analyzeDocument(
+  documentId: string,
+  fileUrl: string,
+  extractTables: boolean = false
+): Promise<AnalysisResult> {
+  const { data, error } = await supabase.functions.invoke('ocr-document', {
+    body: { documentId, fileUrl, extractTables },
+  });
+
+  if (error) throw error;
+  return data as AnalysisResult;
+}
+
+export async function extractDocumentTables(
+  documentId: string,
+  fileUrl: string
+): Promise<TableExtractionResult> {
+  const { data, error } = await supabase.functions.invoke('ocr-document', {
+    body: { documentId, fileUrl, extractTables: true },
+  });
+
+  if (error) throw error;
+  
+  return {
+    tables: data.tablesExtracted || [],
+  };
+}
+
+export function getDocumentChunks(
+  document: Document,
+  maxChunkSize: number = 8000
+): DocumentChunk[] {
+  if (!document.ocr_text) return [];
+  
+  const text = document.ocr_text;
+  const chunks: DocumentChunk[] = [];
+  let currentIndex = 0;
+  let chunkIndex = 0;
+  
+  while (currentIndex < text.length) {
+    let endIndex = Math.min(currentIndex + maxChunkSize, text.length);
+    
+    if (endIndex < text.length) {
+      const lastNewline = text.lastIndexOf('\n', endIndex);
+      const lastPeriod = text.lastIndexOf('.', endIndex);
+      const breakPoint = Math.max(lastNewline, lastPeriod);
+      
+      if (breakPoint > currentIndex + maxChunkSize * 0.5) {
+        endIndex = breakPoint + 1;
+      }
+    }
+    
+    const content = text.substring(currentIndex, endIndex);
+    chunks.push({
+      id: `${document.id}-chunk-${chunkIndex}`,
+      content,
+      startIndex: currentIndex,
+      endIndex,
+      metadata: {
+        chunkIndex,
+        totalChunks: -1,
+        wordCount: content.split(/\s+/).filter(w => w.length > 0).length,
+        charCount: content.length,
+      },
+    });
+    
+    currentIndex = endIndex;
+    chunkIndex++;
+  }
+  
+  chunks.forEach((chunk, idx) => {
+    chunk.metadata.totalChunks = chunks.length;
+    chunk.metadata.chunkIndex = idx;
+  });
+  
+  return chunks;
+}
+
+export function getDocumentChunksForContext(
+  document: Document,
+  maxTokens: number = 4000
+): string {
+  const chunks = getDocumentChunks(document);
+  if (chunks.length === 0) return '';
+  
+  const avgCharsPerToken = 4;
+  const maxChars = maxTokens * avgCharsPerToken;
+  
+  let result = '';
+  let currentLength = 0;
+  
+  for (const chunk of chunks) {
+    if (currentLength + chunk.content.length <= maxChars) {
+      result += chunk.content + '\n\n';
+      currentLength += chunk.content.length + 2;
+    } else {
+      break;
+    }
+  }
+  
+  return result.trim();
+}
+
+export async function getDocumentWithContext(
+  documentId: string
+): Promise<{ document: Document; chunks: DocumentChunk[]; context: string } | null> {
+  const { data, error } = await supabase
+    .from('documents')
+    .select('*')
+    .eq('id', documentId)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) return null;
+
+  const document = data as unknown as Document;
+  const chunks = getDocumentChunks(document);
+  const context = getDocumentChunksForContext(document);
+
+  return { document, chunks, context };
+}
+
+export interface BatchAnalysisResult {
+  total: number;
+  successful: number;
+  failed: number;
+  results: Array<{
+    documentId: string;
+    status: 'success' | 'failed';
+    error?: string;
+  }>;
+}
+
+export async function batchAnalyzeDocuments(
+  documentIds: string[],
+  onProgress?: (completed: number, total: number) => void
+): Promise<BatchAnalysisResult> {
+  const result: BatchAnalysisResult = {
+    total: documentIds.length,
+    successful: 0,
+    failed: 0,
+    results: [],
+  };
+
+  const { data: documents, error } = await supabase
+    .from('documents')
+    .select('id, file_url')
+    .in('id', documentIds);
+
+  if (error) throw error;
+
+  const docMap = new Map((documents || []).map(d => [d.id, d.file_url]));
+  let completed = 0;
+
+  for (const docId of documentIds) {
+    const fileUrl = docMap.get(docId);
+    
+    if (!fileUrl) {
+      result.failed++;
+      result.results.push({ documentId: docId, status: 'failed', error: 'File URL not found' });
+      continue;
+    }
+
+    try {
+      await analyzeDocument(docId, fileUrl);
+      result.successful++;
+      result.results.push({ documentId: docId, status: 'success' });
+    } catch (err) {
+      result.failed++;
+      result.results.push({ 
+        documentId: docId, 
+        status: 'failed', 
+        error: err instanceof Error ? err.message : 'Unknown error' 
+      });
+    }
+
+    completed++;
+    onProgress?.(completed, documentIds.length);
+  }
+
+  return result;
+}
+
+export async function reanalyzeDocument(documentId: string): Promise<AnalysisResult> {
+  const { data, error } = await supabase
+    .from('documents')
+    .select('file_url')
+    .eq('id', documentId)
+    .single();
+
+  if (error) throw error;
+  if (!data?.file_url) throw new Error('Document has no file URL');
+
+  return analyzeDocument(documentId, data.file_url);
+}
 export interface VideoRoom {
   roomId?: string;
   roomUrl: string;

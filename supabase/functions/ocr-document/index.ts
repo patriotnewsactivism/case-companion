@@ -9,6 +9,13 @@ import {
 } from '../_shared/errorHandler.ts';
 import { verifyAuth, forbiddenResponse } from '../_shared/auth.ts';
 import { validateUUID, validateURL } from '../_shared/validation.ts';
+import {
+  extractText as azureDocExtractText,
+  extractTables as azureDocExtractTables,
+  extractDocumentStructure,
+  formatAnalyzeResultAsText,
+  type TableResult,
+} from '../_shared/azureDocumentIntelligence.ts';
 
 const STORAGE_BUCKET = 'case-documents';
 
@@ -76,29 +83,39 @@ async function loadFileBlob(
   return { blob, contentType };
 }
 
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const normalizeExtractedText = (text: string) =>
+  text
+    .replace(/\r\n/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{4,}/g, '\n\n\n')
+    .trim();
+
 serve(async (req) => {
   const corsHeaders = getCorsHeaders(req);
 
-  // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
 
   try {
-    // Validate environment variables
     validateEnvVars(['SUPABASE_URL', 'SUPABASE_ANON_KEY']);
 
+    const azureDocIntelligenceKey = Deno.env.get('AZURE_DOC_INTELLIGENCE_KEY');
+    const azureDocIntelligenceEndpoint = Deno.env.get('AZURE_DOC_INTELLIGENCE_ENDPOINT');
     const azureVisionKey = Deno.env.get('AZURE_VISION_API_KEY');
     const azureVisionEndpoint = Deno.env.get('AZURE_VISION_ENDPOINT');
     const ocrSpaceApiKey = Deno.env.get('OCR_SPACE_API_KEY');
 
-    const hasAzure = !!(azureVisionKey && azureVisionEndpoint);
+    const hasAzureDocIntelligence = !!(azureDocIntelligenceKey && azureDocIntelligenceEndpoint);
+    const hasAzureVision = !!(azureVisionKey && azureVisionEndpoint);
     const hasOcrSpace = !!ocrSpaceApiKey;
 
-    if (!hasAzure && !hasOcrSpace) {
+    if (!hasAzureDocIntelligence && !hasAzureVision && !hasOcrSpace) {
       console.error('No OCR providers configured');
       return createErrorResponse(
-        new Error('No OCR providers configured. Please set AZURE_VISION_API_KEY and AZURE_VISION_ENDPOINT, or OCR_SPACE_API_KEY.'),
+        new Error('No OCR providers configured. Please set AZURE_DOC_INTELLIGENCE_KEY and AZURE_DOC_INTELLIGENCE_ENDPOINT, or AZURE_VISION_API_KEY and AZURE_VISION_ENDPOINT, or OCR_SPACE_API_KEY.'),
         500,
         'ocr-document',
         corsHeaders
@@ -106,7 +123,7 @@ serve(async (req) => {
     }
 
     console.log(
-      `OCR providers available: Azure=${hasAzure}, OCR.space=${hasOcrSpace}`
+      `OCR providers available: AzureDocIntelligence=${hasAzureDocIntelligence}, AzureVision=${hasAzureVision}, OCR.space=${hasOcrSpace}`
     );
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
@@ -120,14 +137,12 @@ serve(async (req) => {
     let supabase: SupabaseClient;
     let isServiceRole = false;
 
-    // Check if this is a service role call (internal from import-google-drive)
     if (serviceRoleKey && authHeader.includes(serviceRoleKey)) {
       console.log('Service role authentication detected - internal call');
       isServiceRole = true;
       supabase = createClient(supabaseUrl, serviceRoleKey);
       user = { id: 'service-role' };
     } else {
-      // Verify user authentication
       const authResult = await verifyAuth(req);
       if (!authResult.authorized || !authResult.user || !authResult.supabase) {
         return createErrorResponse(
@@ -141,7 +156,6 @@ serve(async (req) => {
       supabase = authResult.supabase;
     }
 
-    // Rate limiting: 10 OCR operations per minute per user (skip for service role)
     if (!isServiceRole) {
       const rateLimitCheck = checkRateLimit(`ocr:${user.id}`, 10, 60000);
       if (!rateLimitCheck.allowed) {
@@ -158,20 +172,19 @@ serve(async (req) => {
       }
     }
 
-    // Parse and validate request body
     const requestBody = (await req.json()) as Record<string, unknown>;
     validateRequestBody<{ documentId: string; fileUrl: string }>(
       requestBody,
       ['documentId', 'fileUrl']
     );
 
-    const { documentId, fileUrl } = requestBody;
-    const validatedDocumentId = validateUUID(documentId, 'documentId');
-    const validatedFileUrl = validateURL(fileUrl);
+    const { documentId, fileUrl, extractTables } = requestBody;
+    const validatedDocumentId = validateUUID(documentId as string, 'documentId');
+    const validatedFileUrl = validateURL(fileUrl as string);
+    const shouldExtractTables = extractTables === true;
 
     console.log(`Processing OCR for document: ${validatedDocumentId}`);
 
-    // Verify user owns this document by checking the associated case
     const { data: documentData, error: docError } = await supabase
       .from('documents')
       .select('case_id, name, cases!inner(user_id)')
@@ -188,7 +201,6 @@ serve(async (req) => {
       );
     }
 
-    // Check if user owns the case (skip for service role)
     const ownerId = (documentData as DocumentOwner).cases?.user_id;
     if (!isServiceRole && ownerId !== user.id) {
       console.error('User does not own this document');
@@ -199,8 +211,6 @@ serve(async (req) => {
     }
 
     console.log(`User verified as owner of document ${validatedDocumentId}: ${documentData.name}`);
-
-    const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
     const fetchWithRetry = async (
       url: string,
@@ -225,25 +235,18 @@ serve(async (req) => {
       throw new Error(`${context} failed: ${lastError}`);
     };
 
-    const normalizeExtractedText = (text: string) =>
-      text
-        .replace(/\r\n/g, '\n')
-        .replace(/[ \t]+\n/g, '\n')
-        .replace(/\n{4,}/g, '\n\n\n')
-        .trim();
-
-    // Fetch the file content
     const { blob: fileBlob, contentType } = await loadFileBlob(supabase, validatedFileUrl);
     const resolvedContentType = contentType || fileBlob.type || '';
     let extractedText = '';
+    let extractedTables: TableResult[] = [];
+    let ocrProvider = '';
 
-    // Azure Computer Vision OCR (PRIMARY - Industry-leading accuracy)
-    const azureOcr = async (fileBlob: Blob, isImage: boolean): Promise<string> => {
+    const azureVisionOcr = async (fileBlob: Blob, isImage: boolean): Promise<string> => {
       if (!azureVisionKey || !azureVisionEndpoint) {
         throw new Error('Azure Vision API not configured');
       }
 
-      console.log('Using Azure Computer Vision for OCR (best quality)...');
+      console.log('Using Azure Computer Vision for OCR...');
 
       const endpoint = azureVisionEndpoint.endsWith('/') 
         ? azureVisionEndpoint.slice(0, -1) 
@@ -326,7 +329,7 @@ serve(async (req) => {
         throw new Error('Azure returned empty text');
       }
 
-      console.log(`Azure extracted ${allText.length} characters`);
+      console.log(`Azure Vision extracted ${allText.length} characters`);
       return allText;
     };
 
@@ -376,7 +379,6 @@ serve(async (req) => {
       return pages.join('\n\n');
     };
 
-    // OCR.space fallback function (FREE: 25,000 requests/month)
     const ocrSpaceExtract = async (fileBlob: Blob, isImage: boolean, contentType?: string): Promise<string> => {
       if (!ocrSpaceApiKey) {
         throw new Error('OCR.space API key not configured');
@@ -384,7 +386,6 @@ serve(async (req) => {
 
       console.log('Using OCR.space fallback OCR service...');
 
-      // Create a File object with proper extension so OCR.space can detect file type
       const extension = isImage ? 'jpg' : 'pdf';
       const fileName = `document.${extension}`;
       const file = new File([fileBlob], fileName, {
@@ -398,8 +399,8 @@ serve(async (req) => {
       formData.append('isOverlayRequired', 'false');
       formData.append('detectOrientation', 'true');
       formData.append('scale', 'true');
-      formData.append('OCREngine', '2'); // Use OCR Engine 2 for better accuracy
-      formData.append('filetype', extension.toUpperCase()); // Explicitly set file type
+      formData.append('OCREngine', '2');
+      formData.append('filetype', extension.toUpperCase());
 
       const response = await fetch('https://api.ocr.space/parse/image', {
         method: 'POST',
@@ -419,7 +420,6 @@ serve(async (req) => {
         throw new Error(`OCR.space parsing failed: ${errorMessage}`);
       }
 
-      // Combine all parsed text from all pages
       const extractedText = result.ParsedResults
         .map((page, idx: number) => {
           const pageText = page.ParsedText || '';
@@ -431,64 +431,57 @@ serve(async (req) => {
       return extractedText;
     };
 
-    // For images, use OCR to extract text
-    if (resolvedContentType.includes('image') || validatedFileUrl.match(/\.(jpg|jpeg|png|gif|webp|bmp|tiff)$/i)) {
-      console.log('Processing image with OCR...');
+    const isOcrTarget =
+      resolvedContentType.includes('image') ||
+      resolvedContentType.includes('pdf') ||
+      validatedFileUrl.match(/\.(jpg|jpeg|png|gif|webp|bmp|tiff|pdf)$/i);
 
-      const mimeType = resolvedContentType || 'image/jpeg';
+    if (isOcrTarget) {
+      console.log('Processing document with OCR...');
+      const isImage = resolvedContentType.includes('image') || validatedFileUrl.match(/\.(jpg|jpeg|png|gif|webp|bmp|tiff)$/i);
       const sizeInMB = (fileBlob.size / 1024 / 1024).toFixed(2);
+      console.log(`Document size: ${sizeInMB}MB, MIME: ${resolvedContentType}`);
 
-      console.log(`Image size: ${sizeInMB}MB, MIME: ${mimeType}`);
-
-      // Use Azure OCR primarily, OCR.space as fallback
       const errors: string[] = [];
-      
-      if (hasAzure) {
+
+      if (hasAzureDocIntelligence) {
         try {
-          extractedText = await azureOcr(fileBlob, true);
+          console.log('Attempting Azure Document Intelligence (primary)...');
+          if (shouldExtractTables) {
+            const result = await extractDocumentStructure(fileBlob, (status, progress) => {
+              console.log(`Azure Doc Intelligence: ${status} (${progress}%)`);
+            });
+            extractedText = formatAnalyzeResultAsText(result);
+            extractedTables = result.tables || [];
+          } else {
+            extractedText = await azureDocExtractText(fileBlob, (status, progress) => {
+              console.log(`Azure Doc Intelligence: ${status} (${progress}%)`);
+            });
+          }
+          ocrProvider = 'azure-doc-intelligence';
+          console.log(`Azure Document Intelligence extracted ${extractedText.length} characters`);
         } catch (error) {
-          console.error('Azure OCR error:', error);
-          errors.push(`Azure: ${error instanceof Error ? error.message : String(error)}`);
+          console.error('Azure Document Intelligence error:', error);
+          errors.push(`AzureDocIntelligence: ${error instanceof Error ? error.message : String(error)}`);
         }
       }
-      
+
+      if (!extractedText && hasAzureVision) {
+        try {
+          console.log('Trying Azure Vision fallback...');
+          extractedText = await azureVisionOcr(fileBlob, !!isImage);
+          ocrProvider = 'azure-vision';
+        } catch (error) {
+          console.error('Azure Vision OCR error:', error);
+          errors.push(`AzureVision: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+
       if (!extractedText && hasOcrSpace) {
         console.log('Trying OCR.space fallback...');
         try {
-          extractedText = await ocrSpaceExtract(fileBlob, true, mimeType);
-        } catch (error) {
-          console.error('OCR.space OCR error:', error);
-          errors.push(`OCR.space: ${error instanceof Error ? error.message : String(error)}`);
-        }
-      }
-
-      if (!extractedText) {
-        throw new Error(`OCR failed. ${errors.join('; ')}`.trim());
-      }
-
-    } else if (resolvedContentType.includes('pdf') || validatedFileUrl.match(/\.pdf$/i)) {
-      // For PDFs, use OCR
-      console.log('PDF detected - processing with OCR...');
-
-      const sizeInMB = (fileBlob.size / 1024 / 1024).toFixed(2);
-      console.log(`PDF size: ${sizeInMB}MB`);
-
-      // Use Azure OCR primarily, OCR.space as fallback
-      const errors: string[] = [];
-      
-      if (hasAzure) {
-        try {
-          extractedText = await azureOcr(fileBlob, false);
-        } catch (error) {
-          console.error('Azure OCR error:', error);
-          errors.push(`Azure: ${error instanceof Error ? error.message : String(error)}`);
-        }
-      }
-      
-      if (!extractedText && hasOcrSpace) {
-        console.log('Trying OCR.space fallback...');
-        try {
-          extractedText = await ocrSpaceExtract(fileBlob, false, 'application/pdf');
+          extractedText = await ocrSpaceExtract(fileBlob, !!isImage, resolvedContentType);
+          ocrProvider = 'ocr-space';
         } catch (error) {
           console.error('OCR.space OCR error:', error);
           errors.push(`OCR.space: ${error instanceof Error ? error.message : String(error)}`);
@@ -500,20 +493,16 @@ serve(async (req) => {
       }
 
     } else if (resolvedContentType.includes('text') || validatedFileUrl.match(/\.(txt|doc|docx)$/i)) {
-      // For text files, read directly
       extractedText = await fileBlob.text();
+      ocrProvider = 'direct-text';
       console.log(`Read ${extractedText.length} characters from text file`);
     } else {
       console.log(`Unsupported file type: ${resolvedContentType || 'unknown'}`);
       extractedText = `[File type ${resolvedContentType || 'unknown'} - OCR not available for this format]`;
+      ocrProvider = 'none';
     }
 
     extractedText = normalizeExtractedText(extractedText);
-
-    const isOcrTarget =
-      resolvedContentType.includes('image') ||
-      resolvedContentType.includes('pdf') ||
-      validatedFileUrl.match(/\.(jpg|jpeg|png|gif|webp|bmp|tiff|pdf)$/i);
 
     if (isOcrTarget && extractedText.length < 30) {
       throw new Error(
@@ -521,7 +510,6 @@ serve(async (req) => {
       );
     }
 
-    // Now use AI to analyze the extracted text and generate legal insights
     let keyFacts: string[] = [];
     let favorableFindings: string[] = [];
     let adverseFindings: string[] = [];
@@ -529,13 +517,13 @@ serve(async (req) => {
     let summary = '';
     let timelineEvents: unknown[] = [];
 
-    if (extractedText && extractedText.length > 50 && !extractedText.startsWith('[File type') && hasAzure) {
+    const openaiApiKey = Deno.env.get('OPENAI_API_KEY');
+    const aiGatewayUrl = Deno.env.get('AI_GATEWAY_URL');
+    const hasOpenAI = !!openaiApiKey;
+
+    if (extractedText && extractedText.length > 50 && !extractedText.startsWith('[File type') && hasOpenAI) {
       console.log('Analyzing extracted text with AI...');
 
-      const openaiApiKey = Deno.env.get('OPENAI_API_KEY');
-      const aiGatewayUrl = Deno.env.get('AI_GATEWAY_URL');
-      const hasOpenAI = !!openaiApiKey;
-      
       const analysisPrompt = `You are an expert legal document analyst specializing in litigation support. Analyze documents with precision and identify strategic insights for case preparation.
 
 Analyze this legal document and provide a JSON response with comprehensive legal analysis, including chronological timeline events.
@@ -572,39 +560,35 @@ ${extractedText.substring(0, 20000)}`;
 
       let content = '';
       
-      // Try OpenAI/AI Gateway first (if configured)
-      if (hasOpenAI) {
-        try {
-          const apiUrl = aiGatewayUrl || 'https://api.openai.com/v1/chat/completions';
-          const analysisResponse = await fetch(apiUrl, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${openaiApiKey}`,
-            },
-            body: JSON.stringify({
-              model: 'gpt-4o',
-              messages: [{ role: 'user', content: analysisPrompt }],
-              temperature: 0.2,
-              max_tokens: 4096,
-              response_format: { type: 'json_object' },
-            }),
-          });
+      try {
+        const apiUrl = aiGatewayUrl || 'https://api.openai.com/v1/chat/completions';
+        const analysisResponse = await fetch(apiUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${openaiApiKey}`,
+          },
+          body: JSON.stringify({
+            model: 'gpt-4o',
+            messages: [{ role: 'user', content: analysisPrompt }],
+            temperature: 0.2,
+            max_tokens: 4096,
+            response_format: { type: 'json_object' },
+          }),
+        });
 
-          if (analysisResponse.ok) {
-            const analysisData = await analysisResponse.json();
-            content = analysisData.choices?.[0]?.message?.content || '';
-            console.log('OpenAI analysis completed successfully');
-          } else {
-            console.error('OpenAI analysis failed:', await analysisResponse.text());
-          }
-        } catch (openaiError) {
-          console.error('OpenAI analysis error:', openaiError);
+        if (analysisResponse.ok) {
+          const analysisData = await analysisResponse.json();
+          content = analysisData.choices?.[0]?.message?.content || '';
+          console.log('OpenAI analysis completed successfully');
+        } else {
+          console.error('OpenAI analysis failed:', await analysisResponse.text());
         }
+      } catch (openaiError) {
+        console.error('OpenAI analysis error:', openaiError);
       }
 
       try {
-        // Try to parse JSON from the response
         const jsonMatch = content.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
           const analysis = JSON.parse(jsonMatch[0]);
@@ -623,19 +607,25 @@ ${extractedText.substring(0, 20000)}`;
       }
     }
 
-    // Update the document with OCR results
+    const updateData: Record<string, unknown> = {
+      ocr_text: extractedText,
+      ocr_processed_at: new Date().toISOString(),
+      ocr_provider: ocrProvider,
+      ai_analyzed: !!summary,
+      summary: summary || null,
+      key_facts: keyFacts.length > 0 ? keyFacts : null,
+      favorable_findings: favorableFindings.length > 0 ? favorableFindings : null,
+      adverse_findings: adverseFindings.length > 0 ? adverseFindings : null,
+      action_items: actionItems.length > 0 ? actionItems : null,
+    };
+
+    if (extractedTables.length > 0) {
+      updateData.extracted_tables = extractedTables;
+    }
+
     const { error: updateError } = await supabase
       .from('documents')
-      .update({
-        ocr_text: extractedText,
-        ocr_processed_at: new Date().toISOString(),
-        ai_analyzed: !!summary,
-        summary: summary || null,
-        key_facts: keyFacts.length > 0 ? keyFacts : null,
-        favorable_findings: favorableFindings.length > 0 ? favorableFindings : null,
-        adverse_findings: adverseFindings.length > 0 ? adverseFindings : null,
-        action_items: actionItems.length > 0 ? actionItems : null,
-      })
+      .update(updateData)
       .eq('id', validatedDocumentId);
 
     if (updateError) {
@@ -643,12 +633,11 @@ ${extractedText.substring(0, 20000)}`;
       throw new Error(`Failed to update document: ${updateError.message}`);
     }
 
-    // Insert extracted timeline events
     if (timelineEvents.length > 0) {
       console.log(`Inserting ${timelineEvents.length} timeline events...`);
       const eventsToInsert = (timelineEvents as Array<{event_date?: string; title?: string; description?: string; importance?: string; event_type?: string}>).map((event) => ({
         case_id: documentData.case_id,
-        user_id: user.id, // Or ownerId if different
+        user_id: user.id,
         linked_document_id: validatedDocumentId,
         event_date: event.event_date || new Date().toISOString().split('T')[0],
         title: event.title || 'Untitled Event',
@@ -665,7 +654,6 @@ ${extractedText.substring(0, 20000)}`;
 
       if (timelineError) {
         console.error('Failed to insert timeline events:', timelineError);
-        // We don't throw here to avoid failing the whole OCR process just because timeline insertion failed
       } else {
         console.log('Timeline events inserted successfully');
       }
@@ -677,12 +665,14 @@ ${extractedText.substring(0, 20000)}`;
       JSON.stringify({
         success: true,
         textLength: extractedText.length,
+        ocrProvider,
         hasAnalysis: !!summary,
         summary,
         keyFacts,
         favorableFindings,
         adverseFindings,
         actionItems,
+        tablesExtracted: extractedTables.length,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
