@@ -82,6 +82,7 @@ const Billing = lazy(() => import("./pages/Billing"));
 const Settings = lazy(() => import("./pages/Settings"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 const Analytics = lazy(() => import("./pages/Analytics"));
+const MockJury = lazy(() => import("./pages/MockJury"));
 
 // Optimized React Query configuration for better performance
 const queryClient = new QueryClient({
@@ -203,6 +204,14 @@ const App = () => (
                   element={
                     <ProtectedRoute>
                       <Analytics />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/mock-jury"
+                  element={
+                    <ProtectedRoute>
+                      <MockJury />
                     </ProtectedRoute>
                   }
                 />

@@ -100,7 +100,7 @@ export function TrialSimulator({ caseData, documents = [] }: TrialSimulatorProps
     for (const line of lines) {
       const trimmed = line.trim();
       
-      if (trimmed.match(/^(\d+[\.\)]|[Qq]uestion\s*\d*:)/) || trimmed.includes('?')) {
+      if (trimmed.match(/^(\d+[.)]|[Qq]uestion\s*\d*:)/) || trimmed.includes('?')) {
         if (currentQuestion?.question) {
           questions.push({
             id: `q-${questions.length + 1}`,
@@ -113,7 +113,7 @@ export function TrialSimulator({ caseData, documents = [] }: TrialSimulatorProps
           });
         }
         currentQuestion = {
-          question: trimmed.replace(/^(\d+[\.\)]|[Qq]uestion\s*\d*:)\s*/, ''),
+          question: trimmed.replace(/^(\d+[.)]|[Qq]uestion\s*\d*:)\s*/, ''),
         };
       }
       

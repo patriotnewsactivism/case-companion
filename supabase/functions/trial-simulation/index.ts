@@ -334,6 +334,13 @@ serve(async (req) => {
       .eq('case_id', caseId)
       .limit(10);
 
+    // Get witness prep data for personalized simulations
+    const { data: witnessPrep } = await supabase
+      .from('witness_prep')
+      .select('witness_name, witness_type, key_topics, preparation_notes, personality, simulation_notes')
+      .eq('case_id', caseId)
+      .limit(10);
+
     // Get timeline events for chronology
     const { data: timelineEvents } = await supabase
       .from('timeline_events')
@@ -369,6 +376,15 @@ serve(async (req) => {
       type: dep.deponent_type,
       summary: dep.summary,
       keyTestimony: dep.key_testimony || [],
+    })) || [];
+
+    const witnessPrepContext = witnessPrep?.map(wp => ({
+      name: wp.witness_name,
+      type: wp.witness_type,
+      keyTopics: wp.key_topics || [],
+      notes: wp.preparation_notes,
+      personality: wp.personality,
+      simulationNotes: wp.simulation_notes,
     })) || [];
 
     const timelineContext = timelineEvents?.map(event => ({
@@ -407,6 +423,15 @@ ${depositionContext.map(dep => `
 ${dep.deponent} (${dep.type || 'Witness'}):
 - Summary: ${dep.summary || 'N/A'}
 - Key Testimony: ${dep.keyTestimony.slice(0, 3).join('; ') || 'N/A'}
+`).join('\n')}` : ''}
+
+${witnessPrepContext.length > 0 ? `=== WITNESS PROFILES ===
+${witnessPrepContext.map(wp => `
+${wp.name} (${wp.type || 'Witness'}):
+- Personality: ${wp.personality || 'cooperative'}
+- Key Topics: ${wp.keyTopics.slice(0, 3).join('; ') || 'N/A'}
+- Preparation Notes: ${wp.notes || 'N/A'}
+${wp.simulationNotes ? `- Simulation Notes: ${wp.simulationNotes}` : ''}
 `).join('\n')}` : ''}
 
 ${timelineContext.length > 0 ? `=== CASE TIMELINE ===
