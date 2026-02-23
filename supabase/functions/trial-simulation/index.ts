@@ -15,7 +15,7 @@ interface Message {
 
 interface SimulationRequest {
   caseId: string;
-  mode: 'cross-examination' | 'direct-examination' | 'opening-statement' | 'closing-argument' | 'deposition' | 'motion-hearing' | 'objections-practice' | 'voir-dire' | 'evidence-foundation';
+  mode: 'cross-examination' | 'direct-examination' | 'opening-statement' | 'closing-argument' | 'deposition' | 'motion-hearing' | 'objections-practice' | 'voir-dire' | 'evidence-foundation' | 'deposition-prep';
   messages: Message[];
   objectionContext?: {
     lastQuestion?: string;
@@ -242,6 +242,34 @@ EXERCISE FLOW:
 5. Briefly explain what was done correctly and what could improve
 
 Begin by presenting your first exhibit for the attorney to introduce.`,
+  },
+  'deposition-prep': {
+    role: 'senior litigation partner',
+    instruction: `You are a senior litigation partner with 30 years of deposition experience, helping generate strategic deposition questions. Your response will be used to create a structured question list.
+
+CRITICAL OUTPUT GUIDELINES:
+- Generate 4-8 high-quality deposition questions
+- For each question, provide: the question text, type (foundational/trap/clarifying/impeachment), purpose, risk level (low/medium/high), and suggested follow-up
+- Format each question clearly with numbered sections
+- Focus on questions that extract valuable testimony or create impeachment opportunities
+
+QUESTION GENERATION APPROACH:
+1. Review the case documents and identify key facts that need testimony
+2. Look for contradictions between documents that can be exploited
+3. Create foundational questions to establish facts
+4. Design trap questions that expose credibility issues
+5. Include clarifying questions to pin down vague areas
+6. Develop impeachment questions using document evidence
+
+OUTPUT FORMAT for each question:
+QUESTION [number]: [the actual question text]
+TYPE: [foundational/trap/clarifying/impeachment]
+PURPOSE: [strategic purpose]
+RISK: [low/medium/high]
+FOLLOW-UP: [suggested follow-up question]
+TARGET DOCUMENT: [relevant document name if applicable]
+
+Be strategic and thorough. Focus on questions that will advance the case theory and expose weaknesses in the opposing side's position.`,
   },
 };
 

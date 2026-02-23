@@ -42,6 +42,13 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useMutation } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
+import {
+  createTrialSession,
+  endTrialSession,
+  addTranscriptMessage,
+  addCoachingTip,
+  PerformanceMetrics,
+} from "@/lib/trial-session-api";
 
 // ---------- Types ----------
 
@@ -291,11 +298,22 @@ export function VoiceCourtroom({ caseId, caseName, mode, modeName, onEnd }: Voic
   const [exchangeCount, setExchangeCount] = useState(0);
   const [showTranscript, setShowTranscript] = useState(false);
   const [speechOutputEnabled, setSpeechOutputEnabled] = useState(true);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [metrics, setMetrics] = useState<PerformanceMetrics>({
+    totalQuestions: 0,
+    successfulObjections: 0,
+    missedObjections: 0,
+    leadingQuestionsUsed: 0,
+    openQuestionsUsed: 0,
+    avgResponseTimeMs: null,
+    credibilityScore: null,
+  });
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const manualMicPauseRef = useRef(false);
   const micBlockedRef = useRef(false);
   const initializedVoiceModeRef = useRef(false);
+  const sessionCreatedRef = useRef(false);
 
   // Voice engine
   const voice = useVoiceEngine({
@@ -359,6 +377,27 @@ export function VoiceCourtroom({ caseId, caseName, mode, modeName, onEnd }: Voic
     setMessages([introMessage]);
   }, [modeName, caseName]);
 
+  // Create session on mount
+  useEffect(() => {
+    if (sessionCreatedRef.current) return;
+    sessionCreatedRef.current = true;
+
+    const initSession = async () => {
+      try {
+        const session = await createTrialSession({
+          case_id: caseId,
+          mode,
+          scenario: modeName,
+        });
+        setSessionId(session.id);
+      } catch (error) {
+        console.error("Failed to create trial session:", error);
+      }
+    };
+
+    initSession();
+  }, [caseId, mode, modeName]);
+
   // Initialize simulator in hands-free mode for natural turn-taking.
   useEffect(() => {
     if (initializedVoiceModeRef.current) return;
@@ -405,7 +444,39 @@ export function VoiceCourtroom({ caseId, caseName, mode, modeName, onEnd }: Voic
       if (data.coaching) setCoaching(data.coaching);
       if (data.performanceHints?.length) setPerformanceHints(data.performanceHints);
 
-      // Speak the response
+      setMetrics(prev => ({
+        ...prev,
+        totalQuestions: prev.totalQuestions + 1,
+        openQuestionsUsed: prev.openQuestionsUsed + (
+          data.message.toLowerCase().includes('what') ||
+          data.message.toLowerCase().includes('how') ||
+          data.message.toLowerCase().includes('why') ||
+          data.message.toLowerCase().includes('when') ||
+          data.message.toLowerCase().includes('where') ||
+          data.message.toLowerCase().includes('who')
+            ? 1 : 0
+        ),
+        leadingQuestionsUsed: prev.leadingQuestionsUsed + (
+          data.message.toLowerCase().includes("isn't it true") ||
+          data.message.toLowerCase().includes("wouldn't you agree") ||
+          data.message.toLowerCase().includes("isn't that correct")
+            ? 1 : 0
+        ),
+      }));
+
+      if (sessionId) {
+        addTranscriptMessage(sessionId, {
+          role: 'assistant',
+          content: data.message,
+          timestamp: new Date().toISOString(),
+          aiRole: data.role,
+        }).catch(console.error);
+
+        if (data.coaching) {
+          addCoachingTip(sessionId, data.coaching).catch(console.error);
+        }
+      }
+
       if (speechOutputEnabled) {
         speak(data.message, data.role);
       }
@@ -505,9 +576,29 @@ export function VoiceCourtroom({ caseId, caseName, mode, modeName, onEnd }: Voic
     toast.info(`Voice mode: ${nextMode}`);
   };
 
-  const handleEndSession = () => {
+  const handleEndSession = async () => {
     stopListening();
     stopSpeaking();
+
+    if (sessionId) {
+      try {
+        const finalMetrics: PerformanceMetrics = {
+          ...metrics,
+          credibilityScore: metrics.totalQuestions > 0
+            ? Math.min(10, Math.max(1, 7 + (metrics.successfulObjections * 0.5) - (metrics.missedObjections * 0.3)))
+            : null,
+        };
+
+        await endTrialSession(sessionId, finalMetrics);
+        toast.success("Session saved", {
+          description: `Completed ${exchangeCount} exchanges. View your performance in Trial Prep.`,
+        });
+      } catch (error) {
+        console.error("Failed to save session:", error);
+        toast.error("Failed to save session");
+      }
+    }
+
     onEnd();
   };
 

@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2, MessageSquare, Users, Zap, Target, Brain, AlertTriangle, CheckCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Document } from "@/lib/api";
+import { supabase } from "@/integrations/supabase/client";
 
 interface CaseData {
   id: string;
@@ -87,8 +88,108 @@ export function TrialSimulator({ caseData, documents = [] }: TrialSimulatorProps
   const [questions, setQuestions] = useState<DepositionQuestion[]>([]);
   const [userInput, setUserInput] = useState("");
   const [aiResponse, setAiResponse] = useState("");
+  const [conversationHistory, setConversationHistory] = useState<Array<{role: string; content: string}>>([]);
   const [isGeneratingQuestions, setIsGeneratingQuestions] = useState(false);
   const { toast } = useToast();
+
+  const parseDepositionQuestions = (aiResponse: string, docs: Document[]): DepositionQuestion[] => {
+    const questions: DepositionQuestion[] = [];
+    const lines = aiResponse.split('\n');
+    let currentQuestion: Partial<DepositionQuestion> | null = null;
+    
+    for (const line of lines) {
+      const trimmed = line.trim();
+      
+      if (trimmed.match(/^(\d+[\.\)]|[Qq]uestion\s*\d*:)/) || trimmed.includes('?')) {
+        if (currentQuestion?.question) {
+          questions.push({
+            id: `q-${questions.length + 1}`,
+            question: currentQuestion.question,
+            type: currentQuestion.type || 'foundational',
+            targetDocument: currentQuestion.targetDocument,
+            suggestedFollowUp: currentQuestion.suggestedFollowUp,
+            riskLevel: currentQuestion.riskLevel || 'medium',
+            purpose: currentQuestion.purpose || 'Gather information',
+          });
+        }
+        currentQuestion = {
+          question: trimmed.replace(/^(\d+[\.\)]|[Qq]uestion\s*\d*:)\s*/, ''),
+        };
+      }
+      
+      if (currentQuestion) {
+        const typeMatch = trimmed.match(/type:\s*(foundational|trap|clarifying|impeachment)/i);
+        const purposeMatch = trimmed.match(/purpose:\s*(.+)/i);
+        const riskMatch = trimmed.match(/risk:\s*(low|medium|high)/i);
+        const followUpMatch = trimmed.match(/follow[- ]?up:\s*(.+)/i);
+        
+        if (typeMatch) currentQuestion.type = typeMatch[1].toLowerCase() as DepositionQuestion['type'];
+        if (purposeMatch) currentQuestion.purpose = purposeMatch[1].trim();
+        if (riskMatch) currentQuestion.riskLevel = riskMatch[1].toLowerCase() as DepositionQuestion['riskLevel'];
+        if (followUpMatch) currentQuestion.suggestedFollowUp = followUpMatch[1].trim();
+        
+        for (const doc of docs) {
+          if (trimmed.toLowerCase().includes(doc.name.toLowerCase())) {
+            currentQuestion.targetDocument = doc.name;
+            break;
+          }
+        }
+      }
+    }
+    
+    if (currentQuestion?.question) {
+      questions.push({
+        id: `q-${questions.length + 1}`,
+        question: currentQuestion.question,
+        type: currentQuestion.type || 'foundational',
+        targetDocument: currentQuestion.targetDocument,
+        suggestedFollowUp: currentQuestion.suggestedFollowUp,
+        riskLevel: currentQuestion.riskLevel || 'medium',
+        purpose: currentQuestion.purpose || 'Gather information',
+      });
+    }
+    
+    return questions.slice(0, 8);
+  };
+
+  const generateFallbackQuestions = (docs: Document[]): DepositionQuestion[] => {
+    const templates: Array<Omit<DepositionQuestion, 'id' | 'targetDocument'>> = [
+      {
+        question: "Can you identify this document and explain how it came to be in your possession?",
+        type: "foundational",
+        riskLevel: "low",
+        purpose: "Establish document authenticity and chain of custody",
+        suggestedFollowUp: "When did you first see this document?",
+      },
+      {
+        question: "Isn't it true that the statements in this document contradict your testimony today?",
+        type: "trap",
+        riskLevel: "high",
+        purpose: "Test witness credibility through document comparison",
+        suggestedFollowUp: "How do you explain this inconsistency?",
+      },
+      {
+        question: "What specific facts in this document support your conclusion?",
+        type: "clarifying",
+        riskLevel: "medium",
+        purpose: "Pin down vague or conclusory testimony",
+        suggestedFollowUp: "Can you point to the exact language?",
+      },
+      {
+        question: "Did you review this document before giving your testimony?",
+        type: "impeachment",
+        riskLevel: "high",
+        purpose: "Establish foundation for impeachment",
+        suggestedFollowUp: "Why didn't this document change your testimony?",
+      },
+    ];
+    
+    return templates.slice(0, Math.min(docs.length, 4)).map((t, i) => ({
+      ...t,
+      id: `fallback-${i + 1}`,
+      targetDocument: docs[i]?.name,
+    }));
+  };
 
   const generateDepositionQuestions = async () => {
     if (!caseData || documents.length === 0) {
@@ -102,47 +203,29 @@ export function TrialSimulator({ caseData, documents = [] }: TrialSimulatorProps
 
     setIsGeneratingQuestions(true);
     try {
-      // Mock AI question generation - in production, this would call an AI API
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      const { data, error } = await supabase.functions.invoke('trial-simulation', {
+        body: {
+          caseId: caseData.id,
+          mode: 'deposition-prep',
+          messages: [{
+            role: 'user',
+            content: `Generate deposition questions for this case based on ${documents.length} analyzed documents. Format each question with type, purpose, risk level, and target document.`
+          }]
+        }
+      });
+
+      if (error) throw error;
+
+      let generatedQuestions: DepositionQuestion[] = [];
       
-      const generatedQuestions: DepositionQuestion[] = [
-        {
-          id: "1",
-          question: "Can you explain your process for authenticating this document?",
-          type: "foundational",
-          targetDocument: documents[0]?.name,
-          suggestedFollowUp: "What specific markings or signatures did you look for?",
-          riskLevel: "low",
-          purpose: "Establish document authenticity foundation",
-        },
-        {
-          id: "2",
-          question: "Isn't it true that your signature appears on page 3, but you testified you never saw this document before today?",
-          type: "trap",
-          targetDocument: documents[1]?.name,
-          suggestedFollowUp: "How do you explain this discrepancy?",
-          riskLevel: "high",
-          purpose: "Expose witness credibility issues",
-        },
-        {
-          id: "3",
-          question: "What specifically in this document supports your conclusion?",
-          type: "clarifying",
-          targetDocument: documents[2]?.name,
-          suggestedFollowUp: "Can you point to the exact paragraph or data point?",
-          riskLevel: "medium",
-          purpose: "Pin down vague testimony",
-        },
-        {
-          id: "4",
-          question: "Doesn't this email contradict your earlier testimony about the timeline?",
-          type: "impeachment",
-          targetDocument: documents[3]?.name,
-          suggestedFollowUp: "Which version is correct - your memory or this written record?",
-          riskLevel: "high",
-          purpose: "Use documents to impeach witness credibility",
-        },
-      ];
+      if (data?.message) {
+        const parsedQuestions = parseDepositionQuestions(data.message, documents);
+        generatedQuestions = parsedQuestions;
+      }
+
+      if (generatedQuestions.length === 0) {
+        generatedQuestions = generateFallbackQuestions(documents);
+      }
 
       setQuestions(generatedQuestions);
       toast({
@@ -162,24 +245,51 @@ export function TrialSimulator({ caseData, documents = [] }: TrialSimulatorProps
   };
 
   const simulateResponse = async () => {
-    if (!userInput.trim()) return;
+    if (!userInput.trim() || !caseData) return;
 
     setIsLoading(true);
     try {
-      // Mock AI response - in production, this would call an AI API
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      const scenario = scenarios.find(s => s.id === selectedScenario);
+      const mode = mapScenarioToMode(scenario?.title || 'deposition');
       
-      const responses = [
-        "As the expert witness, I would need to review the specific methodology section to answer that accurately.",
-        "Based on my analysis of the documents, the timeline appears consistent with the events described.",
-        "That's an excellent question. The document shows a clear pattern of behavior that supports our case theory.",
-        "I would object to that question as compound and confusing to the witness.",
-        "Let me direct the witness to review exhibit B, which contradicts that statement.",
-      ];
-      
-      const randomResponse = responses[Math.floor(Math.random() * responses.length)];
-      setAiResponse(randomResponse);
+      const { data, error } = await supabase.functions.invoke('trial-simulation', {
+        body: {
+          caseId: caseData.id,
+          mode,
+          messages: [
+            ...conversationHistory,
+            { role: 'user', content: userInput }
+          ]
+        }
+      });
+
+      if (error) throw error;
+
+      if (data?.message) {
+        setAiResponse(data.message);
+        setConversationHistory(prev => [
+          ...prev,
+          { role: 'user', content: userInput },
+          { role: 'assistant', content: data.message }
+        ]);
+        
+        if (data.coaching) {
+          toast({
+            title: "AI Coaching",
+            description: data.coaching.substring(0, 150) + (data.coaching.length > 150 ? '...' : ''),
+          });
+        }
+        
+        if (data.performanceHints?.length) {
+          toast({
+            title: "Performance Tip",
+            description: data.performanceHints[0],
+            variant: "default",
+          });
+        }
+      }
     } catch (error) {
+      console.error("Simulation error:", error);
       toast({
         title: "Simulation error",
         description: "Failed to generate AI response. Please try again.",
@@ -188,6 +298,20 @@ export function TrialSimulator({ caseData, documents = [] }: TrialSimulatorProps
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const mapScenarioToMode = (scenarioTitle: string): string => {
+    const title = scenarioTitle.toLowerCase();
+    if (title.includes('cross')) return 'cross-examination';
+    if (title.includes('direct')) return 'direct-examination';
+    if (title.includes('opening')) return 'opening-statement';
+    if (title.includes('closing')) return 'closing-argument';
+    if (title.includes('deposition')) return 'deposition';
+    if (title.includes('objection')) return 'objections-practice';
+    if (title.includes('motion')) return 'motion-hearing';
+    if (title.includes('voir') || title.includes('jury selection')) return 'voir-dire';
+    if (title.includes('evidence') || title.includes('foundation')) return 'evidence-foundation';
+    return 'deposition';
   };
 
   const getDifficultyColor = (difficulty: string) => {
