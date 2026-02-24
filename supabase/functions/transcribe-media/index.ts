@@ -60,6 +60,7 @@ interface AssemblyAiTranscript {
   status: AssemblyAiTranscriptStatus;
   text?: string;
   error?: string;
+  speech_model_used?: string;
   audio_duration?: number;
   utterances?: unknown[];
   auto_highlights_result?: { results?: unknown[] };
@@ -221,7 +222,8 @@ serve(async (req) => {
 
     console.log('File uploaded successfully, starting transcription...');
 
-    // Step 2: Submit transcription request with Universal-3 Pro model
+    // Step 2: Submit transcription request with prioritized speech models.
+    // AssemblyAI now expects `speech_models` instead of deprecated `speech_model`.
     const transcriptResponse = await fetch('https://api.assemblyai.com/v2/transcript', {
       method: 'POST',
       headers: {
@@ -230,7 +232,7 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         audio_url: audioUrl,
-        speech_model: 'best', // Uses Universal-3 Pro (best quality)
+        speech_models: ['universal-3-pro', 'universal-2'],
         language_detection: true, // Auto-detect language
         punctuate: true,
         format_text: true,
@@ -296,7 +298,9 @@ serve(async (req) => {
       throw new Error('AssemblyAI returned empty transcription');
     }
 
-    console.log(`Transcription completed. Duration: ${duration}s, Text length: ${transcriptionText.length} characters`);
+    console.log(
+      `Transcription completed. Duration: ${duration}s, Text length: ${transcriptionText.length} characters, Model used: ${transcript.speech_model_used || 'unknown'}`
+    );
 
     // Extract additional insights from AssemblyAI
     const speakers = transcript.utterances || [];
@@ -305,21 +309,32 @@ serve(async (req) => {
 
     console.log(`Extracted ${speakers.length} speaker segments, ${highlights.length} highlights, ${entities.length} entities`);
 
-    // Update document with transcription and metadata
+    // Update document with transcription and metadata.
+    // Support both modern schema (transcription_text/transcription_processed_at)
+    // and legacy schema (transcription).
     const { error: updateError } = await supabase
       .from('documents')
       .update({
         transcription_text: transcriptionText,
         transcription_processed_at: new Date().toISOString(),
         duration_seconds: Math.round(duration),
-        // Store additional metadata if columns exist
-        // speaker_count: speakers.length,
-        // key_phrases: highlights.map((h: { text?: string }) => h.text).slice(0, 10),
       })
       .eq('id', documentId);
 
     if (updateError) {
-      throw updateError;
+      console.warn('Primary transcription update failed. Trying legacy-compatible update...', updateError);
+
+      const { error: legacyUpdateError } = await supabase
+        .from('documents')
+        .update({
+          transcription: transcriptionText,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', documentId);
+
+      if (legacyUpdateError) {
+        throw legacyUpdateError;
+      }
     }
 
     return new Response(
@@ -332,6 +347,7 @@ serve(async (req) => {
         highlights: highlights.length,
         entities: entities.length,
         confidence: transcript.confidence,
+        speechModelUsed: transcript.speech_model_used,
       }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },

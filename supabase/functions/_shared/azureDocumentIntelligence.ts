@@ -69,14 +69,37 @@ function getConfig(): AzureDocIntelligenceConfig {
   return { endpoint, apiKey };
 }
 
-function buildAnalyzeUrl(config: AzureDocIntelligenceConfig, model: ModelType): string {
+function buildAnalyzeUrls(config: AzureDocIntelligenceConfig, model: ModelType): string[] {
   const baseUrl = config.endpoint.endsWith('/') ? config.endpoint.slice(0, -1) : config.endpoint;
-  const apiVersion = '2024-02-29-preview';
-  return `${baseUrl}/formrecognizer/documentModels/${model}:analyze?api-version=${apiVersion}`;
+  const modernPath = `${baseUrl}/documentintelligence/documentModels/${model}:analyze`;
+  const legacyPath = `${baseUrl}/formrecognizer/documentModels/${model}:analyze`;
+
+  const urls = [
+    `${modernPath}?api-version=2024-11-30`,
+    `${modernPath}?api-version=2024-02-29-preview`,
+    `${legacyPath}?api-version=2024-02-29-preview`,
+    `${legacyPath}?api-version=2023-07-31`,
+  ];
+
+  return Array.from(new Set(urls));
 }
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function parseAzureError(status: number, errorText: string): string {
+  let errorMessage = `Azure Document Intelligence error (${status})`;
+
+  try {
+    const errorJson = JSON.parse(errorText);
+    return errorJson.error?.message || errorJson.message || errorMessage;
+  } catch {
+    if (errorText) {
+      errorMessage = `${errorMessage}: ${errorText}`;
+    }
+    return errorMessage;
+  }
 }
 
 /**
@@ -93,40 +116,52 @@ export async function analyzeDocument(
   onProgress?: ProgressCallback
 ): Promise<AnalyzeResult> {
   const config = getConfig();
-  const url = buildAnalyzeUrl(config, model);
+  const urls = buildAnalyzeUrls(config, model);
 
   onProgress?.('Submitting document for analysis...', 10);
 
   const arrayBuffer = await fileBlob.arrayBuffer();
+  const attemptErrors: string[] = [];
+  let operationLocation: string | null = null;
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Ocp-Apim-Subscription-Key': config.apiKey,
-      'Content-Type': fileBlob.type || 'application/octet-stream',
-    },
-    body: arrayBuffer,
-  });
+  for (let i = 0; i < urls.length; i += 1) {
+    const url = urls[i];
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Ocp-Apim-Subscription-Key': config.apiKey,
+        'Content-Type': fileBlob.type || 'application/octet-stream',
+      },
+      body: arrayBuffer,
+    });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    let errorMessage = `Azure Document Intelligence error (${response.status})`;
-    
-    try {
-      const errorJson = JSON.parse(errorText);
-      errorMessage = errorJson.error?.message || errorJson.message || errorMessage;
-    } catch {
-      if (errorText) {
-        errorMessage = `${errorMessage}: ${errorText}`;
+    if (response.ok) {
+      const candidateOperationLocation = response.headers.get('Operation-Location');
+      if (candidateOperationLocation) {
+        operationLocation = candidateOperationLocation;
+        break;
       }
+
+      attemptErrors.push(`[${i + 1}] ${url} -> missing Operation-Location header`);
+      continue;
     }
 
-    throw new Error(errorMessage);
+    const errorText = await response.text();
+    const parsedError = parseAzureError(response.status, errorText);
+    attemptErrors.push(`[${i + 1}] ${url} -> ${parsedError}`);
+
+    if (response.status === 401 || response.status === 403) {
+      throw new Error(`Azure authentication failed: ${parsedError}`);
+    }
+    if (response.status === 429) {
+      throw new Error(`Azure rate limit exceeded: ${parsedError}`);
+    }
   }
 
-  const operationLocation = response.headers.get('Operation-Location');
   if (!operationLocation) {
-    throw new Error('Azure did not return Operation-Location header');
+    throw new Error(
+      `Azure Document Intelligence request failed across ${urls.length} endpoint candidates. ${attemptErrors.join(' | ')}`
+    );
   }
 
   onProgress?.('Analysis in progress...', 20);
@@ -265,7 +300,20 @@ export async function extractText(
   fileBlob: Blob,
   onProgress?: ProgressCallback
 ): Promise<string> {
-  const result = await analyzeDocument(fileBlob, 'prebuilt-read', onProgress);
+  let result: AnalyzeResult;
+  try {
+    result = await analyzeDocument(fileBlob, 'prebuilt-read', onProgress);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const shouldFallbackToLayout = /resource not found|model|unsupported|invalid request/i.test(message);
+
+    if (!shouldFallbackToLayout) {
+      throw error;
+    }
+
+    onProgress?.('Falling back to prebuilt-layout model...', 15);
+    result = await analyzeDocument(fileBlob, 'prebuilt-layout', onProgress);
+  }
   
   if (result.pages.length > 1) {
     return result.pages.map((page, idx) => 

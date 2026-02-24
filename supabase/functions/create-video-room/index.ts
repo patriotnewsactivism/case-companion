@@ -182,6 +182,13 @@ serve(async (req) => {
 
     const tokenData = await tokenResponse.json();
 
+    const legacyCompatibleMetadata = {
+      title: name,
+      daily_room_name: room.name,
+      enable_recording: enableRecording,
+      status: 'active',
+    };
+
     // Store room information in database.
     // Support both modern schema (daily_room_name/title/enable_recording/status)
     // and legacy schema (room_name/room_url/is_active/metadata).
@@ -192,7 +199,7 @@ serve(async (req) => {
       .insert({
         case_id: caseId,
         user_id: user.id,
-        room_name: name,
+        room_name: room.name,
         room_url: room.url,
         daily_room_name: room.name,
         title: name,
@@ -200,6 +207,9 @@ serve(async (req) => {
         enable_recording: enableRecording,
         expires_at: new Date(exp * 1000).toISOString(),
         status: 'active',
+        is_active: true,
+        max_participants: maxParticipants,
+        metadata: legacyCompatibleMetadata,
       })
       .select('id')
       .single();
@@ -208,13 +218,6 @@ serve(async (req) => {
       videoRoom = modernRoom as VideoRoomRow;
     } else {
       console.warn('Modern video_rooms insert failed, trying legacy-compatible insert:', modernError);
-
-      const legacyMetadata = {
-        title: name,
-        daily_room_name: room.name,
-        enable_recording: enableRecording,
-        status: 'active',
-      };
 
       const { data: legacyRoom, error: legacyError } = await supabase
         .from('video_rooms')
@@ -227,7 +230,7 @@ serve(async (req) => {
           expires_at: new Date(exp * 1000).toISOString(),
           is_active: true,
           max_participants: maxParticipants,
-          metadata: legacyMetadata,
+          metadata: legacyCompatibleMetadata,
         })
         .select('id')
         .single();

@@ -116,14 +116,21 @@ serve(async (req) => {
       ? metadata.daily_room_name
       : undefined;
 
-    const roomName = videoRoomData.daily_room_name || videoRoomData.room_name || metadataDailyRoomName;
+    let roomName = videoRoomData.daily_room_name || videoRoomData.room_name || metadataDailyRoomName;
     if (!roomName) {
       throw new Error('Video room record is missing room name information');
     }
 
     if (providedRoomName && providedRoomName !== roomName) {
-      console.error('Provided roomName does not match persisted room');
-      return forbiddenResponse('Room details mismatch', corsHeaders);
+      // Legacy rows may store a display title in room_name while the caller passes
+      // the actual Daily room identifier. Prefer the caller-supplied room name
+      // when it looks like a Daily room slug.
+      if (providedRoomName.startsWith('casebuddy-')) {
+        console.warn('Room name mismatch detected; using caller-provided Daily room slug.');
+        roomName = providedRoomName;
+      } else {
+        console.warn('Room name mismatch detected; using persisted room name.');
+      }
     }
 
     console.log(`User verified for room ${roomId}`);

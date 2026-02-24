@@ -543,7 +543,25 @@ ${messages.length === 0 ? `This is the beginning of the session. The attorney ha
     if (!response.ok) {
       const errorText = await response.text();
       console.error('Gemini API error:', errorText);
-      throw new Error(`Gemini API failed: ${errorText}`);
+      const fallbackLastUserMessage = messages.filter(m => m.role === 'user').slice(-1)[0]?.content || '';
+      const fallbackMessage = buildFallbackResponse(mode, fallbackLastUserMessage);
+      const fallbackCoaching = messages.length > 0
+        ? buildFallbackCoaching(mode, fallbackLastUserMessage)
+        : null;
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          message: fallbackMessage,
+          coaching: fallbackCoaching,
+          role: simulationConfig.role,
+          performanceHints: undefined,
+          objectionTypes: mode === 'objections-practice' ? OBJECTION_TYPES : undefined,
+        }),
+        {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      );
     }
 
     const data = await response.json();

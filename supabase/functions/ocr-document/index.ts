@@ -628,8 +628,27 @@ ${extractedText.substring(0, 20000)}`;
       .eq('id', validatedDocumentId);
 
     if (updateError) {
-      console.error('Failed to update document:', updateError);
-      throw new Error(`Failed to update document: ${updateError.message}`);
+      console.warn('Primary documents update failed. Trying legacy-compatible update...', updateError);
+
+      const legacyUpdateData: Record<string, unknown> = {
+        ocr_text: extractedText,
+        ai_analyzed: !!summary,
+        summary: summary || null,
+        key_facts: keyFacts.length > 0 ? keyFacts : null,
+        favorable_findings: favorableFindings.length > 0 ? favorableFindings : null,
+        adverse_findings: adverseFindings.length > 0 ? adverseFindings : null,
+        action_items: actionItems.length > 0 ? actionItems : null,
+      };
+
+      const { error: legacyUpdateError } = await supabase
+        .from('documents')
+        .update(legacyUpdateData)
+        .eq('id', validatedDocumentId);
+
+      if (legacyUpdateError) {
+        console.error('Failed legacy documents update:', legacyUpdateError);
+        throw new Error(`Failed to update document: ${legacyUpdateError.message}`);
+      }
     }
 
     if (timelineEvents.length > 0) {
