@@ -193,41 +193,6 @@ export async function createDocument(input: CreateDocumentInput): Promise<Docume
   return data as unknown as Document;
 }
 
-async function uploadFileToR2(file: File, caseId: string): Promise<{ fileUrl: string; document: Document }> {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session) throw new Error("Not authenticated");
-
-  const fileData = await fileToBase64(file);
-  
-  const { data, error } = await supabase.functions.invoke('upload-to-r2', {
-    body: {
-      caseId,
-      fileName: file.name,
-      fileType: file.type || 'application/octet-stream',
-      fileSize: file.size,
-      fileData,
-    },
-  });
-
-  if (error) throw new Error(`Upload failed: ${error.message}`);
-  if (!data?.success) throw new Error('Upload failed: Unknown error');
-
-  return { fileUrl: data.fileUrl, document: data.document };
-}
-
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      const base64 = result.split(',')[1];
-      resolve(base64);
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-
 export async function bulkUploadDocuments(input: BulkDocumentUploadInput): Promise<BulkUploadResult> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Not authenticated");
@@ -262,35 +227,56 @@ export async function bulkUploadDocuments(input: BulkDocumentUploadInput): Promi
   const batchSize = 3;
   for (let i = 0; i < input.files.length; i += batchSize) {
     const batch = input.files.slice(i, i + batchSize);
-    const batchPromises = batch.map(async (file) => {
-      try {
-        const { fileUrl, document } = await uploadFileToR2(file, input.case_id);
+    const batchPromises = batch.map(async (file, index) => {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${user.id}/${input.case_id}/${Date.now()}-${i + index}.${fileExt}`;
 
-        const batesNumber = input.generate_bates 
-          ? `${batesPrefix}-${currentBatesNumber.toString().padStart(4, '0')}`
-          : null;
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('case-documents')
+        .upload(fileName, file, {
+          cacheControl: '3600',
+          upsert: false
+        });
 
-        if (input.generate_bates) {
-          currentBatesNumber++;
-        }
-
-        if (batesNumber) {
-          const { data: updatedDoc, error: updateError } = await supabase
-            .from("documents")
-            .update({ bates_number: batesNumber })
-            .eq("id", document.id)
-            .select()
-            .single();
-          
-          if (!updateError && updatedDoc) {
-            return updatedDoc as unknown as Document;
-          }
-        }
-
-        return document;
-      } catch (error) {
-        throw new Error(`Failed to upload ${file.name}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      if (uploadError) {
+        throw new Error(`Failed to upload ${file.name}: ${uploadError.message}`);
       }
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('case-documents')
+        .getPublicUrl(uploadData.path);
+
+      const batesNumber = input.generate_bates 
+        ? `${batesPrefix}-${currentBatesNumber.toString().padStart(4, '0')}`
+        : null;
+
+      if (input.generate_bates) {
+        currentBatesNumber++;
+      }
+
+      const documentInput: CreateDocumentInput = {
+        case_id: input.case_id,
+        name: file.name,
+        file_url: publicUrl,
+        file_type: file.type,
+        file_size: file.size,
+        bates_number: batesNumber,
+      };
+
+      const { data: docData, error: docError } = await supabase
+        .from("documents")
+        .insert({
+          ...documentInput,
+          user_id: user.id,
+        })
+        .select()
+        .single();
+
+      if (docError) {
+        throw new Error(`Failed to create document record for ${file.name}: ${docError.message}`);
+      }
+
+      return docData as unknown as Document;
     });
 
     try {
