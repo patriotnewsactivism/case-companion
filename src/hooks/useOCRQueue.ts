@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useAuth';
@@ -49,7 +49,6 @@ export function useOCRQueue(): UseOCRQueueReturn {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [error, setError] = useState<Error | null>(null);
-  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const { data: queue = [], isLoading } = useQuery({
     queryKey: ['ocr-queue'],
@@ -168,14 +167,6 @@ export function useOCRQueue(): UseOCRQueueReturn {
       throw e;
     }
   }, [clearCompletedMutation]);
-
-  useEffect(() => {
-    return () => {
-      if (pollingRef.current) {
-        clearInterval(pollingRef.current);
-      }
-    };
-  }, []);
 
   return {
     enqueue,

@@ -59,6 +59,23 @@ export function useVoiceCommands(): UseVoiceCommandsReturn {
   const commandsRef = useRef<CommandHandler[]>([]);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
 
+  const processCommand = useCallback((text: string) => {
+    for (const { pattern, handler } of commandsRef.current) {
+      const match = text.match(pattern);
+      if (match) {
+        const params: Record<string, string> = {};
+        if (match.groups) {
+          Object.assign(params, match.groups);
+        } else if (match[1]) {
+          params.query = match[1];
+        }
+        setLastCommand({ command: text, params });
+        handler(params);
+        return;
+      }
+    }
+  }, []);
+
   useEffect(() => {
     const SpeechRecognitionClass = window.SpeechRecognition || window.webkitSpeechRecognition;
     
@@ -113,24 +130,7 @@ export function useVoiceCommands(): UseVoiceCommandsReturn {
     return () => {
       recognition.abort();
     };
-  }, []);
-
-  const processCommand = useCallback((text: string) => {
-    for (const { pattern, handler } of commandsRef.current) {
-      const match = text.match(pattern);
-      if (match) {
-        const params: Record<string, string> = {};
-        if (match.groups) {
-          Object.assign(params, match.groups);
-        } else if (match[1]) {
-          params.query = match[1];
-        }
-        setLastCommand({ command: text, params });
-        handler(params);
-        return;
-      }
-    }
-  }, []);
+  }, [processCommand]);
 
   const startListening = useCallback(() => {
     if (!recognitionRef.current) {

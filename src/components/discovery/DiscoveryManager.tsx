@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -81,7 +81,7 @@ export function DiscoveryManager({
 
   const activeCase = cases.find(c => c.id === activeCaseId);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     if (!activeCaseId) return;
     setIsLoading(true);
     try {
@@ -96,17 +96,17 @@ export function DiscoveryManager({
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [activeCaseId]);
 
   React.useEffect(() => {
     loadData();
-  }, [activeCaseId]);
+  }, [loadData]);
 
   React.useEffect(() => {
     if (selectedCaseId && selectedCaseId !== activeCaseId) {
       setActiveCaseId(selectedCaseId);
     }
-  }, [selectedCaseId]);
+  }, [selectedCaseId, activeCaseId]);
 
   const handleCaseChange = (caseId: string) => {
     setActiveCaseId(caseId);

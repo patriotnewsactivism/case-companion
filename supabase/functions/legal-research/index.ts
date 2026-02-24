@@ -129,7 +129,7 @@ function parseBluebookCitation(citation: string): {
   year: string;
   valid: boolean;
 } {
-  const standardPattern = /^(.+?)\s*,\s*(\d+)\s+([A-Za-z\.0-9]+(?:\s+[0-9]+[a-z]+)?)\s+(\d+)(?:\s*,\s*(\d{4}))?$/;
+  const standardPattern = /^(.+?)\s*,\s*(\d+)\s+([A-Za-z.0-9]+(?:\s+[0-9]+[a-z]+)?)\s+(\d+)(?:\s*,\s*(\d{4}))?$/;
   const match = citation.trim().match(standardPattern);
   
   if (match) {

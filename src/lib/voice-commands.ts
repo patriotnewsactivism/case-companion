@@ -27,20 +27,23 @@ function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function patternToRegex(pattern: string): RegExp {
+function patternToRegex(pattern: string): { regex: RegExp; paramNames: string[] } {
   const paramNames: string[] = [];
   
   const regexPattern = pattern
     .replace(/\(([^)]+)\)/g, (_, group) => {
-      const options = group.split('|').map((s: string) => s.trim());
-      return `(${options.map(escapeRegex).join('|')})`;
+      const options = group.split('|').map((s: string) => escapeRegex(s.trim()));
+      return `(?:${options.join('|')})`;
     })
-    .replace(/\{(\w+)\}/g, (_, paramName) => {
+    .replace(/\{(\w+)\}/g, (_, paramName: string) => {
       paramNames.push(paramName);
       return '(.+?)';
     });
   
-  return new RegExp(`^${regexPattern}$`, 'i');
+  return {
+    regex: new RegExp(`^${regexPattern}$`, 'i'),
+    paramNames,
+  };
 }
 
 function createCommandRegistry(): VoiceCommandRegistry {
@@ -55,8 +58,7 @@ function createCommandRegistry(): VoiceCommandRegistry {
       
       commands.set(command.id, command);
       
-      const paramNames: string[] = [];
-      const regex = patternToRegex(command.pattern);
+      const { regex, paramNames } = patternToRegex(command.pattern);
       compiledPatterns.set(command.id, { regex, paramNames });
     },
 
@@ -75,14 +77,10 @@ function createCommandRegistry(): VoiceCommandRegistry {
         const match = normalizedTranscript.match(compiled.regex);
         if (match) {
           const params: Record<string, string> = {};
-          
-          const paramMatches = command.pattern.match(/\{(\w+)\}/g);
-          if (paramMatches) {
-            paramMatches.forEach((param, index) => {
-              const paramName = param.slice(1, -1);
-              params[paramName] = match[index + 1]?.trim() || '';
-            });
-          }
+
+          compiled.paramNames.forEach((paramName, index) => {
+            params[paramName] = match[index + 1]?.trim() || '';
+          });
           
           return { command, params };
         }
@@ -120,9 +118,11 @@ export function getDefaultCommands(handlers: {
   onNavigate?: (section: string) => void;
   onOpenCase?: (name: string) => void;
   onStartTranscription?: () => void;
+  onStopTranscription?: () => void;
   onNewVideoCall?: () => void;
   onRunMockJury?: () => void;
-} = {}): VoiceCommand[] => [
+} = {}): VoiceCommand[] {
+  return [
   {
     id: 'search',
     pattern: 'search for {query}',
@@ -238,7 +238,7 @@ export function getDefaultCommands(handlers: {
   {
     id: 'stop-transcription',
     pattern: 'stop transcription',
-    handler: () => handlers.onStartTranscription?.(),
+    handler: () => handlers.onStopTranscription?.() ?? handlers.onStartTranscription?.(),
     description: 'Stop current transcription',
     category: 'action',
     examples: ['stop transcription'],
@@ -259,7 +259,8 @@ export function getDefaultCommands(handlers: {
     category: 'action',
     examples: ['run mock jury'],
   },
-];
+  ];
+}
 
 export function registerDefaultCommands(handlers?: Parameters<typeof getDefaultCommands>[0]): void {
   const commands = getDefaultCommands(handlers);

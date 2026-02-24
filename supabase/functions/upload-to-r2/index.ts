@@ -110,22 +110,22 @@ async function uploadToR2(endpointUrl: string, bucketName: string, accessKeyId: 
 
 async function getAwsSignatureV4Headers(method: string, path: string, host: string, service: string, region: string, accessKeyId: string, secretAccessKey: string, payload: Uint8Array, contentType: string): Promise<Record<string, string>> {
   const now = new Date();
-  const amzDate = now.toISOString().replace(/[:-]|.d{3}/g, '');
+  const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, '');
   const dateStamp = amzDate.substring(0, 8);
   const payloadHash = await sha256Hex(payload);
-  const canonicalHeaders = 'content-type:' + contentType + '
-host:' + host + '
-x-amz-content-sha256:' + payloadHash + '
-x-amz-date:' + amzDate + '
-';
+  const canonicalHeaders = [
+    `content-type:${contentType}`,
+    `host:${host}`,
+    `x-amz-content-sha256:${payloadHash}`,
+    `x-amz-date:${amzDate}`,
+    '',
+  ].join('\n');
   const signedHeaders = 'content-type;host;x-amz-content-sha256;x-amz-date';
-  const canonicalRequest = [method, path, '', canonicalHeaders, signedHeaders, payloadHash].join('
-');
+  const canonicalRequest = [method, path, '', canonicalHeaders, signedHeaders, payloadHash].join('\n');
   const algorithm = 'AWS4-HMAC-SHA256';
   const credentialScope = dateStamp + '/' + region + '/' + service + '/aws4_request';
   const canonicalRequestHash = await sha256Hex(new TextEncoder().encode(canonicalRequest));
-  const stringToSign = [algorithm, amzDate, credentialScope, canonicalRequestHash].join('
-');
+  const stringToSign = [algorithm, amzDate, credentialScope, canonicalRequestHash].join('\n');
   const signingKey = await getSignatureKey(secretAccessKey, dateStamp, region, service);
   const signature = await hmacSha256Hex(signingKey, stringToSign);
   const authorization = algorithm + ' Credential=' + accessKeyId + '/' + credentialScope + ', SignedHeaders=' + signedHeaders + ', Signature=' + signature;
