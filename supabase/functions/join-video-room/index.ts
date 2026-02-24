@@ -17,13 +17,13 @@ interface JoinRoomRequest {
 
 interface VideoRoomRecord {
   id: string;
-  user_id: string;
-  daily_room_name: string;
-  enable_recording: boolean;
+  case_id?: string | null;
+  user_id?: string;
+  room_name?: string;
+  daily_room_name?: string;
+  enable_recording?: boolean;
+  metadata?: Record<string, unknown> | null;
   participants_log?: unknown[];
-  cases: {
-    user_id: string;
-  };
 }
 
 serve(async (req) => {
@@ -78,10 +78,10 @@ serve(async (req) => {
       : undefined;
     const userName = requestBody.userName ? sanitizeString(requestBody.userName, 'userName', 100) : undefined;
 
-    // Security: Always verify user has access to the room through case ownership.
+    // Security: Verify user has access to the room.
     const { data, error: roomDbError } = await supabase
       .from('video_rooms')
-      .select('*, cases!inner(user_id)')
+      .select('*')
       .eq('id', roomId)
       .single();
 
@@ -92,12 +92,35 @@ serve(async (req) => {
 
     const videoRoomData = data as unknown as VideoRoomRecord;
 
-    if (videoRoomData.cases.user_id !== user.id) {
-      console.error('User does not own the case for this room');
+    let hasAccess = videoRoomData.user_id === user.id;
+    if (!hasAccess && videoRoomData.case_id) {
+      const { data: caseData, error: caseError } = await supabase
+        .from('cases')
+        .select('id')
+        .eq('id', videoRoomData.case_id)
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      hasAccess = !!caseData && !caseError;
+    }
+
+    if (!hasAccess) {
+      console.error('User does not have access to this room');
       return forbiddenResponse('Access denied to this video room', corsHeaders);
     }
 
-    const roomName = videoRoomData.daily_room_name;
+    const metadata: Record<string, unknown> = videoRoomData.metadata && typeof videoRoomData.metadata === 'object'
+      ? videoRoomData.metadata
+      : {};
+    const metadataDailyRoomName = typeof metadata.daily_room_name === 'string'
+      ? metadata.daily_room_name
+      : undefined;
+
+    const roomName = videoRoomData.daily_room_name || videoRoomData.room_name || metadataDailyRoomName;
+    if (!roomName) {
+      throw new Error('Video room record is missing room name information');
+    }
+
     if (providedRoomName && providedRoomName !== roomName) {
       console.error('Provided roomName does not match persisted room');
       return forbiddenResponse('Room details mismatch', corsHeaders);
@@ -123,11 +146,17 @@ serve(async (req) => {
 
     // Verify room hasn't expired
     if (room.config?.exp && room.config.exp < Math.floor(Date.now() / 1000)) {
-      // Mark room as expired in database
-      await supabase
+      // Mark room as expired/inactive in database (schema-compatible).
+      const { error: statusUpdateError } = await supabase
         .from('video_rooms')
         .update({ status: 'expired' })
         .eq('id', roomId);
+      if (statusUpdateError) {
+        await supabase
+          .from('video_rooms')
+          .update({ is_active: false })
+          .eq('id', roomId);
+      }
 
       return new Response(
         JSON.stringify({ error: 'Room has expired' }),
@@ -138,6 +167,10 @@ serve(async (req) => {
     // Create a meeting token for the user with appropriate permissions
     const exp = Math.floor(Date.now() / 1000) + (60 * 60 * 4); // 4 hours
     const isOwner = videoRoomData.user_id === user.id;
+    const metadataEnableRecording = typeof metadata.enable_recording === 'boolean'
+      ? metadata.enable_recording
+      : undefined;
+    const enableRecording = videoRoomData.enable_recording ?? metadataEnableRecording ?? true;
 
     const tokenResponse = await fetch('https://api.daily.co/v1/meeting-tokens', {
       method: 'POST',
@@ -153,7 +186,7 @@ serve(async (req) => {
           user_name: userName || user.email || 'Participant',
           user_id: user.id,
           enable_screenshare: true,
-          enable_recording: videoRoomData.enable_recording ? 'cloud' : 'local',
+          enable_recording: enableRecording ? 'cloud' : 'local',
           start_cloud_recording: false, // Must be started manually by owner
         },
       }),
@@ -170,8 +203,8 @@ serve(async (req) => {
 
     const tokenData = await tokenResponse.json();
 
-    // Log participant joining
-    await supabase
+    // Log participant joining (legacy schemas may not have this table).
+    const { error: participantLogError } = await supabase
       .from('video_room_participants')
       .insert({
         room_id: roomId,
@@ -181,7 +214,11 @@ serve(async (req) => {
         participant_token: tokenData.token.substring(0, 20) + '...', // Store partial token for audit
       });
 
-    // Update participants log in video_rooms
+    if (participantLogError) {
+      console.warn('Participant log insert skipped:', participantLogError.message);
+    }
+
+    // Update participants log in video_rooms (modern schema only).
     const currentLog = Array.isArray(videoRoomData.participants_log)
       ? videoRoomData.participants_log
       : [];
@@ -195,10 +232,13 @@ serve(async (req) => {
       }
     ];
 
-    await supabase
+    const { error: participantsUpdateError } = await supabase
       .from('video_rooms')
       .update({ participants_log: newLog })
       .eq('id', roomId);
+    if (participantsUpdateError) {
+      console.warn('participants_log update skipped:', participantsUpdateError.message);
+    }
 
     return new Response(
       JSON.stringify({
@@ -207,7 +247,7 @@ serve(async (req) => {
         roomName: room.name,
         token: tokenData.token,
         isOwner,
-        enableRecording: videoRoomData.enable_recording,
+        enableRecording,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
