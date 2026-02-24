@@ -41,7 +41,7 @@ export function VideoConference() {
   const [selectedCaseId, setSelectedCaseId] = useState("");
   const [description, setDescription] = useState("");
   const [currentRoom, setCurrentRoom] = useState<VideoRoomData | null>(null);
-  const [joinRoomName, setJoinRoomName] = useState("");
+  const [joinRoomId, setJoinRoomId] = useState("");
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [joinDialogOpen, setJoinDialogOpen] = useState(false);
 
@@ -84,8 +84,8 @@ export function VideoConference() {
 
   const joinRoomMutation = useMutation({
     mutationFn: async () => {
-      if (!joinRoomName.trim()) {
-        throw new Error("Please provide the room name");
+      if (!joinRoomId.trim()) {
+        throw new Error("Please provide the room ID");
       }
 
       const { data: { session } } = await supabase.auth.getSession();
@@ -93,10 +93,11 @@ export function VideoConference() {
         throw new Error("Not authenticated");
       }
 
-      return joinVideoRoom(joinRoomName, user?.email || "Participant");
+      return joinVideoRoom(joinRoomId, user?.email || "Participant");
     },
     onSuccess: (data) => {
       setJoinDialogOpen(false);
+      setJoinRoomId("");
 
       toast.success("Joining video room...");
 
@@ -220,15 +221,15 @@ export function VideoConference() {
                 </DialogHeader>
                 <div className="space-y-4 py-4">
                   <div className="space-y-2">
-                    <Label htmlFor="join-room-name">Room Name</Label>
+                    <Label htmlFor="join-room-id">Room ID</Label>
                     <Input
-                      id="join-room-name"
-                      placeholder="casebuddy-xxx-yyyy"
-                      value={joinRoomName}
-                      onChange={(e) => setJoinRoomName(e.target.value)}
+                      id="join-room-id"
+                      placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                      value={joinRoomId}
+                      onChange={(e) => setJoinRoomId(e.target.value)}
                     />
                     <p className="text-xs text-muted-foreground">
-                      Get the room name from the meeting organizer
+                      Get the room ID from the meeting organizer
                     </p>
                   </div>
                 </div>
@@ -272,8 +273,13 @@ export function VideoConference() {
               <p className="text-xs text-muted-foreground">
                 Room Name: {currentRoom.roomName}
               </p>
+              {currentRoom.roomId && (
+                <p className="text-xs text-muted-foreground">
+                  Room ID: {currentRoom.roomId}
+                </p>
+              )}
               <p className="text-xs text-muted-foreground">
-                Expires: {new Date(currentRoom.expiresAt).toLocaleString()}
+                Expires: {currentRoom.expiresAt ? new Date(currentRoom.expiresAt).toLocaleString() : 'Unknown'}
               </p>
             </div>
           )}

@@ -2,8 +2,6 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Switch } from '@/components/ui/switch';
-import { Label } from '@/components/ui/label';
 import {
   Video,
   VideoOff,
@@ -29,12 +27,11 @@ interface VideoRoomProps {
   onLeave?: () => void;
 }
 
-// Daily.co types
 type DailyParticipantMap = Record<string, Record<string, unknown>>;
 type DailyEventPayload = Record<string, unknown>;
 type DailyErrorEvent = DailyEventPayload & { errorMsg?: string };
 
-interface DailyCallObject {
+interface DailyCallFrame {
   join: (options: { url: string; token: string }) => Promise<void>;
   leave: () => Promise<void>;
   destroy: () => Promise<void>;
@@ -51,14 +48,21 @@ interface DailyCallObject {
 
 declare global {
   interface Window {
-    DailyIframe: {
-      createCallObject: () => DailyCallObject;
+    DailyIframe?: {
+      createFrame: (
+        container: HTMLElement,
+        options?: Record<string, unknown>
+      ) => DailyCallFrame;
     };
   }
 }
 
 export function VideoRoom({ caseId, roomName, roomId, onLeave }: VideoRoomProps) {
-  const callObjectRef = useRef<DailyCallObject | null>(null);
+  const callFrameRef = useRef<DailyCallFrame | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const initializedRef = useRef(false);
+  const leavingRef = useRef(false);
+
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isJoined, setIsJoined] = useState(false);
@@ -68,30 +72,34 @@ export function VideoRoom({ caseId, roomName, roomId, onLeave }: VideoRoomProps)
   const [isRecording, setIsRecording] = useState(false);
   const [enableRecording, setEnableRecording] = useState(true);
   const [participantCount, setParticipantCount] = useState(0);
-  const [roomUrl, setRoomUrl] = useState<string>('');
   const [isOwner, setIsOwner] = useState(false);
   const [sessionDuration, setSessionDuration] = useState(0);
   const [joinTime, setJoinTime] = useState<Date | null>(null);
 
   const updateParticipantCount = useCallback(() => {
-    if (callObjectRef.current) {
-      const participants = callObjectRef.current.participants();
-      setParticipantCount(Object.keys(participants).length);
-    }
+    if (!callFrameRef.current) return;
+    const participants = callFrameRef.current.participants();
+    setParticipantCount(Object.keys(participants).length);
   }, []);
+
+  const notifyLeave = useCallback(() => {
+    if (leavingRef.current) return;
+    leavingRef.current = true;
+    onLeave?.();
+  }, [onLeave]);
 
   const handleJoinedMeeting = useCallback(() => {
     setIsJoined(true);
+    setJoinTime(new Date());
     updateParticipantCount();
     toast.success('Connected to video room');
   }, [updateParticipantCount]);
 
   const handleLeftMeeting = useCallback(() => {
     setIsJoined(false);
-    if (onLeave) {
-      onLeave();
-    }
-  }, [onLeave]);
+    setJoinTime(null);
+    notifyLeave();
+  }, [notifyLeave]);
 
   const handleParticipantUpdate = useCallback(() => {
     updateParticipantCount();
@@ -107,31 +115,68 @@ export function VideoRoom({ caseId, roomName, roomId, onLeave }: VideoRoomProps)
     toast.info('Recording stopped');
   }, []);
 
-  const handleError = useCallback((error?: DailyErrorEvent) => {
-    const message = error?.errorMsg ?? 'Unknown error';
-    console.error('Daily.co error:', error);
-    toast.error('Video call error: ' + message);
+  const handleError = useCallback((errorEvent?: DailyErrorEvent) => {
+    const message = errorEvent?.errorMsg ?? 'Unknown error';
+    console.error('Daily.co error:', errorEvent);
+    toast.error(`Video call error: ${message}`);
   }, []);
 
+  const detachEvents = useCallback(() => {
+    const frame = callFrameRef.current;
+    if (!frame) return;
+
+    frame.off('joined-meeting', handleJoinedMeeting);
+    frame.off('left-meeting', handleLeftMeeting);
+    frame.off('participant-joined', handleParticipantUpdate);
+    frame.off('participant-left', handleParticipantUpdate);
+    frame.off('recording-started', handleRecordingStarted);
+    frame.off('recording-stopped', handleRecordingStopped);
+    frame.off('error', handleError);
+  }, [
+    handleJoinedMeeting,
+    handleLeftMeeting,
+    handleParticipantUpdate,
+    handleRecordingStarted,
+    handleRecordingStopped,
+    handleError,
+  ]);
+
+  const destroyFrame = useCallback(async () => {
+    const frame = callFrameRef.current;
+    if (!frame) return;
+    detachEvents();
+    callFrameRef.current = null;
+    try {
+      await frame.destroy();
+    } catch (destroyError) {
+      console.error('Error destroying Daily frame:', destroyError);
+    }
+  }, [detachEvents]);
+
   const initializeRoom = useCallback(async () => {
+    if (initializedRef.current) return;
+    initializedRef.current = true;
+
     try {
       setIsLoading(true);
       setError(null);
+      leavingRef.current = false;
 
-      // Get current session
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
         throw new Error('Not authenticated');
       }
 
-      let token, url, owner, recordingEnabled;
+      let token = '';
+      let url = '';
+      let owner = false;
+      let recordingEnabled = true;
 
       if (roomId) {
-        // Join existing room
         const { data, error: joinError } = await supabase.functions.invoke('join-video-room', {
           body: {
-            roomName,
             roomId,
+            roomName,
             userName: session.user.email,
           },
         });
@@ -141,15 +186,14 @@ export function VideoRoom({ caseId, roomName, roomId, onLeave }: VideoRoomProps)
 
         token = data.token;
         url = data.roomUrl;
-        owner = data.isOwner;
-        recordingEnabled = data.enableRecording;
+        owner = Boolean(data.isOwner);
+        recordingEnabled = Boolean(data.enableRecording);
       } else {
-        // Create new room
         const { data, error: createError } = await supabase.functions.invoke('create-video-room', {
           body: {
             name: roomName,
             caseId,
-            enableRecording: enableRecording,
+            enableRecording: true,
             expiresInMinutes: 240,
           },
         });
@@ -160,34 +204,37 @@ export function VideoRoom({ caseId, roomName, roomId, onLeave }: VideoRoomProps)
         token = data.token;
         url = data.roomUrl;
         owner = true;
-        recordingEnabled = data.enableRecording;
+        recordingEnabled = Boolean(data.enableRecording);
       }
 
-      setRoomUrl(url);
+      const container = containerRef.current;
+      if (!container) throw new Error('Video container is not ready');
+      if (!window.DailyIframe?.createFrame) throw new Error('Daily.co library not loaded');
+
+      const frame = window.DailyIframe.createFrame(container, {
+        showLeaveButton: false,
+        iframeStyle: {
+          position: 'relative',
+          width: '100%',
+          height: '100%',
+          border: '0',
+          background: '#020617',
+        },
+      });
+      callFrameRef.current = frame;
+
+      frame.on('joined-meeting', handleJoinedMeeting);
+      frame.on('left-meeting', handleLeftMeeting);
+      frame.on('participant-joined', handleParticipantUpdate);
+      frame.on('participant-left', handleParticipantUpdate);
+      frame.on('recording-started', handleRecordingStarted);
+      frame.on('recording-stopped', handleRecordingStopped);
+      frame.on('error', handleError);
+
+      await frame.join({ url, token });
+
       setIsOwner(owner);
       setEnableRecording(recordingEnabled);
-
-      // Create Daily call object
-      if (window.DailyIframe) {
-        const callObject = window.DailyIframe.createCallObject();
-        callObjectRef.current = callObject;
-
-        // Set up event listeners
-        callObject.on('joined-meeting', handleJoinedMeeting);
-        callObject.on('left-meeting', handleLeftMeeting);
-        callObject.on('participant-joined', handleParticipantUpdate);
-        callObject.on('participant-left', handleParticipantUpdate);
-        callObject.on('recording-started', handleRecordingStarted);
-        callObject.on('recording-stopped', handleRecordingStopped);
-        callObject.on('error', handleError);
-
-        // Join the room
-        await callObject.join({ url, token });
-        setJoinTime(new Date());
-      } else {
-        throw new Error('Daily.co library not loaded');
-      }
-
       setIsLoading(false);
     } catch (err) {
       console.error('Error initializing room:', err);
@@ -199,7 +246,6 @@ export function VideoRoom({ caseId, roomName, roomId, onLeave }: VideoRoomProps)
     roomId,
     roomName,
     caseId,
-    enableRecording,
     handleJoinedMeeting,
     handleLeftMeeting,
     handleParticipantUpdate,
@@ -208,71 +254,80 @@ export function VideoRoom({ caseId, roomName, roomId, onLeave }: VideoRoomProps)
     handleError,
   ]);
 
-  // Load Daily.co script
   useEffect(() => {
-    const script = document.createElement('script');
-    script.src = 'https://unpkg.com/@daily-co/daily-js';
-    script.async = true;
-    script.onload = () => {
+    const existingScript = document.querySelector(
+      'script[data-daily-js="true"]'
+    ) as HTMLScriptElement | null;
+
+    const loadScript = existingScript ?? document.createElement('script');
+    if (!existingScript) {
+      loadScript.src = 'https://unpkg.com/@daily-co/daily-js';
+      loadScript.async = true;
+      loadScript.dataset.dailyJs = 'true';
+      document.body.appendChild(loadScript);
+    }
+
+    const onLoad = () => {
       initializeRoom();
     };
-    script.onerror = () => {
+    const onError = () => {
       setError('Failed to load video conferencing library');
       setIsLoading(false);
     };
-    document.body.appendChild(script);
+
+    if (window.DailyIframe?.createFrame) {
+      initializeRoom();
+    } else {
+      loadScript.addEventListener('load', onLoad);
+      loadScript.addEventListener('error', onError);
+    }
 
     return () => {
-      if (callObjectRef.current) {
-        callObjectRef.current.destroy();
-      }
-      document.body.removeChild(script);
+      loadScript.removeEventListener('load', onLoad);
+      loadScript.removeEventListener('error', onError);
+      destroyFrame().catch((destroyError) =>
+        console.error('Failed to cleanup video frame:', destroyError)
+      );
     };
-  }, [initializeRoom]);
+  }, [initializeRoom, destroyFrame]);
 
-  // Session duration timer
   useEffect(() => {
-    if (joinTime) {
-      const interval = setInterval(() => {
-        const now = new Date();
-        const duration = Math.floor((now.getTime() - joinTime.getTime()) / 1000);
-        setSessionDuration(duration);
-      }, 1000);
+    if (!joinTime) return;
+    const interval = setInterval(() => {
+      const now = new Date();
+      const duration = Math.floor((now.getTime() - joinTime.getTime()) / 1000);
+      setSessionDuration(duration);
+    }, 1000);
 
-      return () => clearInterval(interval);
-    }
+    return () => clearInterval(interval);
   }, [joinTime]);
 
-
   const toggleVideo = () => {
-    if (callObjectRef.current) {
-      const newState = !isVideoEnabled;
-      callObjectRef.current.setLocalVideo(newState);
-      setIsVideoEnabled(newState);
-    }
+    if (!callFrameRef.current) return;
+    const newState = !isVideoEnabled;
+    callFrameRef.current.setLocalVideo(newState);
+    setIsVideoEnabled(newState);
   };
 
   const toggleAudio = () => {
-    if (callObjectRef.current) {
-      const newState = !isAudioEnabled;
-      callObjectRef.current.setLocalAudio(newState);
-      setIsAudioEnabled(newState);
-    }
+    if (!callFrameRef.current) return;
+    const newState = !isAudioEnabled;
+    callFrameRef.current.setLocalAudio(newState);
+    setIsAudioEnabled(newState);
   };
 
   const toggleScreenShare = async () => {
-    if (callObjectRef.current) {
-      try {
-        if (isScreenSharing) {
-          callObjectRef.current.stopScreenShare();
-        } else {
-          await callObjectRef.current.startScreenShare();
-        }
-        setIsScreenSharing(!isScreenSharing);
-      } catch (err) {
-        console.error('Screen share error:', err);
-        toast.error('Failed to share screen');
+    if (!callFrameRef.current) return;
+    try {
+      if (isScreenSharing) {
+        callFrameRef.current.stopScreenShare();
+      } else {
+        await callFrameRef.current.startScreenShare();
       }
+      setIsScreenSharing(!isScreenSharing);
+    } catch (err) {
+      console.error('Screen share error:', err);
+      toast.error('Failed to share screen');
     }
   };
 
@@ -287,33 +342,33 @@ export function VideoRoom({ caseId, roomName, roomId, onLeave }: VideoRoomProps)
       return;
     }
 
-    if (callObjectRef.current) {
-      try {
-        if (isRecording) {
-          await callObjectRef.current.stopRecording();
-        } else {
-          await callObjectRef.current.startRecording();
-        }
-      } catch (err) {
-        console.error('Recording error:', err);
-        toast.error('Failed to control recording');
+    if (!callFrameRef.current) return;
+    try {
+      if (isRecording) {
+        await callFrameRef.current.stopRecording();
+      } else {
+        await callFrameRef.current.startRecording();
       }
+    } catch (err) {
+      console.error('Recording error:', err);
+      toast.error('Failed to control recording');
     }
   };
 
   const leaveRoom = async () => {
-    if (callObjectRef.current) {
-      try {
-        await callObjectRef.current.leave();
-        await callObjectRef.current.destroy();
-        callObjectRef.current = null;
-      } catch (err) {
-        console.error('Error leaving room:', err);
-      }
+    const frame = callFrameRef.current;
+    if (!frame) {
+      notifyLeave();
+      return;
     }
 
-    if (onLeave) {
-      onLeave();
+    try {
+      await frame.leave();
+    } catch (err) {
+      console.error('Error leaving room:', err);
+    } finally {
+      await destroyFrame();
+      notifyLeave();
     }
   };
 
@@ -328,21 +383,6 @@ export function VideoRoom({ caseId, roomName, roomId, onLeave }: VideoRoomProps)
     return `${minutes}:${secs.toString().padStart(2, '0')}`;
   };
 
-  if (isLoading) {
-    return (
-      <Card>
-        <CardContent className="pt-6">
-          <div className="flex items-center justify-center py-12">
-            <div className="text-center space-y-4">
-              <Video className="h-12 w-12 text-accent mx-auto animate-pulse" />
-              <p className="text-muted-foreground">Connecting to video room...</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
   if (error) {
     return (
       <Alert variant="destructive">
@@ -354,7 +394,6 @@ export function VideoRoom({ caseId, roomName, roomId, onLeave }: VideoRoomProps)
 
   return (
     <div className="space-y-4">
-      {/* Security and Status Bar */}
       <div className="flex items-center justify-between gap-4 px-4 py-2 bg-muted/50 rounded-lg">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2 text-sm">
@@ -378,7 +417,6 @@ export function VideoRoom({ caseId, roomName, roomId, onLeave }: VideoRoomProps)
         )}
       </div>
 
-      {/* Video Container */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -387,21 +425,32 @@ export function VideoRoom({ caseId, roomName, roomId, onLeave }: VideoRoomProps)
           </CardTitle>
           <CardDescription>
             {isOwner ? 'You are the room owner' : 'You are a participant'}
+            {!isJoined && ' (joining...)'}
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {/* Daily.co will inject video elements here */}
-          <div
-            id="daily-video-container"
-            className="aspect-video bg-navy-dark rounded-lg overflow-hidden"
-          />
+          <div className="relative aspect-video min-h-[360px] bg-navy-dark rounded-lg overflow-hidden">
+            <div
+              ref={containerRef}
+              id="daily-video-container"
+              className="h-full w-full"
+            />
+            {isLoading && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/40">
+                <div className="text-center space-y-2">
+                  <Video className="h-10 w-10 text-accent mx-auto animate-pulse" />
+                  <p className="text-sm text-slate-200">Connecting to video room...</p>
+                </div>
+              </div>
+            )}
+          </div>
 
-          {/* Controls */}
-          <div className="flex items-center justify-center gap-4 mt-6">
+          <div className="flex flex-wrap items-center justify-center gap-4 mt-6">
             <Button
               variant={isAudioEnabled ? 'default' : 'destructive'}
               size="lg"
               onClick={toggleAudio}
+              disabled={isLoading}
               className="gap-2"
             >
               {isAudioEnabled ? <Mic className="h-5 w-5" /> : <MicOff className="h-5 w-5" />}
@@ -412,6 +461,7 @@ export function VideoRoom({ caseId, roomName, roomId, onLeave }: VideoRoomProps)
               variant={isVideoEnabled ? 'default' : 'destructive'}
               size="lg"
               onClick={toggleVideo}
+              disabled={isLoading}
               className="gap-2"
             >
               {isVideoEnabled ? <Video className="h-5 w-5" /> : <VideoOff className="h-5 w-5" />}
@@ -422,6 +472,7 @@ export function VideoRoom({ caseId, roomName, roomId, onLeave }: VideoRoomProps)
               variant={isScreenSharing ? 'default' : 'outline'}
               size="lg"
               onClick={toggleScreenShare}
+              disabled={isLoading}
               className="gap-2"
             >
               {isScreenSharing ? <MonitorOff className="h-5 w-5" /> : <Monitor className="h-5 w-5" />}
@@ -433,6 +484,7 @@ export function VideoRoom({ caseId, roomName, roomId, onLeave }: VideoRoomProps)
                 variant={isRecording ? 'destructive' : 'outline'}
                 size="lg"
                 onClick={toggleRecording}
+                disabled={isLoading}
                 className="gap-2"
               >
                 {isRecording ? <Square className="h-5 w-5" /> : <Circle className="h-5 w-5" />}
@@ -444,6 +496,7 @@ export function VideoRoom({ caseId, roomName, roomId, onLeave }: VideoRoomProps)
               variant="destructive"
               size="lg"
               onClick={leaveRoom}
+              disabled={isLoading}
               className="gap-2"
             >
               <Phone className="h-5 w-5 rotate-135" />
@@ -451,7 +504,6 @@ export function VideoRoom({ caseId, roomName, roomId, onLeave }: VideoRoomProps)
             </Button>
           </div>
 
-          {/* Recording Info */}
           {!enableRecording && (
             <Alert className="mt-4">
               <AlertCircle className="h-4 w-4" />

@@ -157,6 +157,19 @@ serve(async (req) => {
     if (!tokenResponse.ok) {
       const errorData = await tokenResponse.json();
       console.error('Token creation error:', errorData);
+
+      // Cleanup: remove room if token creation failed.
+      try {
+        await fetch(`https://api.daily.co/v1/rooms/${room.name}`, {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${DAILY_API_KEY}`,
+          },
+        });
+      } catch (cleanupError) {
+        console.error('Failed to cleanup Daily room after token failure:', cleanupError);
+      }
+
       return new Response(
         JSON.stringify({ error: 'Failed to create meeting token', details: errorData }),
         { status: tokenResponse.status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -183,14 +196,28 @@ serve(async (req) => {
       .select()
       .single();
 
-    if (dbError) {
+    if (dbError || !videoRoom) {
       console.error('Database error:', dbError);
-      // Continue even if DB insert fails - room is created
+
+      // Cleanup: remove room if persistence failed so callers do not receive
+      // a room that cannot be securely re-joined through roomId checks.
+      try {
+        await fetch(`https://api.daily.co/v1/rooms/${room.name}`, {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${DAILY_API_KEY}`,
+          },
+        });
+      } catch (cleanupError) {
+        console.error('Failed to cleanup Daily room after database failure:', cleanupError);
+      }
+
+      throw new Error(`Failed to persist video room: ${dbError?.message || 'unknown database error'}`);
     }
 
     return new Response(
       JSON.stringify({
-        roomId: videoRoom?.id,
+        roomId: videoRoom.id,
         roomUrl: room.url,
         roomName: room.name,
         token: tokenData.token,

@@ -273,6 +273,51 @@ Be strategic and thorough. Focus on questions that will advance the case theory 
   },
 };
 
+function buildFallbackResponse(mode: SimulationRequest['mode'], lastUserMessage: string): string {
+  const question = lastUserMessage.trim() || "Could you restate your question for the record?";
+
+  switch (mode) {
+    case 'cross-examination':
+      return `Well, as I recall, ${question.toLowerCase().includes("date") ? "the dates are in that general timeframe, but I would need the document in front of me to be exact." : "that's not exactly how I would characterize it. I can answer directly, but I want to be precise about what I personally observed."}`;
+    case 'direct-examination':
+      return "Yes, counselor. From my perspective, the key point is that the sequence of events was consistent with what we documented at the time, and nothing about your question changes that account.";
+    case 'opening-statement':
+      return "Counselor, your structure is clear, but tighten your theme in the first thirty seconds and anchor it to two concrete facts the jury can remember. If you do that, your opening will land with more confidence and credibility.";
+    case 'closing-argument':
+      return "From the bench, I see a solid framework, but you need a sharper link between your strongest facts and each legal element. From a juror's perspective, the argument is persuasive when it stays specific and avoids broad conclusions.";
+    case 'deposition':
+      return "I understand the question. Based on what I remember right now, that's accurate in part, but I'd want to review the underlying record before giving a more detailed answer.";
+    case 'motion-hearing':
+      return "Counsel, I understand your position, but I need your best authority and a clearer explanation of how the facts satisfy that standard. Give me the narrowest rule that controls this issue.";
+    case 'objections-practice':
+      return "OPPOSING COUNSEL asks the witness: \"After speaking with your manager, you concluded the product was defective, correct?\"";
+    case 'voir-dire':
+      return "Sure. I work full-time and have two kids, so scheduling is a concern for me, but I can still be fair if selected. I do try to listen to evidence before making up my mind.";
+    case 'evidence-foundation':
+      return "THE WITNESS answers: I recognize this document and I have seen it in the ordinary course of business. THE COURT: Counsel, continue laying foundation with who created it and when it was maintained.";
+    case 'deposition-prep':
+      return "QUESTION 1: Please identify this document and explain when you first reviewed it.\nTYPE: foundational\nPURPOSE: Establish authentication and personal knowledge.\nRISK: low\nFOLLOW-UP: What specific portion did you rely on?\nTARGET DOCUMENT: Primary incident record";
+    default:
+      return "I understand your question. Let me answer carefully so the record is clear.";
+  }
+}
+
+function buildFallbackCoaching(mode: SimulationRequest['mode'], lastUserMessage: string): string {
+  const trimmed = lastUserMessage.trim();
+  const concise = trimmed.length > 180 ? "shorter and more focused" : "specific and controlled";
+
+  switch (mode) {
+    case 'cross-examination':
+      return `Your last question should be ${concise}. Use one fact per question, avoid compound phrasing, and end with a firm yes-or-no structure to control the witness.`;
+    case 'direct-examination':
+      return "Keep your questions open and chronological. Ask one clear fact question, then one follow-up that ties the answer to your case theme.";
+    case 'objections-practice':
+      return "State the objection first, then the narrowest legal ground. If the question is salvageable, ask the court to require rephrasing instead of over-objecting.";
+    default:
+      return "Your delivery is improving. Keep each question purposeful, tie it to a concrete fact, and use your next exchange to close any ambiguity left in the answer.";
+  }
+}
+
 serve(async (req) => {
   const corsHeaders = getCorsHeaders(req);
 
@@ -454,7 +499,28 @@ ${messages.length === 0 ? `This is the beginning of the session. The attorney ha
 
     // Call Google Gemini API directly
     const GOOGLE_AI_KEY = Deno.env.get('GOOGLE_AI_API_KEY');
-    if (!GOOGLE_AI_KEY) throw new Error('GOOGLE_AI_API_KEY is not configured');
+    if (!GOOGLE_AI_KEY) {
+      console.warn('GOOGLE_AI_API_KEY is not configured. Using deterministic fallback response.');
+      const fallbackLastUserMessage = messages.filter(m => m.role === 'user').slice(-1)[0]?.content || '';
+      const fallbackMessage = buildFallbackResponse(mode, fallbackLastUserMessage);
+      const fallbackCoaching = messages.length > 0
+        ? buildFallbackCoaching(mode, fallbackLastUserMessage)
+        : null;
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          message: fallbackMessage,
+          coaching: fallbackCoaching,
+          role: simulationConfig.role,
+          performanceHints: undefined,
+          objectionTypes: mode === 'objections-practice' ? OBJECTION_TYPES : undefined,
+        }),
+        {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      );
+    }
 
     const chatMessages = [
       { role: 'user', content: systemPrompt + '\n\n' + messages.map((m: { role: string; content: string }) => `${m.role}: ${m.content}`).join('\n') },

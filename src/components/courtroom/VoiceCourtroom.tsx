@@ -429,7 +429,7 @@ export function VoiceCourtroom({ caseId, caseName, mode, modeName, onEnd }: Voic
       if (response.error) throw response.error;
       return response.data as SimulationResponse;
     },
-    onSuccess: (data) => {
+    onSuccess: (data, userMessage) => {
       const assistantMsg: Message = {
         id: `ai-${Date.now()}`,
         role: "assistant",
@@ -444,24 +444,18 @@ export function VoiceCourtroom({ caseId, caseName, mode, modeName, onEnd }: Voic
       if (data.coaching) setCoaching(data.coaching);
       if (data.performanceHints?.length) setPerformanceHints(data.performanceHints);
 
+      const normalizedUserMessage = userMessage.toLowerCase();
+      const usedOpenQuestion = /\b(what|how|why|when|where|who)\b/.test(normalizedUserMessage);
+      const usedLeadingQuestion =
+        normalizedUserMessage.includes("isn't it true") ||
+        normalizedUserMessage.includes("wouldn't you agree") ||
+        normalizedUserMessage.includes("isn't that correct");
+
       setMetrics(prev => ({
         ...prev,
         totalQuestions: prev.totalQuestions + 1,
-        openQuestionsUsed: prev.openQuestionsUsed + (
-          data.message.toLowerCase().includes('what') ||
-          data.message.toLowerCase().includes('how') ||
-          data.message.toLowerCase().includes('why') ||
-          data.message.toLowerCase().includes('when') ||
-          data.message.toLowerCase().includes('where') ||
-          data.message.toLowerCase().includes('who')
-            ? 1 : 0
-        ),
-        leadingQuestionsUsed: prev.leadingQuestionsUsed + (
-          data.message.toLowerCase().includes("isn't it true") ||
-          data.message.toLowerCase().includes("wouldn't you agree") ||
-          data.message.toLowerCase().includes("isn't that correct")
-            ? 1 : 0
-        ),
+        openQuestionsUsed: prev.openQuestionsUsed + (usedOpenQuestion ? 1 : 0),
+        leadingQuestionsUsed: prev.leadingQuestionsUsed + (usedLeadingQuestion ? 1 : 0),
       }));
 
       if (sessionId) {

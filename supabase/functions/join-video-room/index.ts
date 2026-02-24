@@ -10,9 +10,20 @@ import { verifyAuth, forbiddenResponse } from '../_shared/auth.ts';
 import { validateUUID, sanitizeString } from '../_shared/validation.ts';
 
 interface JoinRoomRequest {
-  roomName: string;
-  roomId?: string;
+  roomId: string;
+  roomName?: string;
   userName?: string;
+}
+
+interface VideoRoomRecord {
+  id: string;
+  user_id: string;
+  daily_room_name: string;
+  enable_recording: boolean;
+  participants_log?: unknown[];
+  cases: {
+    user_id: string;
+  };
 }
 
 serve(async (req) => {
@@ -59,37 +70,40 @@ serve(async (req) => {
 
     // Parse and validate request body
     const requestBody = await req.json();
-    validateRequestBody<JoinRoomRequest>(requestBody, ['roomName']);
+    validateRequestBody<JoinRoomRequest>(requestBody, ['roomId']);
 
-    const roomName = sanitizeString(requestBody.roomName, 'roomName', 200);
-    const roomId = requestBody.roomId ? validateUUID(requestBody.roomId, 'roomId') : undefined;
+    const roomId = validateUUID(requestBody.roomId, 'roomId');
+    const providedRoomName = requestBody.roomName
+      ? sanitizeString(requestBody.roomName, 'roomName', 200)
+      : undefined;
     const userName = requestBody.userName ? sanitizeString(requestBody.userName, 'userName', 100) : undefined;
 
-    // Security: Verify user has access to the room through the case
-    let videoRoomData;
-    if (roomId) {
-      const { data, error: roomDbError } = await supabase
-        .from('video_rooms')
-        .select('*, cases!inner(user_id)')
-        .eq('id', roomId)
-        .eq('daily_room_name', roomName)
-        .single();
+    // Security: Always verify user has access to the room through case ownership.
+    const { data, error: roomDbError } = await supabase
+      .from('video_rooms')
+      .select('*, cases!inner(user_id)')
+      .eq('id', roomId)
+      .single();
 
-      if (roomDbError || !data) {
-        console.error('Room verification failed:', roomDbError);
-        return forbiddenResponse('Room not found or access denied', corsHeaders);
-      }
-
-      // Verify user has access to the case
-      if (data.cases.user_id !== user.id) {
-        console.error('User does not own the case for this room');
-        return forbiddenResponse('Access denied to this video room', corsHeaders);
-      }
-
-      console.log(`User verified for room ${roomId}`);
-
-      videoRoomData = data;
+    if (roomDbError || !data) {
+      console.error('Room verification failed:', roomDbError);
+      return forbiddenResponse('Room not found or access denied', corsHeaders);
     }
+
+    const videoRoomData = data as unknown as VideoRoomRecord;
+
+    if (videoRoomData.cases.user_id !== user.id) {
+      console.error('User does not own the case for this room');
+      return forbiddenResponse('Access denied to this video room', corsHeaders);
+    }
+
+    const roomName = videoRoomData.daily_room_name;
+    if (providedRoomName && providedRoomName !== roomName) {
+      console.error('Provided roomName does not match persisted room');
+      return forbiddenResponse('Room details mismatch', corsHeaders);
+    }
+
+    console.log(`User verified for room ${roomId}`);
 
     // Get room info to verify it exists and is active
     const roomResponse = await fetch(`https://api.daily.co/v1/rooms/${roomName}`, {
@@ -110,12 +124,10 @@ serve(async (req) => {
     // Verify room hasn't expired
     if (room.config?.exp && room.config.exp < Math.floor(Date.now() / 1000)) {
       // Mark room as expired in database
-      if (roomId) {
-        await supabase
-          .from('video_rooms')
-          .update({ status: 'expired' })
-          .eq('id', roomId);
-      }
+      await supabase
+        .from('video_rooms')
+        .update({ status: 'expired' })
+        .eq('id', roomId);
 
       return new Response(
         JSON.stringify({ error: 'Room has expired' }),
@@ -125,7 +137,7 @@ serve(async (req) => {
 
     // Create a meeting token for the user with appropriate permissions
     const exp = Math.floor(Date.now() / 1000) + (60 * 60 * 4); // 4 hours
-    const isOwner = videoRoomData?.user_id === user.id;
+    const isOwner = videoRoomData.user_id === user.id;
 
     const tokenResponse = await fetch('https://api.daily.co/v1/meeting-tokens', {
       method: 'POST',
@@ -141,7 +153,7 @@ serve(async (req) => {
           user_name: userName || user.email || 'Participant',
           user_id: user.id,
           enable_screenshare: true,
-          enable_recording: videoRoomData?.enable_recording ? 'cloud' : 'local',
+          enable_recording: videoRoomData.enable_recording ? 'cloud' : 'local',
           start_cloud_recording: false, // Must be started manually by owner
         },
       }),
@@ -159,42 +171,43 @@ serve(async (req) => {
     const tokenData = await tokenResponse.json();
 
     // Log participant joining
-    if (roomId) {
-      await supabase
-        .from('video_room_participants')
-        .insert({
-          room_id: roomId,
-          user_id: user.id,
-          participant_name: userName || user.email || 'Participant',
-          is_owner: isOwner,
-          participant_token: tokenData.token.substring(0, 20) + '...', // Store partial token for audit
-        });
+    await supabase
+      .from('video_room_participants')
+      .insert({
+        room_id: roomId,
+        user_id: user.id,
+        participant_name: userName || user.email || 'Participant',
+        is_owner: isOwner,
+        participant_token: tokenData.token.substring(0, 20) + '...', // Store partial token for audit
+      });
 
-      // Update participants log in video_rooms
-      const currentLog = videoRoomData?.participants_log || [];
-      const newLog = [
-        ...currentLog,
-        {
-          user_id: user.id,
-          user_name: userName || user.email,
-          joined_at: new Date().toISOString(),
-          is_owner: isOwner,
-        }
-      ];
+    // Update participants log in video_rooms
+    const currentLog = Array.isArray(videoRoomData.participants_log)
+      ? videoRoomData.participants_log
+      : [];
+    const newLog = [
+      ...currentLog,
+      {
+        user_id: user.id,
+        user_name: userName || user.email,
+        joined_at: new Date().toISOString(),
+        is_owner: isOwner,
+      }
+    ];
 
-      await supabase
-        .from('video_rooms')
-        .update({ participants_log: newLog })
-        .eq('id', roomId);
-    }
+    await supabase
+      .from('video_rooms')
+      .update({ participants_log: newLog })
+      .eq('id', roomId);
 
     return new Response(
       JSON.stringify({
+        roomId,
         roomUrl: room.url,
         roomName: room.name,
         token: tokenData.token,
         isOwner,
-        enableRecording: videoRoomData?.enable_recording || false,
+        enableRecording: videoRoomData.enable_recording,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );

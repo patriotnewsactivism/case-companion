@@ -77,7 +77,7 @@ serve(async (req) => {
 
   try {
     // Validate environment variables
-    validateEnvVars(['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'ASSEMBLYAI_API_KEY']);
+    validateEnvVars(['SUPABASE_URL', 'SUPABASE_ANON_KEY']);
 
     // Verify authentication
     const authResult = await verifyAuth(req);
@@ -190,7 +190,15 @@ serve(async (req) => {
 
     console.log(`Downloaded file, size: ${(fileBlob.size / 1024 / 1024).toFixed(2)} MB`);
 
-    const assemblyAiApiKey = Deno.env.get('ASSEMBLYAI_API_KEY')!;
+    const assemblyAiApiKey = Deno.env.get('ASSEMBLYAI_API_KEY');
+    if (!assemblyAiApiKey) {
+      return createErrorResponse(
+        new Error('ASSEMBLYAI_API_KEY is not configured'),
+        500,
+        'transcribe-media',
+        corsHeaders
+      );
+    }
 
     // Step 1: Upload file to AssemblyAI
     console.log('Uploading file to AssemblyAI...');

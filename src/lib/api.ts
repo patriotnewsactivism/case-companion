@@ -754,7 +754,7 @@ export interface CreateVideoRoomOptions {
 
 export async function createVideoRoom(
   name: string,
-  caseId?: string,
+  caseId: string,
   options?: CreateVideoRoomOptions
 ): Promise<VideoRoom> {
   const { data, error } = await supabase.functions.invoke('create-video-room', {
@@ -772,9 +772,9 @@ export async function createVideoRoom(
   return data;
 }
 
-export async function joinVideoRoom(roomName: string, userName?: string): Promise<VideoRoom> {
+export async function joinVideoRoom(roomId: string, userName?: string): Promise<VideoRoom> {
   const { data, error } = await supabase.functions.invoke('join-video-room', {
-    body: { roomName, userName },
+    body: { roomId, userName },
   });
 
   if (error) throw error;

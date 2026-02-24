@@ -126,10 +126,13 @@ async function testEdgeFunctions() {
   try {
     const functions = [
       'ocr-document',
+      'trial-simulation',
       'transcribe-media',
+      'transcribe-recording',
       'import-google-drive',
       'create-video-room',
       'join-video-room',
+      'recording-webhook',
     ];
 
     for (const func of functions) {

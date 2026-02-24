@@ -112,16 +112,6 @@ serve(async (req) => {
     const hasAzureVision = !!(azureVisionKey && azureVisionEndpoint);
     const hasOcrSpace = !!ocrSpaceApiKey;
 
-    if (!hasAzureDocIntelligence && !hasAzureVision && !hasOcrSpace) {
-      console.error('No OCR providers configured');
-      return createErrorResponse(
-        new Error('No OCR providers configured. Please set AZURE_DOC_INTELLIGENCE_KEY and AZURE_DOC_INTELLIGENCE_ENDPOINT, or AZURE_VISION_API_KEY and AZURE_VISION_ENDPOINT, or OCR_SPACE_API_KEY.'),
-        500,
-        'ocr-document',
-        corsHeaders
-      );
-    }
-
     console.log(
       `OCR providers available: AzureDocIntelligence=${hasAzureDocIntelligence}, AzureVision=${hasAzureVision}, OCR.space=${hasOcrSpace}`
     );
@@ -440,6 +430,12 @@ serve(async (req) => {
       validatedFileUrl.match(/\.(jpg|jpeg|png|gif|webp|bmp|tiff|pdf)$/i);
 
     if (isOcrTarget) {
+      if (!hasAzureDocIntelligence && !hasAzureVision && !hasOcrSpace) {
+        throw new Error(
+          'No OCR providers configured. Please set AZURE_DOC_INTELLIGENCE_KEY and AZURE_DOC_INTELLIGENCE_ENDPOINT, or AZURE_VISION_API_KEY and AZURE_VISION_ENDPOINT, or OCR_SPACE_API_KEY.'
+        );
+      }
+
       console.log('Processing document with OCR...');
       const isImage = resolvedContentType.includes('image') || validatedFileUrl.match(/\.(jpg|jpeg|png|gif|webp|bmp|tiff)$/i);
       const sizeInMB = (fileBlob.size / 1024 / 1024).toFixed(2);

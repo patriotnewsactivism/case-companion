@@ -12,11 +12,12 @@
     "test": "vitest",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest --coverage",
+    "test:smoke": "tsx scripts/smoke-feature-check.ts",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "diagnose": "tsx scripts/diagnose-backend.ts",
     "fix:ocr": "supabase functions deploy ocr-document",
-    "fix:video": "supabase functions deploy create-video-room && supabase functions deploy join-video-room",
+    "fix:video": "supabase functions deploy create-video-room && supabase functions deploy join-video-room && supabase functions deploy recording-webhook && supabase functions deploy transcribe-recording && supabase functions deploy transcribe-media",
     "fix:all": "npm run fix:ocr && npm run fix:video"
   },
   "dependencies": {
