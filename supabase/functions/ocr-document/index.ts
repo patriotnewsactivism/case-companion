@@ -29,6 +29,43 @@ interface OcrSpaceResponse {
   ErrorMessage?: string | string[];
 }
 
+interface GeminiContentPart {
+  text?: string;
+}
+
+interface GeminiCandidate {
+  content?: {
+    parts?: GeminiContentPart[];
+  };
+}
+
+interface GeminiResponse {
+  candidates?: GeminiCandidate[];
+}
+
+type TimelineImportance = 'low' | 'medium' | 'high';
+
+interface TimelineEventCandidate {
+  event_date?: string;
+  title?: string;
+  description?: string;
+  importance?: string;
+  event_type?: string;
+}
+
+interface TimelineEventInsertRow {
+  case_id: string;
+  user_id: string;
+  linked_document_id: string;
+  event_date: string;
+  title: string;
+  description: string;
+  importance: TimelineImportance;
+  event_type: string;
+  created_at: string;
+  updated_at: string;
+}
+
 function extractStoragePath(fileUrl: string): string | null {
   if (!fileUrl || typeof fileUrl !== 'string') {
     return null;
@@ -92,6 +129,67 @@ const normalizeExtractedText = (text: string) =>
     .replace(/\n{4,}/g, '\n\n\n')
     .trim();
 
+const extractGeminiText = (payload: GeminiResponse): string => {
+  const parts = payload?.candidates?.[0]?.content?.parts;
+  if (!Array.isArray(parts)) return '';
+  return parts.map((part) => String(part?.text || '')).join('').trim();
+};
+
+const toDateOnlyString = (value: string | undefined): string => {
+  if (!value) return new Date().toISOString().split('T')[0];
+
+  const trimmed = value.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return trimmed;
+  }
+  if (/^\d{4}-\d{2}$/.test(trimmed)) {
+    return `${trimmed}-01`;
+  }
+  if (/^\d{4}$/.test(trimmed)) {
+    return `${trimmed}-01-01`;
+  }
+
+  const parsed = new Date(trimmed);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toISOString().split('T')[0];
+  }
+
+  return new Date().toISOString().split('T')[0];
+};
+
+const normalizeImportance = (value: string | undefined): TimelineImportance => {
+  const normalized = (value || '').trim().toLowerCase();
+  if (normalized === 'low' || normalized === 'medium' || normalized === 'high') {
+    return normalized;
+  }
+  return 'medium';
+};
+
+const normalizeTimelineEvent = (
+  event: TimelineEventCandidate,
+  caseId: string,
+  documentId: string,
+  ownerUserId: string
+): TimelineEventInsertRow => {
+  const nowIso = new Date().toISOString();
+  const title = (event.title || '').trim();
+  const description = (event.description || '').trim();
+  const eventType = (event.event_type || '').trim();
+
+  return {
+    case_id: caseId,
+    user_id: ownerUserId,
+    linked_document_id: documentId,
+    event_date: toDateOnlyString(event.event_date),
+    title: title.length > 0 ? title.slice(0, 180) : 'Untitled Event',
+    description: description.slice(0, 2000),
+    importance: normalizeImportance(event.importance),
+    event_type: eventType.length > 0 ? eventType.slice(0, 100) : 'general',
+    created_at: nowIso,
+    updated_at: nowIso,
+  };
+};
+
 serve(async (req) => {
   const corsHeaders = getCorsHeaders(req);
 
@@ -107,14 +205,20 @@ serve(async (req) => {
     const azureVisionKey = Deno.env.get('AZURE_VISION_API_KEY');
     const azureVisionEndpoint = Deno.env.get('AZURE_VISION_ENDPOINT');
     const ocrSpaceApiKey = Deno.env.get('OCR_SPACE_API_KEY');
+    const openaiApiKey = Deno.env.get('OPENAI_API_KEY');
+    const aiGatewayUrl = Deno.env.get('AI_GATEWAY_URL');
+    const googleApiKey = Deno.env.get('GOOGLE_AI_API_KEY');
 
     const hasAzureDocIntelligence = !!(azureDocIntelligenceKey && azureDocIntelligenceEndpoint);
     const hasAzureVision = !!(azureVisionKey && azureVisionEndpoint);
     const hasOcrSpace = !!ocrSpaceApiKey;
+    const hasOpenAI = !!openaiApiKey;
+    const hasGemini = !!googleApiKey;
 
     console.log(
       `OCR providers available: AzureDocIntelligence=${hasAzureDocIntelligence}, AzureVision=${hasAzureVision}, OCR.space=${hasOcrSpace}`
     );
+    console.log(`AI providers available: OpenAI=${hasOpenAI}, Gemini=${hasGemini}`);
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
@@ -124,7 +228,7 @@ serve(async (req) => {
       : authHeader.trim();
 
     type AuthUser = { id: string };
-    type DocumentOwner = { cases?: { user_id?: string } };
+    type DocumentOwner = { cases?: { user_id?: string } | Array<{ user_id?: string }> };
 
     let user: AuthUser;
     let supabase: SupabaseClient;
@@ -194,7 +298,21 @@ serve(async (req) => {
       );
     }
 
-    const ownerId = (documentData as DocumentOwner).cases?.user_id;
+    const caseRelation = (documentData as DocumentOwner).cases;
+    const ownerId = Array.isArray(caseRelation)
+      ? caseRelation[0]?.user_id
+      : caseRelation?.user_id;
+
+    if (!ownerId) {
+      console.error('Unable to resolve document owner from case relationship');
+      return createErrorResponse(
+        new Error('Document owner could not be resolved'),
+        500,
+        'ocr-document',
+        corsHeaders
+      );
+    }
+
     if (!isServiceRole && ownerId !== user.id) {
       console.error('User does not own this document');
       return forbiddenResponse(
