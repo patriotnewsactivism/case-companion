@@ -66,6 +66,15 @@ interface TimelineEventInsertRow {
   updated_at: string;
 }
 
+interface HeuristicAnalysisResult {
+  summary: string;
+  keyFacts: string[];
+  favorableFindings: string[];
+  adverseFindings: string[];
+  actionItems: string[];
+  timelineEvents: TimelineEventCandidate[];
+}
+
 function extractStoragePath(fileUrl: string): string | null {
   if (!fileUrl || typeof fileUrl !== 'string') {
     return null;
@@ -187,6 +196,166 @@ const normalizeTimelineEvent = (
     event_type: eventType.length > 0 ? eventType.slice(0, 100) : 'general',
     created_at: nowIso,
     updated_at: nowIso,
+  };
+};
+
+const sentenceSplitRegex = /[^.!?\n]+[.!?]?/g;
+
+const extractSentences = (text: string): string[] => {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  if (!normalized) return [];
+  return (
+    normalized.match(sentenceSplitRegex)?.map((sentence) => sentence.trim()).filter(Boolean) || []
+  );
+};
+
+const monthNames =
+  '(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)';
+
+const dateTokenMatchers = [
+  new RegExp(`\\b${monthNames}\\s+\\d{1,2},\\s+\\d{4}\\b`, 'i'),
+  /\b\d{4}-\d{2}-\d{2}\b/,
+  /\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/,
+  new RegExp(`\\b${monthNames}\\s+\\d{4}\\b`, 'i'),
+] as const;
+
+const extractDateToken = (sentence: string): string | null => {
+  for (const matcher of dateTokenMatchers) {
+    const match = sentence.match(matcher);
+    if (match?.[0]) {
+      return match[0];
+    }
+  }
+  return null;
+};
+
+const buildTimelineTitle = (sentence: string, dateToken: string | null): string => {
+  const withoutDate = dateToken ? sentence.replace(dateToken, ' ') : sentence;
+  const words = withoutDate
+    .replace(/[^a-zA-Z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 8);
+
+  if (words.length === 0) {
+    return 'Document event';
+  }
+
+  const base = words.join(' ');
+  return base.charAt(0).toUpperCase() + base.slice(1);
+};
+
+const inferEventType = (sentence: string): string => {
+  if (/\b(filed|motion|complaint|petition|answer|brief|order)\b/i.test(sentence)) {
+    return 'filing';
+  }
+  if (/\b(hearing|trial|deposition|mediation|conference|meeting)\b/i.test(sentence)) {
+    return 'meeting';
+  }
+  if (/\b(email|letter|call|message|notice|response)\b/i.test(sentence)) {
+    return 'communication';
+  }
+  if (/\b(incident|accident|collision|injury|damage)\b/i.test(sentence)) {
+    return 'incident';
+  }
+  return 'general';
+};
+
+const inferImportance = (sentence: string): TimelineImportance => {
+  if (
+    /\b(trial|hearing|deadline|deposition|filed|served|breach|injury|accident|default|termination)\b/i.test(
+      sentence
+    )
+  ) {
+    return 'high';
+  }
+  if (/\b(meeting|mediation|response|notice|email|letter|call)\b/i.test(sentence)) {
+    return 'medium';
+  }
+  return 'low';
+};
+
+const uniqueTrimmed = (items: string[], maxItems: number): string[] => {
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const item of items) {
+    const cleaned = item.trim().replace(/\s+/g, ' ');
+    if (!cleaned) continue;
+    const key = cleaned.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(cleaned);
+    if (result.length >= maxItems) break;
+  }
+
+  return result;
+};
+
+const buildHeuristicAnalysis = (text: string): HeuristicAnalysisResult => {
+  const sentences = extractSentences(text).slice(0, 60);
+  const timelineEvents: TimelineEventCandidate[] = [];
+
+  for (const sentence of sentences) {
+    const dateToken = extractDateToken(sentence);
+    if (!dateToken) continue;
+
+    timelineEvents.push({
+      event_date: toDateOnlyString(dateToken),
+      title: buildTimelineTitle(sentence, dateToken),
+      description: sentence.slice(0, 280),
+      importance: inferImportance(sentence),
+      event_type: inferEventType(sentence),
+    });
+
+    if (timelineEvents.length >= 12) break;
+  }
+
+  const factCandidates = sentences.filter((sentence) =>
+    /\b(\d{1,2}\/\d{1,2}\/\d{2,4}|\d{4}-\d{2}-\d{2}|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|\$|\d{2,}|agreement|demand|response|meeting|incident|email|letter)\b/i.test(
+      sentence
+    )
+  );
+
+  const favorableCandidates = sentences.filter((sentence) =>
+    /\b(admit|confirmed|supports|favorable|complied|approved|paid|received|signed)\b/i.test(sentence)
+  );
+  const adverseCandidates = sentences.filter((sentence) =>
+    /\b(deny|denied|dispute|late|overdue|breach|damaging|adverse|inconsistent|liability|default|failed)\b/i.test(
+      sentence
+    )
+  );
+
+  const summary = uniqueTrimmed(sentences.slice(0, 2), 2).join(' ');
+  const keyFacts = uniqueTrimmed(factCandidates, 8);
+  const favorableFindings = uniqueTrimmed(favorableCandidates, 4);
+  const adverseFindings = uniqueTrimmed(adverseCandidates, 4);
+
+  const actionItems = uniqueTrimmed(
+    [
+      timelineEvents.length > 0
+        ? 'Validate timeline events against the source document and related exhibits.'
+        : '',
+      adverseFindings.length > 0
+        ? 'Address adverse statements with corroborating evidence and witness preparation.'
+        : '',
+      keyFacts.length > 0
+        ? 'Link key factual statements to Bates-numbered exhibits for trial use.'
+        : '',
+      'Review OCR output for any transcription issues before filing or strategy use.',
+    ],
+    4
+  );
+
+  return {
+    summary,
+    keyFacts,
+    favorableFindings,
+    adverseFindings,
+    actionItems,
+    timelineEvents,
   };
 };
 
@@ -634,7 +803,7 @@ serve(async (req) => {
     let summary = '';
     let timelineEvents: unknown[] = [];
 
-    let analysisProvider: 'openai' | 'gemini' | 'none' = 'none';
+    let analysisProvider: 'openai' | 'gemini' | 'heuristic' | 'none' = 'none';
 
     if (
       extractedText &&
@@ -769,6 +938,27 @@ ${extractedText.substring(0, 20000)}`;
         console.error('Raw content:', content);
         summary = content.substring(0, 500);
       }
+    }
+
+    if (
+      extractedText &&
+      extractedText.length > 80 &&
+      summary.length === 0 &&
+      keyFacts.length === 0 &&
+      favorableFindings.length === 0 &&
+      adverseFindings.length === 0 &&
+      actionItems.length === 0 &&
+      timelineEvents.length === 0
+    ) {
+      console.log('AI analysis unavailable or empty. Falling back to heuristic extraction...');
+      const heuristic = buildHeuristicAnalysis(extractedText);
+      analysisProvider = 'heuristic';
+      summary = heuristic.summary;
+      keyFacts = heuristic.keyFacts;
+      favorableFindings = heuristic.favorableFindings;
+      adverseFindings = heuristic.adverseFindings;
+      actionItems = heuristic.actionItems;
+      timelineEvents = heuristic.timelineEvents;
     }
 
     const hasAnalysis =
