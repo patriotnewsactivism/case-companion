@@ -634,11 +634,14 @@ serve(async (req) => {
     let summary = '';
     let timelineEvents: unknown[] = [];
 
-    const openaiApiKey = Deno.env.get('OPENAI_API_KEY');
-    const aiGatewayUrl = Deno.env.get('AI_GATEWAY_URL');
-    const hasOpenAI = !!openaiApiKey;
+    let analysisProvider: 'openai' | 'gemini' | 'none' = 'none';
 
-    if (extractedText && extractedText.length > 50 && !extractedText.startsWith('[File type') && hasOpenAI) {
+    if (
+      extractedText &&
+      extractedText.length > 50 &&
+      !extractedText.startsWith('[File type') &&
+      (hasOpenAI || hasGemini)
+    ) {
       console.log('Analyzing extracted text with AI...');
 
       const analysisPrompt = `You are an expert legal document analyst specializing in litigation support. Analyze documents with precision and identify strategic insights for case preparation.
@@ -676,33 +679,77 @@ Document text:
 ${extractedText.substring(0, 20000)}`;
 
       let content = '';
-      
-      try {
-        const apiUrl = aiGatewayUrl || 'https://api.openai.com/v1/chat/completions';
-        const analysisResponse = await fetch(apiUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${openaiApiKey}`,
-          },
-          body: JSON.stringify({
-            model: 'gpt-4o',
-            messages: [{ role: 'user', content: analysisPrompt }],
-            temperature: 0.2,
-            max_tokens: 4096,
-            response_format: { type: 'json_object' },
-          }),
-        });
 
-        if (analysisResponse.ok) {
-          const analysisData = await analysisResponse.json();
-          content = analysisData.choices?.[0]?.message?.content || '';
-          console.log('OpenAI analysis completed successfully');
-        } else {
-          console.error('OpenAI analysis failed:', await analysisResponse.text());
+      if (hasOpenAI) {
+        try {
+          const apiUrl = aiGatewayUrl || 'https://api.openai.com/v1/chat/completions';
+          const analysisResponse = await fetch(apiUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${openaiApiKey}`,
+            },
+            body: JSON.stringify({
+              model: 'gpt-4o',
+              messages: [{ role: 'user', content: analysisPrompt }],
+              temperature: 0.2,
+              max_tokens: 4096,
+              response_format: { type: 'json_object' },
+            }),
+          });
+
+          if (analysisResponse.ok) {
+            const analysisData = await analysisResponse.json();
+            content = analysisData.choices?.[0]?.message?.content || '';
+            if (content) {
+              analysisProvider = 'openai';
+            }
+            console.log('OpenAI analysis completed successfully');
+          } else {
+            console.error('OpenAI analysis failed:', await analysisResponse.text());
+          }
+        } catch (openaiError) {
+          console.error('OpenAI analysis error:', openaiError);
         }
-      } catch (openaiError) {
-        console.error('OpenAI analysis error:', openaiError);
+      }
+
+      if (!content && hasGemini) {
+        try {
+          const analysisResponse = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${googleApiKey}`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                contents: [
+                  {
+                    parts: [{ text: analysisPrompt }],
+                  },
+                ],
+                generationConfig: {
+                  temperature: 0.2,
+                  maxOutputTokens: 4096,
+                  responseMimeType: 'application/json',
+                },
+              }),
+            }
+          );
+
+          if (analysisResponse.ok) {
+            const analysisData = (await analysisResponse.json()) as GeminiResponse;
+            content = extractGeminiText(analysisData);
+            if (content) {
+              analysisProvider = 'gemini';
+            }
+            console.log('Gemini analysis completed successfully');
+          } else {
+            console.error('Gemini analysis failed:', await analysisResponse.text());
+          }
+        } catch (geminiError) {
+          console.error('Gemini analysis error:', geminiError);
+        }
       }
 
       try {
@@ -724,11 +771,19 @@ ${extractedText.substring(0, 20000)}`;
       }
     }
 
+    const hasAnalysis =
+      summary.length > 0 ||
+      keyFacts.length > 0 ||
+      favorableFindings.length > 0 ||
+      adverseFindings.length > 0 ||
+      actionItems.length > 0 ||
+      timelineEvents.length > 0;
+
     const updateData: Record<string, unknown> = {
       ocr_text: extractedText,
       ocr_processed_at: new Date().toISOString(),
       ocr_provider: ocrProvider,
-      ai_analyzed: !!summary,
+      ai_analyzed: hasAnalysis,
       summary: summary || null,
       key_facts: keyFacts.length > 0 ? keyFacts : null,
       favorable_findings: favorableFindings.length > 0 ? favorableFindings : null,
@@ -750,7 +805,7 @@ ${extractedText.substring(0, 20000)}`;
 
       const legacyUpdateData: Record<string, unknown> = {
         ocr_text: extractedText,
-        ai_analyzed: !!summary,
+        ai_analyzed: hasAnalysis,
         summary: summary || null,
         key_facts: keyFacts.length > 0 ? keyFacts : null,
         favorable_findings: favorableFindings.length > 0 ? favorableFindings : null,
@@ -769,29 +824,42 @@ ${extractedText.substring(0, 20000)}`;
       }
     }
 
-    if (timelineEvents.length > 0) {
-      console.log(`Inserting ${timelineEvents.length} timeline events...`);
-      const eventsToInsert = (timelineEvents as Array<{event_date?: string; title?: string; description?: string; importance?: string; event_type?: string}>).map((event) => ({
-        case_id: documentData.case_id,
-        user_id: user.id,
-        linked_document_id: validatedDocumentId,
-        event_date: event.event_date || new Date().toISOString().split('T')[0],
-        title: event.title || 'Untitled Event',
-        description: event.description || '',
-        importance: event.importance || 'medium',
-        event_type: event.event_type || 'general',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      }));
+    let timelineEventsInserted = 0;
+    let timelineInsertWarning: string | null = null;
+    const requestedTimelineEvents = timelineEvents.length;
 
-      const { error: timelineError } = await supabase
-        .from('timeline_events')
-        .insert(eventsToInsert);
+    if (requestedTimelineEvents > 0) {
+      console.log(`Preparing ${requestedTimelineEvents} timeline events for insertion...`);
+      const caseId = (documentData as { case_id: string }).case_id;
 
-      if (timelineError) {
-        console.error('Failed to insert timeline events:', timelineError);
-      } else {
-        console.log('Timeline events inserted successfully');
+      const normalizedEvents = (timelineEvents as TimelineEventCandidate[]).map((event) =>
+        normalizeTimelineEvent(event, caseId, validatedDocumentId, ownerId)
+      );
+
+      if (normalizedEvents.length > 0) {
+        // Replace prior auto-generated events for this document to avoid stale duplicates.
+        const { error: clearError } = await supabase
+          .from('timeline_events')
+          .delete()
+          .eq('linked_document_id', validatedDocumentId);
+
+        if (clearError) {
+          timelineInsertWarning = `Failed clearing old timeline events: ${clearError.message}`;
+          console.warn(timelineInsertWarning);
+        }
+
+        const { data: insertedRows, error: timelineError } = await supabase
+          .from('timeline_events')
+          .insert(normalizedEvents)
+          .select('id');
+
+        if (timelineError) {
+          timelineInsertWarning = `Failed to insert timeline events: ${timelineError.message}`;
+          console.error('Failed to insert timeline events:', timelineError);
+        } else {
+          timelineEventsInserted = insertedRows?.length ?? normalizedEvents.length;
+          console.log(`Timeline events inserted successfully: ${timelineEventsInserted}`);
+        }
       }
     }
 
@@ -802,12 +870,16 @@ ${extractedText.substring(0, 20000)}`;
         success: true,
         textLength: extractedText.length,
         ocrProvider,
-        hasAnalysis: !!summary,
+        analysisProvider,
+        hasAnalysis,
         summary,
         keyFacts,
         favorableFindings,
         adverseFindings,
         actionItems,
+        requestedTimelineEvents,
+        timelineEventsInserted,
+        timelineInsertWarning,
         tablesExtracted: extractedTables.length,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
