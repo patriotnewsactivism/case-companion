@@ -106,6 +106,15 @@ interface TimelineEvent {
   updated_at: string;
 }
 
+interface OcrFunctionResponse {
+  success: boolean;
+  hasAnalysis?: boolean;
+  analysisProvider?: "openai" | "gemini" | "none";
+  requestedTimelineEvents?: number;
+  timelineEventsInserted?: number;
+  timelineInsertWarning?: string | null;
+}
+
 interface Case {
   id: string;
   user_id: string;
@@ -484,11 +493,27 @@ export default function CaseDetail() {
         throw new Error(errorText || `HTTP ${response.status}`);
       }
 
-      const data = await response.json();
+      const data = (await response.json()) as OcrFunctionResponse;
 
       queryClient.invalidateQueries({ queryKey: ["documents", id] });
       queryClient.invalidateQueries({ queryKey: ["timeline_events", id] });
-      toast.success("OCR and AI analysis complete.");
+
+      const inserted = data.timelineEventsInserted ?? 0;
+      const requested = data.requestedTimelineEvents ?? 0;
+
+      if (data.hasAnalysis) {
+        toast.success(
+          requested > 0
+            ? `OCR and AI complete. Timeline events added: ${inserted}/${requested}.`
+            : "OCR and AI analysis complete."
+        );
+      } else {
+        toast.warning("OCR completed, but AI analysis returned no structured findings.");
+      }
+
+      if (data.timelineInsertWarning) {
+        toast.warning(`Timeline warning: ${data.timelineInsertWarning}`);
+      }
     } catch (error) {
       console.error("OCR error:", error);
       toast.error(error instanceof Error ? error.message : "OCR processing failed");
