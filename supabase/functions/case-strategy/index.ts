@@ -123,8 +123,10 @@ interface DiscoveryRequest {
   id: string;
   request_type: string;
   status: string;
-  requests?: unknown;
-  responses?: unknown;
+  request_number?: string | null;
+  question?: string | null;
+  response?: string | null;
+  response_due_date?: string | null;
 }
 
 interface MockJurySession {
@@ -235,7 +237,7 @@ const gatherCaseContext = async (
   if (options?.includeDiscovery !== false) {
     const { data: discovery } = await supabase
       .from("discovery_requests")
-      .select("id, request_type, status, requests, responses")
+      .select("id, request_type, status, request_number, question, response, response_due_date")
       .eq("case_id", caseId)
       .limit(10);
     discoveryRequests = (discovery as DiscoveryRequest[]) || [];

@@ -10,6 +10,25 @@ import {
 export type DiscoveryType = 'interrogatory' | 'request_for_production' | 'request_for_admission' | 'deposition';
 export type DiscoveryStatus = 'pending' | 'responded' | 'objected' | 'overdue' | 'draft';
 
+interface DiscoveryRequestRow {
+  id: string;
+  case_id: string;
+  user_id: string;
+  request_type: DiscoveryType;
+  request_number: string | null;
+  question: string;
+  response: string | null;
+  objections: string[] | null;
+  served_date: string | null;
+  response_due_date: string | null;
+  response_date: string | null;
+  status: DiscoveryStatus;
+  privilege_log_entry: boolean | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface DiscoveryRequest {
   id: string;
   case_id: string;
@@ -53,9 +72,50 @@ export interface UpdateDiscoveryInput extends Partial<CreateDiscoveryInput> {
   id: string;
   response?: string;
   objections?: string[];
-  responseDate?: string;
+  responseDate?: string | null;
   status?: DiscoveryStatus;
   privilegeLogEntry?: boolean;
+}
+
+function mapRowToDiscoveryRequest(row: DiscoveryRequestRow): DiscoveryRequest {
+  return {
+    id: row.id,
+    case_id: row.case_id,
+    user_id: row.user_id,
+    requestType: row.request_type,
+    requestNumber: row.request_number || '',
+    question: row.question,
+    response: row.response,
+    objections: row.objections || [],
+    servedDate: row.served_date,
+    responseDueDate: row.response_due_date,
+    responseDate: row.response_date,
+    status: row.status,
+    privilegeLogEntry: !!row.privilege_log_entry,
+    notes: row.notes,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
+function mapDiscoveryRequestUpdatesToRow(updates: Partial<DiscoveryRequest>): Record<string, unknown> {
+  const mapped: Record<string, unknown> = {};
+
+  if ('case_id' in updates) mapped.case_id = updates.case_id;
+  if ('user_id' in updates) mapped.user_id = updates.user_id;
+  if ('requestType' in updates) mapped.request_type = updates.requestType;
+  if ('requestNumber' in updates) mapped.request_number = updates.requestNumber;
+  if ('question' in updates) mapped.question = updates.question;
+  if ('response' in updates) mapped.response = updates.response;
+  if ('objections' in updates) mapped.objections = updates.objections;
+  if ('servedDate' in updates) mapped.served_date = updates.servedDate;
+  if ('responseDueDate' in updates) mapped.response_due_date = updates.responseDueDate;
+  if ('responseDate' in updates) mapped.response_date = updates.responseDate;
+  if ('status' in updates) mapped.status = updates.status;
+  if ('privilegeLogEntry' in updates) mapped.privilege_log_entry = updates.privilegeLogEntry;
+  if ('notes' in updates) mapped.notes = updates.notes;
+
+  return mapped;
 }
 
 export async function createDiscoveryRequest(caseId: string, data: Partial<DiscoveryRequest>): Promise<DiscoveryRequest> {
@@ -65,16 +125,16 @@ export async function createDiscoveryRequest(caseId: string, data: Partial<Disco
   const payload = {
     case_id: caseId,
     user_id: user.id,
-    requestType: data.requestType || 'interrogatory',
-    requestNumber: data.requestNumber || '',
+    request_type: data.requestType || 'interrogatory',
+    request_number: data.requestNumber || '',
     question: data.question || '',
     response: data.response || null,
     objections: data.objections || [],
-    servedDate: data.servedDate || null,
-    responseDueDate: data.responseDueDate || null,
-    responseDate: data.responseDate || null,
+    served_date: data.servedDate || null,
+    response_due_date: data.responseDueDate || null,
+    response_date: data.responseDate || null,
     status: data.status || 'pending',
-    privilegeLogEntry: data.privilegeLogEntry || false,
+    privilege_log_entry: data.privilegeLogEntry || false,
     notes: data.notes || null,
   };
 
@@ -85,7 +145,7 @@ export async function createDiscoveryRequest(caseId: string, data: Partial<Disco
     .single();
 
   if (error) throw error;
-  return result as unknown as DiscoveryRequest;
+  return mapRowToDiscoveryRequest(result as unknown as DiscoveryRequestRow);
 }
 
 export async function getDiscoveryRequests(caseId: string): Promise<DiscoveryRequest[]> {
@@ -93,10 +153,10 @@ export async function getDiscoveryRequests(caseId: string): Promise<DiscoveryReq
     .from("discovery_requests")
     .select("*")
     .eq("case_id", caseId)
-    .order("responseDueDate", { ascending: true, nullsFirst: false });
+    .order("response_due_date", { ascending: true, nullsFirst: false });
 
   if (error) throw error;
-  return (data as unknown as DiscoveryRequest[]) || [];
+  return ((data as unknown as DiscoveryRequestRow[]) || []).map(mapRowToDiscoveryRequest);
 }
 
 export async function getDiscoveryRequest(id: string): Promise<DiscoveryRequest | null> {
@@ -107,19 +167,20 @@ export async function getDiscoveryRequest(id: string): Promise<DiscoveryRequest 
     .maybeSingle();
 
   if (error) throw error;
-  return data as unknown as DiscoveryRequest | null;
+  return data ? mapRowToDiscoveryRequest(data as unknown as DiscoveryRequestRow) : null;
 }
 
 export async function updateDiscoveryRequest(id: string, updates: Partial<DiscoveryRequest>): Promise<DiscoveryRequest> {
+  const mappedUpdates = mapDiscoveryRequestUpdatesToRow(updates);
   const { data, error } = await supabase
     .from("discovery_requests")
-    .update(updates)
+    .update(mappedUpdates)
     .eq("id", id)
     .select()
     .single();
 
   if (error) throw error;
-  return data as unknown as DiscoveryRequest;
+  return mapRowToDiscoveryRequest(data as unknown as DiscoveryRequestRow);
 }
 
 export async function deleteDiscoveryRequest(id: string): Promise<void> {
@@ -134,9 +195,9 @@ export async function deleteDiscoveryRequest(id: string): Promise<void> {
 export async function getUpcomingDeadlines(caseId: string): Promise<DiscoveryDeadline[]> {
   const { data, error } = await supabase
     .from("discovery_requests")
-    .select("id, requestType, requestNumber, servedDate, responseDueDate")
+    .select("id, request_type, request_number, served_date, response_due_date")
     .eq("case_id", caseId)
-    .not("responseDueDate", "is", null)
+    .not("response_due_date", "is", null)
     .in("status", ["pending", "draft"]);
 
   if (error) throw error;
@@ -144,8 +205,16 @@ export async function getUpcomingDeadlines(caseId: string): Promise<DiscoveryDea
   const now = new Date();
   now.setHours(0, 0, 0, 0);
 
-  const deadlines: DiscoveryDeadline[] = (data || []).map((item) => {
-    const dueDate = new Date(item.responseDueDate);
+  const deadlineRows = ((data as Array<{
+    id: string;
+    request_type: DiscoveryType;
+    request_number: string | null;
+    served_date: string | null;
+    response_due_date: string;
+  }> | null) || []);
+
+  const deadlines: DiscoveryDeadline[] = deadlineRows.map((item) => {
+    const dueDate = new Date(item.response_due_date);
     dueDate.setHours(0, 0, 0, 0);
     const diffTime = dueDate.getTime() - now.getTime();
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
@@ -161,10 +230,10 @@ export async function getUpcomingDeadlines(caseId: string): Promise<DiscoveryDea
 
     return {
       id: item.id,
-      requestType: item.requestType,
-      requestNumber: item.requestNumber,
-      servedDate: item.servedDate,
-      dueDate: item.responseDueDate,
+      requestType: item.request_type,
+      requestNumber: item.request_number || '',
+      servedDate: item.served_date || '',
+      dueDate: item.response_due_date,
       daysRemaining: diffDays,
       status,
     };

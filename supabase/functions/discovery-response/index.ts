@@ -12,8 +12,10 @@ import { validateUUID, sanitizeString, validateEnum } from '../_shared/validatio
 interface DiscoveryRequest {
   id: string;
   case_id: string;
-  requestType: string;
-  requestNumber: string;
+  request_type?: string;
+  request_number?: string;
+  requestType?: string;
+  requestNumber?: string;
   question: string;
   response: string | null;
   objections: string[];
@@ -80,7 +82,7 @@ serve(async (req) => {
       if (error) throw error;
       discoveryRequest = data as DiscoveryRequest;
       actualQuestion = discoveryRequest.question;
-      actualType = discoveryRequest.requestType;
+      actualType = discoveryRequest.request_type || discoveryRequest.requestType || 'interrogatory';
     } else {
       validateRequestBody(requestBody, ['question']);
       actualQuestion = sanitizeString(requestBody.question as string, 'question', 10000);
