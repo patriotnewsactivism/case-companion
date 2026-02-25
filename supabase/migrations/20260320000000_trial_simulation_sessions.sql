@@ -37,8 +37,14 @@ CREATE TABLE IF NOT EXISTS trial_session_analytics (
 );
 
 -- Add personality fields to witness_prep table
-ALTER TABLE witness_prep ADD COLUMN IF NOT EXISTS personality TEXT DEFAULT 'cooperative';
-ALTER TABLE witness_prep ADD COLUMN IF NOT EXISTS simulation_notes TEXT;
+DO $$
+BEGIN
+  IF to_regclass('public.witness_prep') IS NOT NULL THEN
+    ALTER TABLE public.witness_prep ADD COLUMN IF NOT EXISTS personality TEXT DEFAULT 'cooperative';
+    ALTER TABLE public.witness_prep ADD COLUMN IF NOT EXISTS simulation_notes TEXT;
+  END IF;
+END;
+$$;
 
 -- Create indexes for performance
 CREATE INDEX IF NOT EXISTS idx_trial_sessions_case_id ON trial_simulation_sessions(case_id);

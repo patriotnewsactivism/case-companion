@@ -2,11 +2,42 @@
 -- Enables real-time collaboration and presence tracking
 
 -- Enable realtime for existing tables
-ALTER PUBLICATION supabase_realtime ADD TABLE IF NOT EXISTS public.cases;
-ALTER PUBLICATION supabase_realtime ADD TABLE IF NOT EXISTS public.documents;
-ALTER PUBLICATION supabase_realtime ADD TABLE IF NOT EXISTS public.timeline_events;
-ALTER PUBLICATION supabase_realtime ADD TABLE IF NOT EXISTS public.discovery_requests;
-ALTER PUBLICATION supabase_realtime ADD TABLE IF NOT EXISTS public.ocr_queue;
+DO $$
+DECLARE
+  tbl text;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime') THEN
+    RETURN;
+  END IF;
+
+  FOREACH tbl IN ARRAY ARRAY[
+    'cases',
+    'documents',
+    'timeline_events',
+    'discovery_requests',
+    'ocr_queue'
+  ]
+  LOOP
+    IF to_regclass('public.' || tbl) IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1
+        FROM pg_publication_rel pr
+        JOIN pg_publication p ON p.oid = pr.prpubid
+        JOIN pg_class c ON c.oid = pr.prrelid
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE p.pubname = 'supabase_realtime'
+          AND n.nspname = 'public'
+          AND c.relname = tbl
+      )
+    THEN
+      EXECUTE format('ALTER PUBLICATION supabase_realtime ADD TABLE public.%I', tbl);
+    END IF;
+  END LOOP;
+EXCEPTION
+  WHEN insufficient_privilege THEN
+    RAISE NOTICE 'Skipping publication updates due to insufficient privileges';
+END;
+$$;
 
 -- Create case presence table for real-time collaboration
 CREATE TABLE IF NOT EXISTS public.case_presence (
@@ -23,7 +54,28 @@ CREATE TABLE IF NOT EXISTS public.case_presence (
 );
 
 -- Enable realtime for case_presence
-ALTER PUBLICATION supabase_realtime ADD TABLE IF NOT EXISTS public.case_presence;
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime')
+    AND to_regclass('public.case_presence') IS NOT NULL
+    AND NOT EXISTS (
+      SELECT 1
+      FROM pg_publication_rel pr
+      JOIN pg_publication p ON p.oid = pr.prpubid
+      JOIN pg_class c ON c.oid = pr.prrelid
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE p.pubname = 'supabase_realtime'
+        AND n.nspname = 'public'
+        AND c.relname = 'case_presence'
+    )
+  THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.case_presence;
+  END IF;
+EXCEPTION
+  WHEN insufficient_privilege THEN
+    RAISE NOTICE 'Skipping case_presence realtime publication due to insufficient privileges';
+END;
+$$;
 
 -- Enable RLS
 ALTER TABLE public.case_presence ENABLE ROW LEVEL SECURITY;
@@ -68,10 +120,6 @@ BEGIN
   WHERE last_active < now() - interval '5 minutes';
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- Create index for auto-cleanup
-CREATE INDEX IF NOT EXISTS idx_case_presence_cleanup ON public.case_presence(last_active) 
-  WHERE last_active < now() - interval '5 minutes';
 
 -- Refresh schema cache
 NOTIFY pgrst, 'reload schema';

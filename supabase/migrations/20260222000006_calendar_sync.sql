@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS public.calendar_integrations (
 -- Create synced calendar events table
 CREATE TABLE IF NOT EXISTS public.synced_calendar_events (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  court_date_id UUID REFERENCES public.court_dates(id) ON DELETE CASCADE,
+  court_date_id UUID,
   integration_id UUID REFERENCES public.calendar_integrations(id) ON DELETE CASCADE NOT NULL,
   external_event_id TEXT NOT NULL,
   provider public.calendar_provider NOT NULL,
@@ -44,6 +44,22 @@ CREATE TABLE IF NOT EXISTS public.synced_calendar_events (
   created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
   CONSTRAINT unique_integration_event UNIQUE (integration_id, external_event_id)
 );
+
+DO $$
+BEGIN
+  IF to_regclass('public.court_dates') IS NOT NULL
+    AND NOT EXISTS (
+      SELECT 1
+      FROM pg_constraint
+      WHERE conname = 'synced_calendar_events_court_date_id_fkey'
+    )
+  THEN
+    ALTER TABLE public.synced_calendar_events
+      ADD CONSTRAINT synced_calendar_events_court_date_id_fkey
+      FOREIGN KEY (court_date_id) REFERENCES public.court_dates(id) ON DELETE CASCADE;
+  END IF;
+END;
+$$;
 
 -- Enable RLS
 ALTER TABLE public.calendar_integrations ENABLE ROW LEVEL SECURITY;
