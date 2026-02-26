@@ -247,6 +247,8 @@ async function processGoogleDriveFolder(
     for (let i = 0; i < allFiles.length; i += BATCH_SIZE) {
       const batch = allFiles.slice(i, i + BATCH_SIZE);
 
+      console.log(`Processing batch ${Math.floor(i / BATCH_SIZE) + 1} of ${Math.ceil(allFiles.length / BATCH_SIZE)}: ${batch.length} files`);
+      
       await Promise.all(
         batch.map(async (file) => {
           try {
@@ -275,6 +277,8 @@ async function processGoogleDriveFolder(
           }
         })
       );
+      
+      console.log(`Batch ${Math.floor(i / BATCH_SIZE) + 1} completed. Processed ${stats.processed}/${stats.total} files`);
     }
 
     // Mark job as completed
