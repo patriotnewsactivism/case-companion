@@ -189,7 +189,7 @@ const normalizeTimelineEvent = (
     case_id: caseId,
     user_id: ownerUserId,
     linked_document_id: documentId,
-    event_date: toDateOnlyString(event.event_date),
+    event_date: new Date(toDateOnlyString(event.event_date)).toISOString(), // Convert to ISO timestamp
     title: title.length > 0 ? title.slice(0, 180) : 'Untitled Event',
     description: description.slice(0, 2000),
     importance: normalizeImportance(event.importance),

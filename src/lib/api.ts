@@ -544,6 +544,7 @@ export interface AnalysisResult {
   success: boolean;
   textLength: number;
   ocrProvider: string;
+  analysisProvider?: 'openai' | 'gemini' | 'heuristic' | 'none';
   hasAnalysis: boolean;
   summary?: string;
   keyFacts?: string[];
@@ -551,6 +552,9 @@ export interface AnalysisResult {
   adverseFindings?: string[];
   actionItems?: string[];
   tablesExtracted?: number;
+  requestedTimelineEvents?: number;
+  timelineEventsInserted?: number;
+  timelineInsertWarning?: string;
 }
 
 export interface TableExtractionResult {
