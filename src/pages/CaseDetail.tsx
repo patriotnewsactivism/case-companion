@@ -564,60 +564,27 @@ export default function CaseDetail() {
 
     toast.info(`Processing ${unanalyzedDocs.length} documents...`);
 
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
-      toast.error("Please log in to analyze documents.");
-      setBatchProcessing(false);
-      return;
-    }
-
-    const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ocr-document`;
-    let successCount = 0;
-    let failCount = 0;
-
-    // Process in batches of 3 to avoid overwhelming the system
-    const BATCH_SIZE = 3;
-    for (let i = 0; i < unanalyzedDocs.length; i += BATCH_SIZE) {
-      const batch = unanalyzedDocs.slice(i, i + BATCH_SIZE);
-      
-      await Promise.all(
-        batch.map(async (doc) => {
-          try {
-            const response = await fetch(functionUrl, {
-              method: 'POST',
-              mode: 'cors',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${session.access_token}`,
-                'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-              },
-              body: JSON.stringify({ documentId: doc.id, fileUrl: doc.file_url }),
-            });
-
-            if (response.ok) {
-              successCount++;
-            } else {
-              failCount++;
-              console.error(`OCR failed for ${doc.name}:`, await response.text());
-            }
-          } catch (error) {
-            failCount++;
-            console.error(`OCR error for ${doc.name}:`, error);
-          }
-        })
+    try {
+      const result = await batchAnalyzeDocuments(
+        unanalyzedDocs.map(doc => doc.id),
+        (completed, total) => {
+          setBatchProgress({ current: completed, total });
+        }
       );
 
-      setBatchProgress({ current: Math.min(i + BATCH_SIZE, unanalyzedDocs.length), total: unanalyzedDocs.length });
-    }
+      queryClient.invalidateQueries({ queryKey: ["documents", id] });
+      queryClient.invalidateQueries({ queryKey: ["timeline_events", id] });
 
-    setBatchProcessing(false);
-    queryClient.invalidateQueries({ queryKey: ["documents", id] });
-    queryClient.invalidateQueries({ queryKey: ["timeline_events", id] });
-
-    if (failCount > 0) {
-      toast.error(`Successfully analyzed ${successCount} documents, ${failCount} failed.`);
-    } else {
-      toast.success(`Successfully analyzed ${successCount} documents.`);
+      if (result.failed > 0) {
+        toast.error(`Successfully analyzed ${result.successful} documents, ${result.failed} failed.`);
+      } else {
+        toast.success(`Successfully analyzed ${result.successful} documents.`);
+      }
+    } catch (error) {
+      console.error("Batch OCR error:", error);
+      toast.error(error instanceof Error ? error.message : "Batch OCR processing failed");
+    } finally {
+      setBatchProcessing(false);
     }
   };
 

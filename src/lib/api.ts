@@ -225,6 +225,9 @@ export async function bulkUploadDocuments(input: BulkDocumentUploadInput): Promi
   const batesPrefix = input.bates_prefix || 'DOC';
 
   const batchSize = 3;
+  const { data: { session } } = await supabase.auth.getSession();
+  const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ocr-document`;
+
   for (let i = 0; i < input.files.length; i += batchSize) {
     const batch = input.files.slice(i, i + batchSize);
     const batchPromises = batch.map(async (file, index) => {
@@ -286,9 +289,27 @@ export async function bulkUploadDocuments(input: BulkDocumentUploadInput): Promi
         if (result.status === 'fulfilled') {
           results.successful++;
           results.documents.push(result.value);
-          if (result.value.file_url) {
+          if (result.value.file_url && (result.value.file_type?.includes('pdf') || result.value.file_type?.includes('image'))) {
             try {
-              await triggerDocumentAnalysis(result.value.id, result.value.file_url);
+              const response = await fetch(functionUrl, {
+                method: 'POST',
+                mode: 'cors',
+                credentials: 'include',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${session.access_token}`,
+                  'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+                },
+                body: JSON.stringify({ 
+                  documentId: result.value.id, 
+                  fileUrl: result.value.file_url 
+                }),
+              });
+
+              if (!response.ok) {
+                const errorText = await response.text();
+                results.errors.push(`File ${batch[index].name}: Failed to trigger analysis - ${errorText}`);
+              }
             } catch (analysisError) {
               console.error(`Failed to trigger analysis for document ${result.value.id}:`, analysisError);
               results.errors.push(`File ${batch[index].name}: Failed to trigger analysis - ${analysisError instanceof Error ? analysisError.message : 'Unknown error'}`);
@@ -330,11 +351,28 @@ export async function deleteDocument(id: string): Promise<void> {
 }
 
 export async function triggerDocumentAnalysis(documentId: string, fileUrl: string): Promise<void> {
-  const { error } = await supabase.functions.invoke('ocr-document', {
-    body: { documentId, fileUrl },
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error("Not authenticated");
+
+  const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ocr-document`;
+  
+  const response = await fetch(functionUrl, {
+    method: 'POST',
+    mode: 'cors',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${session.access_token}`,
+      'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+    },
+    body: JSON.stringify({ documentId, fileUrl }),
   });
 
-  if (error) throw error;
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error('OCR function error:', errorText);
+    throw new Error(errorText || `HTTP ${response.status}`);
+  }
 }
 
 // Timeline Events API
@@ -546,23 +584,60 @@ export async function analyzeDocument(
   fileUrl: string,
   extractTables: boolean = false
 ): Promise<AnalysisResult> {
-  const { data, error } = await supabase.functions.invoke('ocr-document', {
-    body: { documentId, fileUrl, extractTables },
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error("Not authenticated");
+
+  const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ocr-document`;
+  
+  const response = await fetch(functionUrl, {
+    method: 'POST',
+    mode: 'cors',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${session.access_token}`,
+      'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+    },
+    body: JSON.stringify({ documentId, fileUrl, extractTables }),
   });
 
-  if (error) throw error;
-  return data as AnalysisResult;
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error('OCR function error:', errorText);
+    throw new Error(errorText || `HTTP ${response.status}`);
+  }
+
+  return await response.json();
 }
 
 export async function extractDocumentTables(
   documentId: string,
   fileUrl: string
 ): Promise<TableExtractionResult> {
-  const { data, error } = await supabase.functions.invoke('ocr-document', {
-    body: { documentId, fileUrl, extractTables: true },
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error("Not authenticated");
+
+  const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ocr-document`;
+  
+  const response = await fetch(functionUrl, {
+    method: 'POST',
+    mode: 'cors',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${session.access_token}`,
+      'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+    },
+    body: JSON.stringify({ documentId, fileUrl, extractTables: true }),
   });
 
-  if (error) throw error;
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error('OCR function error:', errorText);
+    throw new Error(errorText || `HTTP ${response.status}`);
+  }
+
+  const data = await response.json();
   
   return {
     tables: data.tablesExtracted || [],
@@ -693,31 +768,63 @@ export async function batchAnalyzeDocuments(
   if (error) throw error;
 
   const docMap = new Map((documents || []).map(d => [d.id, d.file_url]));
-  let completed = 0;
+  const { data: { session } } = await supabase.auth.getSession();
+  
+  if (!session) throw new Error("Not authenticated");
 
-  for (const docId of documentIds) {
-    const fileUrl = docMap.get(docId);
+  const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ocr-document`;
+  const BATCH_SIZE = 3;
+
+  for (let i = 0; i < documentIds.length; i += BATCH_SIZE) {
+    const batch = documentIds.slice(i, i + BATCH_SIZE);
     
-    if (!fileUrl) {
-      result.failed++;
-      result.results.push({ documentId: docId, status: 'failed', error: 'File URL not found' });
-      continue;
-    }
+    await Promise.all(
+      batch.map(async (docId) => {
+        const fileUrl = docMap.get(docId);
+        
+        if (!fileUrl) {
+          result.failed++;
+          result.results.push({ documentId: docId, status: 'failed', error: 'File URL not found' });
+          return;
+        }
 
-    try {
-      await analyzeDocument(docId, fileUrl);
-      result.successful++;
-      result.results.push({ documentId: docId, status: 'success' });
-    } catch (err) {
-      result.failed++;
-      result.results.push({ 
-        documentId: docId, 
-        status: 'failed', 
-        error: err instanceof Error ? err.message : 'Unknown error' 
-      });
-    }
+        try {
+          const response = await fetch(functionUrl, {
+            method: 'POST',
+            mode: 'cors',
+            credentials: 'include',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${session.access_token}`,
+              'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+            },
+            body: JSON.stringify({ documentId: docId, fileUrl }),
+          });
 
-    completed++;
+          if (response.ok) {
+            result.successful++;
+            result.results.push({ documentId: docId, status: 'success' });
+          } else {
+            result.failed++;
+            const errorText = await response.text();
+            result.results.push({ 
+              documentId: docId, 
+              status: 'failed', 
+              error: errorText || `HTTP ${response.status}`
+            });
+          }
+        } catch (err) {
+          result.failed++;
+          result.results.push({ 
+            documentId: docId, 
+            status: 'failed', 
+            error: err instanceof Error ? err.message : 'Unknown error' 
+          });
+        }
+      })
+    );
+
+    const completed = Math.min(i + BATCH_SIZE, documentIds.length);
     onProgress?.(completed, documentIds.length);
   }
 
