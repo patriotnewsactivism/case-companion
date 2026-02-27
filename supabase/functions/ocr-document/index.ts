@@ -181,7 +181,7 @@ const normalizeTimelineEvent = (
   ownerUserId: string
 ): TimelineEventInsertRow => {
   const nowIso = new Date().toISOString();
-  const title = (event.title || '').trim();
+  const title = (event.event_title || '').trim();
   const description = (event.description || '').trim();
   const eventType = (event.event_type || '').trim();
 
@@ -189,7 +189,7 @@ const normalizeTimelineEvent = (
     case_id: caseId,
     user_id: ownerUserId,
     linked_document_id: documentId,
-    event_date: new Date(toDateOnlyString(event.event_date)).toISOString(), // Convert to ISO timestamp
+    event_date: new Date(toDateOnlyString(event.date)).toISOString(), // Convert to ISO timestamp
     title: title.length > 0 ? title.slice(0, 180) : 'Untitled Event',
     description: description.slice(0, 2000),
     importance: normalizeImportance(event.importance),
@@ -303,9 +303,10 @@ const buildHeuristicAnalysis = (text: string): HeuristicAnalysisResult => {
     if (!dateToken) continue;
 
     timelineEvents.push({
-      event_date: toDateOnlyString(dateToken),
-      title: buildTimelineTitle(sentence, dateToken),
+      date: toDateOnlyString(dateToken),
+      event_title: buildTimelineTitle(sentence, dateToken),
       description: sentence.slice(0, 280),
+      source_doc_id: validatedDocumentId,
       importance: inferImportance(sentence),
       event_type: inferEventType(sentence),
     });
@@ -824,9 +825,10 @@ ANALYSIS REQUIREMENTS:
 4. ADVERSE_FINDINGS: 3-5 findings that could hurt the case (contradictions, damaging statements, weaknesses)
 5. ACTION_ITEMS: 3-5 specific follow-up actions (witnesses to interview, documents to request, issues to research)
 6. TIMELINE_EVENTS: Extract chronological events found in the document. For each event provide:
-   - "event_date": YYYY-MM-DD format (if approximate, use first of month/year)
-   - "title": Short title (5-10 words)
+   - "date": YYYY-MM-DD format (if approximate, use first of month/year)
+   - "event_title": Short title (5-10 words)
    - "description": Detailed description (1-2 sentences)
+   - "source_doc_id": Use "${validatedDocumentId}" for all events
    - "importance": "high", "medium", or "low"
    - "event_type": e.g., "communication", "filing", "incident", "meeting"
 
@@ -840,7 +842,7 @@ Respond ONLY with valid JSON in this exact format:
   "adverse_findings": ["finding1", "finding2", ...],
   "action_items": ["action1", "action2", ...],
   "timeline_events": [
-    { "event_date": "2023-01-01", "title": "...", "description": "...", "importance": "high", "event_type": "..." }
+    { "date": "2023-01-01", "event_title": "...", "description": "...", "source_doc_id": "${validatedDocumentId}", "importance": "high", "event_type": "..." }
   ]
 }
 

@@ -10,6 +10,7 @@ import { Loader2, MessageSquare, Users, Zap, Target, Brain, AlertTriangle, Check
 import { useToast } from "@/hooks/use-toast";
 import { Document } from "@/lib/api";
 import { supabase } from "@/integrations/supabase/client";
+import { useCaseFactsStore } from "@/store/useCaseFactsStore";
 
 interface CaseData {
   id: string;
@@ -252,10 +253,28 @@ export function TrialSimulator({ caseData, documents = [] }: TrialSimulatorProps
       const scenario = scenarios.find(s => s.id === selectedScenario);
       const mode = mapScenarioToMode(scenario?.title || 'deposition');
       
+      // Get case facts from Zustand store
+      const caseEvents = useCaseFactsStore.getState().getEvents(caseData.id);
+      const caseFacts = useCaseFactsStore.getState().getFacts(caseData.id);
+      const caseEntities = useCaseFactsStore.getState().getEntities(caseData.id);
+      
+      const context = `CASE FACTS:
+${caseFacts.map(f => `- ${f.text}`).join('\n')}
+
+CASE EVENTS:
+${caseEvents.map(e => `- ${e.date}: ${e.event_title} - ${e.description}`).join('\n')}
+
+CASE ENTITIES:
+${caseEntities.map(e => `- ${e.text} (${e.type})`).join('\n')}
+
+DOCUMENTS:
+${documents.map(d => `- ${d.name}: ${d.summary || 'No summary'}`).join('\n')}`;
+      
       const { data, error } = await supabase.functions.invoke('trial-simulation', {
         body: {
           caseId: caseData.id,
           mode,
+          context,
           messages: [
             ...conversationHistory,
             { role: 'user', content: userInput }

@@ -289,7 +289,7 @@ export async function bulkUploadDocuments(input: BulkDocumentUploadInput): Promi
         if (result.status === 'fulfilled') {
           results.successful++;
           results.documents.push(result.value);
-          if (result.value.file_url && (result.value.file_type?.includes('pdf') || result.value.file_type?.includes('image'))) {
+          if (result.value.file_url && (result.value.file_type?.includes('pdf') || result.value.file_type?.includes('image') || result.value.file_type?.includes('text'))) {
             try {
               const response = await fetch(functionUrl, {
                 method: 'POST',
