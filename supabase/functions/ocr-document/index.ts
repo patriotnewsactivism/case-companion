@@ -46,11 +46,12 @@ interface GeminiResponse {
 type TimelineImportance = 'low' | 'medium' | 'high';
 
 interface TimelineEventCandidate {
-  event_date?: string;
-  title?: string;
+  date?: string;
+  event_title?: string;
   description?: string;
   importance?: string;
   event_type?: string;
+  entities?: string[];
 }
 
 interface TimelineEventInsertRow {
@@ -62,6 +63,7 @@ interface TimelineEventInsertRow {
   description: string;
   importance: TimelineImportance;
   event_type: string;
+  entities: string[];
   created_at: string;
   updated_at: string;
 }
@@ -184,6 +186,7 @@ const normalizeTimelineEvent = (
   const title = (event.event_title || '').trim();
   const description = (event.description || '').trim();
   const eventType = (event.event_type || '').trim();
+  const entities = Array.isArray(event.entities) ? event.entities : [];
 
   return {
     case_id: caseId,
@@ -194,6 +197,7 @@ const normalizeTimelineEvent = (
     description: description.slice(0, 2000),
     importance: normalizeImportance(event.importance),
     event_type: eventType.length > 0 ? eventType.slice(0, 100) : 'general',
+    entities: entities,
     created_at: nowIso,
     updated_at: nowIso,
   };
@@ -803,6 +807,7 @@ serve(async (req) => {
     let actionItems: string[] = [];
     let summary = '';
     let timelineEvents: unknown[] = [];
+    let extractedEntities: unknown[] = [];
 
     let analysisProvider: 'openai' | 'gemini' | 'heuristic' | 'none' = 'none';
 
@@ -831,6 +836,9 @@ ANALYSIS REQUIREMENTS:
    - "source_doc_id": Use "${validatedDocumentId}" for all events
    - "importance": "high", "medium", or "low"
    - "event_type": e.g., "communication", "filing", "incident", "meeting"
+   - "entities": Array of key people/orgs involved in THIS specific event
+
+7. ENTITIES: Extract all key entities (people, organizations, locations) mentioned in the document and their roles.
 
 Be thorough, precise, and strategic. Focus on facts that matter for litigation.
 
@@ -842,7 +850,18 @@ Respond ONLY with valid JSON in this exact format:
   "adverse_findings": ["finding1", "finding2", ...],
   "action_items": ["action1", "action2", ...],
   "timeline_events": [
-    { "date": "2023-01-01", "event_title": "...", "description": "...", "source_doc_id": "${validatedDocumentId}", "importance": "high", "event_type": "..." }
+    { 
+      "date": "2023-01-01", 
+      "event_title": "...", 
+      "description": "...", 
+      "source_doc_id": "${validatedDocumentId}", 
+      "importance": "high", 
+      "event_type": "...",
+      "entities": ["Person A", "Company B"]
+    }
+  ],
+  "entities": [
+    { "name": "...", "type": "person/organization/location", "role": "..." }
   ]
 }
 
@@ -933,7 +952,8 @@ ${extractedText.substring(0, 20000)}`;
           adverseFindings = Array.isArray(analysis.adverse_findings) ? analysis.adverse_findings : [];
           actionItems = Array.isArray(analysis.action_items) ? analysis.action_items : [];
           timelineEvents = Array.isArray(analysis.timeline_events) ? analysis.timeline_events : [];
-          console.log(`Analysis complete: ${keyFacts.length} facts, ${timelineEvents.length} events found`);
+          extractedEntities = Array.isArray(analysis.entities) ? analysis.entities : [];
+          console.log(`Analysis complete: ${keyFacts.length} facts, ${timelineEvents.length} events, ${extractedEntities.length} entities found`);
         }
       } catch (parseError) {
         console.error('Failed to parse analysis JSON:', parseError);
@@ -981,6 +1001,7 @@ ${extractedText.substring(0, 20000)}`;
       favorable_findings: favorableFindings.length > 0 ? favorableFindings : null,
       adverse_findings: adverseFindings.length > 0 ? adverseFindings : null,
       action_items: actionItems.length > 0 ? actionItems : null,
+      entities: extractedEntities.length > 0 ? extractedEntities : null,
     };
 
     if (extractedTables.length > 0) {

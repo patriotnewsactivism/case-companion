@@ -190,8 +190,8 @@ export function ImportJobsViewer({ caseId }: ImportJobsViewerProps) {
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 space-y-1">
                     <div className="flex items-center gap-2">
-                      <span className="text-xs">{item.status === 'pending' ? 'Analyzing' : item.status === 'processing' ? 'OCR\'ing' : item.status}</span>
-                      {item.status === 'processing' && <Loader2 className="h-3 w-3 animate-spin" />}
+                      <span className="text-xs">{job.status === 'pending' ? 'Analyzing' : job.status === 'processing' ? 'OCR\'ing' : job.status}</span>
+                      {job.status === 'processing' && <Loader2 className="h-3 w-3 animate-spin" />}
                     </div>
                       <p className="text-sm text-muted-foreground">{job.source_folder_path}</p>
                     </div>

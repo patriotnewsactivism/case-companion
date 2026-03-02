@@ -2,6 +2,7 @@ import { Layout } from "@/components/Layout";
 import { memo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { FixedSizeList as List, ListChildComponentProps } from "react-window";
+import { TimelineView } from "@/components/TimelineView";
 import { GoogleDriveFolderImport } from "@/components/GoogleDriveFolderImport";
 import { ImportJobsViewer } from "@/components/ImportJobsViewer";
 import { BulkDocumentUpload } from "@/components/BulkDocumentUpload";
@@ -84,6 +85,7 @@ interface Document {
   favorable_findings: string[] | null;
   adverse_findings: string[] | null;
   action_items: string[] | null;
+  entities?: any[] | null;
   ai_analyzed: boolean | null;
   ocr_text: string | null;
   ocr_page_count: number | null;
@@ -103,6 +105,7 @@ interface TimelineEvent {
   event_type: string | null;
   linked_document_id: string | null;
   importance: string | null;
+  entities?: any[] | null;
   created_at: string;
   updated_at: string;
 }
@@ -1430,50 +1433,17 @@ export default function CaseDetail() {
                   <div className="flex items-center justify-center py-8">
                     <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                   </div>
-                ) : timelineEvents.length === 0 ? (
-                  <Card className="glass-card">
-                    <CardContent className="flex flex-col items-center justify-center py-12">
-                      <Calendar className="h-12 w-12 text-muted-foreground mb-4" />
-                      <h3 className="text-lg font-medium mb-2">No timeline events</h3>
-                      <p className="text-sm text-muted-foreground mb-4">
-                        Add key dates to track your case progress
-                      </p>
-                      <Button onClick={() => setIsEventOpen(true)}>
-                        <Plus className="h-4 w-4 mr-2" />
-                        Add First Event
-                      </Button>
-                    </CardContent>
-                  </Card>
                 ) : (
-                  <div className="space-y-3">
-                    {timelineEvents.map((event) => (
-                      <Card
-                        key={event.id}
-                        className={`glass-card border-l-4 ${getImportanceColor(event.importance)}`}
-                      >
-                        <CardContent className="p-4">
-                          <div className="flex items-start justify-between">
-                            <div>
-                              <h4 className="font-medium">{event.title}</h4>
-                              <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
-                                <Clock className="h-3 w-3" />
-                                {format(new Date(event.event_date), "PPP")}
-                                {event.event_type && (
-                                   <Badge className="text-xs">
-                                    {event.event_type}
-                                  </Badge>
-                                )}
-                              </div>
-                              {event.description && (
-                                <p className="text-sm text-muted-foreground mt-2">
-                                  {event.description}
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
+                  <div className="mt-8">
+                    <TimelineView 
+                      events={timelineEvents} 
+                      onEventClick={(event) => {
+                        if (event.linked_document_id) {
+                          const doc = documents.find(d => d.id === event.linked_document_id);
+                          if (doc) handleViewDocument(doc);
+                        }
+                      }}
+                    />
                   </div>
                 )}
               </TabsContent>
