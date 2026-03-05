@@ -123,7 +123,7 @@ export default function Research() {
   });
 
   const { data: documents = [] } = useQuery({
-    queryKey: ["all-documents"],
+    queryKey: ["documents"],
     queryFn: getAllDocuments,
   });
 

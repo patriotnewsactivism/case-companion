@@ -15,7 +15,7 @@ import {
   Radio,
 } from 'lucide-react';
 import { format } from 'date-fns';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Collapsible,
   CollapsibleContent,
@@ -51,6 +51,7 @@ interface ImportJobsViewerProps {
 export function ImportJobsViewer({ caseId }: ImportJobsViewerProps) {
   const [expandedJobs, setExpandedJobs] = useState<Set<string>>(new Set());
   const [isRealtimeConnected, setIsRealtimeConnected] = useState(false);
+  const lastDataRefreshRef = useRef(0);
   const queryClient = useQueryClient();
 
   const { data: importJobs, refetch, isLoading } = useQuery({
@@ -82,8 +83,20 @@ export function ImportJobsViewer({ caseId }: ImportJobsViewerProps) {
           table: 'import_jobs',
           filter: `case_id=eq.${caseId}`,
         },
-        () => {
+        (payload) => {
           queryClient.invalidateQueries({ queryKey: ['import-jobs', caseId] });
+
+          if (payload.eventType === 'DELETE') return;
+
+          const now = Date.now();
+          if (now - lastDataRefreshRef.current < 3000) return;
+
+          lastDataRefreshRef.current = now;
+          queryClient.invalidateQueries({ queryKey: ['documents', caseId] });
+          queryClient.invalidateQueries({ queryKey: ['documents'] });
+          queryClient.invalidateQueries({ queryKey: ['timeline_events', caseId] });
+          queryClient.invalidateQueries({ queryKey: ['timeline-events'] });
+          queryClient.invalidateQueries({ queryKey: ['document-stats'] });
         }
       )
       .subscribe((status) => {

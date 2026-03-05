@@ -310,7 +310,6 @@ const buildHeuristicAnalysis = (text: string): HeuristicAnalysisResult => {
       date: toDateOnlyString(dateToken),
       event_title: buildTimelineTitle(sentence, dateToken),
       description: sentence.slice(0, 280),
-      source_doc_id: validatedDocumentId,
       importance: inferImportance(sentence),
       event_type: inferEventType(sentence),
     });

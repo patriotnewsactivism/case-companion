@@ -425,6 +425,14 @@ export default function CaseDetail() {
     enabled: !!id,
   });
 
+  const invalidateDocumentDerivedQueries = () => {
+    queryClient.invalidateQueries({ queryKey: ["documents", id] });
+    queryClient.invalidateQueries({ queryKey: ["documents"] });
+    queryClient.invalidateQueries({ queryKey: ["timeline_events", id] });
+    queryClient.invalidateQueries({ queryKey: ["timeline-events"] });
+    queryClient.invalidateQueries({ queryKey: ["document-stats"] });
+  };
+
   // Create document mutation
   const createDocMutation = useMutation({
     mutationFn: async (input: { 
@@ -452,16 +460,28 @@ export default function CaseDetail() {
       return data;
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["documents", id] });
+      invalidateDocumentDerivedQueries();
       setIsUploadOpen(false);
       setIsLinkImportOpen(false);
       setDocForm({ name: "", bates_number: "", file: null });
       setLinkForm({ url: "", name: "", bates_number: "" });
       toast.success("Your document has been added to the case.");
       
-      // Trigger OCR if there's a file URL
+      // Route post-upload processing based on media type
       if (data.file_url) {
-        triggerOcr(data.id, data.file_url);
+        const fileType = String(data.file_type || "").toLowerCase();
+        const isOcrType =
+          !fileType ||
+          fileType.includes("pdf") ||
+          fileType.includes("image") ||
+          fileType.includes("text");
+        const isMediaType = fileType.includes("audio") || fileType.includes("video");
+
+        if (isMediaType) {
+          triggerTranscription(data.id);
+        } else if (isOcrType) {
+          triggerOcr(data.id, data.file_url);
+        }
       }
     },
     onError: (error: Error) => {
@@ -499,8 +519,7 @@ export default function CaseDetail() {
 
       const data = (await response.json()) as OcrFunctionResponse;
 
-      queryClient.invalidateQueries({ queryKey: ["documents", id] });
-      queryClient.invalidateQueries({ queryKey: ["timeline_events", id] });
+      invalidateDocumentDerivedQueries();
 
       const inserted = data.timelineEventsInserted ?? 0;
       const requested = data.requestedTimelineEvents ?? 0;
@@ -541,7 +560,7 @@ export default function CaseDetail() {
         throw new Error(response.error.message);
       }
 
-      queryClient.invalidateQueries({ queryKey: ["documents", id] });
+      invalidateDocumentDerivedQueries();
       toast.success("Audio/video has been transcribed successfully.");
     } catch (error) {
       console.error("Transcription error:", error);
@@ -576,8 +595,7 @@ export default function CaseDetail() {
         }
       );
 
-      queryClient.invalidateQueries({ queryKey: ["documents", id] });
-      queryClient.invalidateQueries({ queryKey: ["timeline_events", id] });
+      invalidateDocumentDerivedQueries();
 
       if (result.failed > 0) {
         toast.error(`Successfully analyzed ${result.successful} documents, ${result.failed} failed.`);
@@ -595,7 +613,7 @@ export default function CaseDetail() {
   // Count unanalyzed documents
   const unanalyzedCount = documents.filter(
     (doc) => !doc.ai_analyzed && doc.file_url && 
-    (doc.file_type?.includes('pdf') || doc.file_type?.includes('image'))
+    (doc.file_type?.includes('pdf') || doc.file_type?.includes('image') || doc.file_type?.includes('text'))
   ).length;
 
   // Filter documents based on search and filters
@@ -678,7 +696,7 @@ export default function CaseDetail() {
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["documents", id] });
+      invalidateDocumentDerivedQueries();
       setDeleteDocId(null);
       toast.success("The document has been removed from the case.");
     },
@@ -709,6 +727,7 @@ export default function CaseDetail() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["timeline_events", id] });
+      queryClient.invalidateQueries({ queryKey: ["timeline-events"] });
       setIsEventOpen(false);
       setEventForm({ title: "", event_date: "", event_type: "", description: "", importance: "medium" });
       toast.success("The timeline event has been added to the case.");
@@ -1078,7 +1097,7 @@ export default function CaseDetail() {
                       caseId={id!}
                       onImportStarted={(importJobId) => {
                         toast.success(`Import job ${importJobId} has been started.`);
-                        queryClient.invalidateQueries({ queryKey: ['documents', id] });
+                        invalidateDocumentDerivedQueries();
                       }}
                     />
 
@@ -1101,7 +1120,7 @@ export default function CaseDetail() {
                           caseId={id!}
                           onUploadComplete={(uploadedDocs) => {
                             toast.success(`Successfully uploaded ${uploadedDocs.length} documents.`);
-                            queryClient.invalidateQueries({ queryKey: ['documents', id] });
+                            invalidateDocumentDerivedQueries();
                             setIsBulkUploadOpen(false);
                           }}
                         />
