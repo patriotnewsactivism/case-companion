@@ -143,6 +143,7 @@ export interface BulkDocumentUploadInput {
   case_id: string;
   generate_bates: boolean;
   bates_prefix?: string;
+  ocr_priority?: number;
 }
 
 export interface BulkUploadResult {
@@ -151,6 +152,8 @@ export interface BulkUploadResult {
   total: number;
   errors: string[];
   documents: Document[];
+  ocr_enqueue_requested: boolean;
+  ocr_enqueue_error: string | null;
 }
 
 export async function getDocumentsByCase(caseId: string): Promise<Document[]> {
@@ -203,6 +206,8 @@ export async function bulkUploadDocuments(input: BulkDocumentUploadInput): Promi
     total: input.files.length,
     errors: [],
     documents: [],
+    ocr_enqueue_requested: false,
+    ocr_enqueue_error: null,
   };
 
   const { data: existingDocs } = await supabase
@@ -224,12 +229,10 @@ export async function bulkUploadDocuments(input: BulkDocumentUploadInput): Promi
   let currentBatesNumber = maxBatesNumber + 1;
   const batesPrefix = input.bates_prefix || 'DOC';
 
-  const batchSize = 3;
-  const { data: { session } } = await supabase.auth.getSession();
-  const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ocr-document`;
+  const storageBatchSize = 10;
 
-  for (let i = 0; i < input.files.length; i += batchSize) {
-    const batch = input.files.slice(i, i + batchSize);
+  for (let i = 0; i < input.files.length; i += storageBatchSize) {
+    const batch = input.files.slice(i, i + storageBatchSize);
     const batchPromises = batch.map(async (file, index) => {
       const fileExt = file.name.split('.').pop();
       const fileName = `${user.id}/${input.case_id}/${Date.now()}-${i + index}.${fileExt}`;
@@ -289,32 +292,6 @@ export async function bulkUploadDocuments(input: BulkDocumentUploadInput): Promi
         if (result.status === 'fulfilled') {
           results.successful++;
           results.documents.push(result.value);
-          if (result.value.file_url && (result.value.file_type?.includes('pdf') || result.value.file_type?.includes('image') || result.value.file_type?.includes('text'))) {
-            try {
-              const response = await fetch(functionUrl, {
-                method: 'POST',
-                mode: 'cors',
-                credentials: 'include',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${session.access_token}`,
-                  'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-                },
-                body: JSON.stringify({ 
-                  documentId: result.value.id, 
-                  fileUrl: result.value.file_url 
-                }),
-              });
-
-              if (!response.ok) {
-                const errorText = await response.text();
-                results.errors.push(`File ${batch[index].name}: Failed to trigger analysis - ${errorText}`);
-              }
-            } catch (analysisError) {
-              console.error(`Failed to trigger analysis for document ${result.value.id}:`, analysisError);
-              results.errors.push(`File ${batch[index].name}: Failed to trigger analysis - ${analysisError instanceof Error ? analysisError.message : 'Unknown error'}`);
-            }
-          }
         } else {
           results.failed++;
           results.errors.push(`File ${batch[index].name}: ${result.reason.message || 'Unknown error'}`);
@@ -323,6 +300,27 @@ export async function bulkUploadDocuments(input: BulkDocumentUploadInput): Promi
     } catch (error) {
       results.failed += batch.length;
       results.errors.push(`Batch upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  const ocrDocumentIds = results.documents
+    .filter((doc) => doc.file_url && (doc.file_type?.includes('pdf') || doc.file_type?.includes('image') || doc.file_type?.includes('text')))
+    .map((doc) => doc.id);
+
+  if (ocrDocumentIds.length > 0) {
+    results.ocr_enqueue_requested = true;
+    const { error: enqueueError } = await supabase.functions.invoke('ocr-queue-processor', {
+      body: {
+        action: 'enqueue',
+        caseId: input.case_id,
+        documentIds: ocrDocumentIds,
+        priority: input.ocr_priority ?? 5,
+      },
+    });
+
+    if (enqueueError) {
+      console.error('Failed to enqueue OCR jobs after upload:', enqueueError);
+      results.ocr_enqueue_error = enqueueError.message;
     }
   }
 
