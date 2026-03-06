@@ -62,20 +62,6 @@ interface OcrSpaceResponse {
   ErrorMessage?: string | string[];
 }
 
-interface AzureOcrRegion {
-  lines?: Array<{ words?: Array<{ text?: string }> }>;
-}
-
-interface AzureOcrResult {
-  regions?: AzureOcrRegion[];
-}
-
-interface AzureReadResult {
-  analyzeResult?: {
-    readResults?: Array<{ lines?: Array<{ text?: string }> }>;
-  };
-}
-
 function extractStoragePath(fileUrl: string): string | null {
   if (!fileUrl || typeof fileUrl !== 'string') {
     return null;
@@ -130,8 +116,6 @@ async function loadFileBlob(
   return { blob, contentType };
 }
 
-const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
 const arrayBufferToBase64 = (buffer: ArrayBuffer): string => {
   const bytes = new Uint8Array(buffer);
   let binary = '';
@@ -155,128 +139,6 @@ const extractGeminiText = (payload: { candidates?: Array<{ content?: { parts?: A
   if (!Array.isArray(parts)) return '';
   return parts.map((part) => String(part?.text || '')).join('').trim();
 };
-
-const extractAzureText = (result: AzureOcrResult): string => {
-  const lines: string[] = [];
-  const regions = result.regions || [];
-  for (const region of regions) {
-    for (const line of region.lines || []) {
-      const lineText = (line.words || []).map((w) => w.text || '').join(' ');
-      if (lineText) lines.push(lineText);
-    }
-  }
-  return lines.join('\n');
-};
-
-const extractAzureReadResult = (result: AzureReadResult): string => {
-  const pages: string[] = [];
-  const analyzeResult = result.analyzeResult || {};
-  const readResults = analyzeResult.readResults || [];
-
-  for (let i = 0; i < readResults.length; i += 1) {
-    const page = readResults[i];
-    const pageLines: string[] = [];
-    for (const line of page.lines || []) {
-      if (line.text) pageLines.push(line.text);
-    }
-    if (readResults.length > 1) {
-      pages.push(`=== PAGE ${i + 1} ===\n${pageLines.join('\n')}`);
-    } else {
-      pages.push(pageLines.join('\n'));
-    }
-  }
-  return pages.join('\n\n');
-};
-
-async function azureOcr(
-  azureVisionKey: string,
-  azureVisionEndpoint: string,
-  fileBlob: Blob,
-  isImage: boolean
-): Promise<string> {
-  const endpoint = azureVisionEndpoint.endsWith('/')
-    ? azureVisionEndpoint.slice(0, -1)
-    : azureVisionEndpoint;
-
-  let allText = '';
-
-  if (isImage) {
-    const arrayBuffer = await fileBlob.arrayBuffer();
-    const response = await fetch(`${endpoint}/vision/v3.2/ocr?detectOrientation=true`, {
-      method: 'POST',
-      headers: {
-        'Ocp-Apim-Subscription-Key': azureVisionKey,
-        'Content-Type': 'application/octet-stream',
-      },
-      body: arrayBuffer,
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      if (response.status === 429) {
-        throw new Error('Azure rate limit exceeded');
-      }
-      throw new Error(`Azure OCR failed: ${response.status} ${errorText}`);
-    }
-
-    const result = await response.json();
-    allText = extractAzureText(result);
-  } else {
-    const formData = new FormData();
-    formData.append('file', fileBlob, 'document.pdf');
-
-    const response = await fetch(`${endpoint}/vision/v3.2/read/analyze`, {
-      method: 'POST',
-      headers: {
-        'Ocp-Apim-Subscription-Key': azureVisionKey,
-      },
-      body: formData,
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      if (response.status === 429) {
-        throw new Error('Azure rate limit exceeded');
-      }
-      throw new Error(`Azure PDF OCR failed: ${response.status} ${errorText}`);
-    }
-
-    const operationLocation = response.headers.get('Operation-Location');
-    if (!operationLocation) {
-      throw new Error('Azure did not return Operation-Location header');
-    }
-
-    let attempts = 0;
-    let readResult = null;
-    while (attempts < 30) {
-      await delay(1000);
-      const statusResponse = await fetch(operationLocation, {
-        headers: { 'Ocp-Apim-Subscription-Key': azureVisionKey },
-      });
-      const statusData = await statusResponse.json();
-      if (statusData.status === 'succeeded') {
-        readResult = statusData;
-        break;
-      }
-      if (statusData.status === 'failed') {
-        throw new Error('Azure PDF OCR analysis failed');
-      }
-      attempts += 1;
-    }
-
-    if (!readResult) {
-      throw new Error('Azure PDF OCR timed out');
-    }
-
-    allText = extractAzureReadResult(readResult);
-  }
-
-  if (!allText || allText.trim().length === 0) {
-    throw new Error('Azure returned empty text');
-  }
-
-  return allText;
-}
 
 async function ocrSpaceExtract(
   ocrSpaceApiKey: string,
@@ -568,22 +430,18 @@ ${extractedText.substring(0, 20000)}`;
 async function processOcrJob(
   supabase: SupabaseClient,
   job: OcrQueueJob,
-  azureVisionKey: string | undefined,
-  azureVisionEndpoint: string | undefined,
   ocrSpaceApiKey: string | undefined,
   googleApiKey: string | undefined,
   openaiApiKey: string | undefined,
   aiGatewayUrl: string | undefined
 ): Promise<{ success: boolean; error?: string }> {
-  const hasAzure = !!(azureVisionKey && azureVisionEndpoint);
   const hasOcrSpace = !!ocrSpaceApiKey;
   const hasGemini = !!googleApiKey;
-  const allowFallbackProviders = Deno.env.get('OCR_ENABLE_FALLBACKS') === 'true';
 
-  if (!hasAzure) {
+  if (!hasGemini && !hasOcrSpace) {
     return {
       success: false,
-      error: 'Azure OCR is not configured. Please set AZURE_VISION_API_KEY and AZURE_VISION_ENDPOINT.',
+      error: 'No OCR providers configured. Please set GOOGLE_AI_API_KEY or OCR_SPACE_API_KEY.',
     };
   }
 
@@ -614,29 +472,7 @@ async function processOcrJob(
       const errors: string[] = [];
       const mimeType = resolvedContentType || (isImage ? 'image/jpeg' : 'application/pdf');
 
-      if (hasAzure) {
-        try {
-          extractedText = await azureOcr(azureVisionKey!, azureVisionEndpoint!, fileBlob, !!isImage);
-          console.log(`Azure extracted ${extractedText.length} characters`);
-        } catch (error) {
-          const msg = error instanceof Error ? error.message : String(error);
-          errors.push(`Azure: ${msg}`);
-          console.error('Azure OCR error:', msg);
-        }
-      }
-
-      if (!extractedText && allowFallbackProviders && hasOcrSpace) {
-        try {
-          extractedText = await ocrSpaceExtract(ocrSpaceApiKey!, fileBlob, !!isImage, mimeType);
-          console.log(`OCR.space extracted ${extractedText.length} characters`);
-        } catch (error) {
-          const msg = error instanceof Error ? error.message : String(error);
-          errors.push(`OCR.space: ${msg}`);
-          console.error('OCR.space OCR error:', msg);
-        }
-      }
-
-      if (!extractedText && allowFallbackProviders && hasGemini) {
+      if (hasGemini) {
         try {
           extractedText = await geminiOcr(googleApiKey!, fileBlob, mimeType, !!isImage);
           console.log(`Gemini extracted ${extractedText.length} characters`);
@@ -647,8 +483,19 @@ async function processOcrJob(
         }
       }
 
+      if (!extractedText && hasOcrSpace) {
+        try {
+          extractedText = await ocrSpaceExtract(ocrSpaceApiKey!, fileBlob, !!isImage, mimeType);
+          console.log(`OCR.space extracted ${extractedText.length} characters`);
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error);
+          errors.push(`OCR.space: ${msg}`);
+          console.error('OCR.space OCR error:', msg);
+        }
+      }
+
       if (!extractedText) {
-        const modePrefix = allowFallbackProviders ? 'All OCR providers failed.' : 'Azure OCR failed.';
+        const modePrefix = 'All OCR providers failed.';
         return { success: false, error: `${modePrefix} ${errors.join('; ')}`.trim() };
       }
     } else if (resolvedContentType.includes('text') || doc.file_url.match(/\.(txt|doc|docx)$/i)) {
@@ -717,8 +564,6 @@ async function processOcrJob(
 
 async function handleProcessAction(
   supabase: SupabaseClient,
-  azureVisionKey: string | undefined,
-  azureVisionEndpoint: string | undefined,
   ocrSpaceApiKey: string | undefined,
   googleApiKey: string | undefined,
   openaiApiKey: string | undefined,
@@ -769,8 +614,6 @@ async function handleProcessAction(
     const result = await processOcrJob(
       supabase,
       job,
-      azureVisionKey,
-      azureVisionEndpoint,
       ocrSpaceApiKey,
       googleApiKey,
       openaiApiKey,
@@ -1064,8 +907,6 @@ serve(async (req) => {
   try {
     validateEnvVars(['SUPABASE_URL', 'SUPABASE_ANON_KEY']);
 
-    const azureVisionKey = Deno.env.get('AZURE_VISION_API_KEY');
-    const azureVisionEndpoint = Deno.env.get('AZURE_VISION_ENDPOINT');
     const ocrSpaceApiKey = Deno.env.get('OCR_SPACE_API_KEY');
     const googleApiKey = Deno.env.get('GOOGLE_AI_API_KEY');
     const openaiApiKey = Deno.env.get('OPENAI_API_KEY');
@@ -1099,7 +940,7 @@ serve(async (req) => {
     }
 
     if (!isServiceRole) {
-      const rateLimitCheck = checkRateLimit(`ocr-queue:${userId}`, 20, 60000);
+      const rateLimitCheck = checkRateLimit(`ocr-queue:${userId}`, 60, 60000);
       if (!rateLimitCheck.allowed) {
         return new Response(
           JSON.stringify({
@@ -1129,8 +970,6 @@ serve(async (req) => {
 
       const result = await handleProcessAction(
         supabase,
-        azureVisionKey,
-        azureVisionEndpoint,
         ocrSpaceApiKey,
         googleApiKey,
         openaiApiKey,
