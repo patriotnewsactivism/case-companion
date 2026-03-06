@@ -519,39 +519,44 @@ async function callGemini(
   maxOutputTokens: number,
   temperature: number
 ): Promise<string | null> {
-  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${googleApiKey}`;
-  const response = await fetch(geminiUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: {
-        maxOutputTokens,
-        temperature,
-      },
-    }),
-  });
+  try {
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${googleApiKey}`;
+    const response = await fetch(geminiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: {
+          maxOutputTokens,
+          temperature,
+        },
+      }),
+    });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error('Gemini API error:', errorText);
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Gemini API error:', errorText);
+      return null;
+    }
+
+    const data = await response.json() as Record<string, unknown>;
+    const candidates = Array.isArray(data.candidates) ? data.candidates : [];
+    const firstCandidate = candidates[0] as Record<string, unknown> | undefined;
+    const content = (firstCandidate?.content || {}) as Record<string, unknown>;
+    const parts = Array.isArray(content.parts) ? content.parts : [];
+    const text = parts
+      .map((part) => {
+        if (!part || typeof part !== 'object') return '';
+        return String((part as Record<string, unknown>).text || '');
+      })
+      .join('')
+      .trim();
+
+    return text || null;
+  } catch (error) {
+    console.error('Gemini request failed:', error);
     return null;
   }
-
-  const data = await response.json() as Record<string, unknown>;
-  const candidates = Array.isArray(data.candidates) ? data.candidates : [];
-  const firstCandidate = candidates[0] as Record<string, unknown> | undefined;
-  const content = (firstCandidate?.content || {}) as Record<string, unknown>;
-  const parts = Array.isArray(content.parts) ? content.parts : [];
-  const text = parts
-    .map((part) => {
-      if (!part || typeof part !== 'object') return '';
-      return String((part as Record<string, unknown>).text || '');
-    })
-    .join('')
-    .trim();
-
-  return text || null;
 }
 
 async function callOpenAICompatible(
@@ -563,59 +568,64 @@ async function callOpenAICompatible(
   maxTokens: number,
   temperature: number
 ): Promise<string | null> {
-  const response = await fetch(gatewayUrl, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        ...messages
-          .filter((msg) => msg.role === 'user' || msg.role === 'assistant')
-          .map((msg) => ({ role: msg.role, content: msg.content })),
-      ],
-      temperature,
-      max_tokens: maxTokens,
-      stream: false,
-    }),
-  });
+  try {
+    const response = await fetch(gatewayUrl, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          ...messages
+            .filter((msg) => msg.role === 'user' || msg.role === 'assistant')
+            .map((msg) => ({ role: msg.role, content: msg.content })),
+        ],
+        temperature,
+        max_tokens: maxTokens,
+        stream: false,
+      }),
+    });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error('OpenAI-compatible API error:', errorText);
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('OpenAI-compatible API error:', errorText);
+      return null;
+    }
+
+    const data = await response.json() as Record<string, unknown>;
+    const choices = Array.isArray(data.choices) ? data.choices : [];
+    const firstChoice = choices[0] as Record<string, unknown> | undefined;
+    const message = (firstChoice?.message || firstChoice?.delta || {}) as Record<string, unknown>;
+    const content = message.content;
+
+    if (typeof content === 'string' && content.trim().length > 0) {
+      return content.trim();
+    }
+
+    if (Array.isArray(content)) {
+      const text = content
+        .map((item) => {
+          if (!item || typeof item !== 'object') return '';
+          return String((item as Record<string, unknown>).text || '');
+        })
+        .join('')
+        .trim();
+      if (text) return text;
+    }
+
+    const outputText = data.output_text;
+    if (typeof outputText === 'string' && outputText.trim().length > 0) {
+      return outputText.trim();
+    }
+
+    return null;
+  } catch (error) {
+    console.error('OpenAI-compatible request failed:', error);
     return null;
   }
-
-  const data = await response.json() as Record<string, unknown>;
-  const choices = Array.isArray(data.choices) ? data.choices : [];
-  const firstChoice = choices[0] as Record<string, unknown> | undefined;
-  const message = (firstChoice?.message || firstChoice?.delta || {}) as Record<string, unknown>;
-  const content = message.content;
-
-  if (typeof content === 'string' && content.trim().length > 0) {
-    return content.trim();
-  }
-
-  if (Array.isArray(content)) {
-    const text = content
-      .map((item) => {
-        if (!item || typeof item !== 'object') return '';
-        return String((item as Record<string, unknown>).text || '');
-      })
-      .join('')
-      .trim();
-    if (text) return text;
-  }
-
-  const outputText = data.output_text;
-  if (typeof outputText === 'string' && outputText.trim().length > 0) {
-    return outputText.trim();
-  }
-
-  return null;
 }
 
 serve(async (req) => {

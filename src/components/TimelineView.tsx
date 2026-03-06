@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { format, parseISO, compareAsc } from 'date-fns';
+import { format, parseISO, compareAsc, isValid } from 'date-fns';
 import { 
   Clock, 
   FileText, 
@@ -60,13 +60,54 @@ const getEventIcon = (type: string | null) => {
 
 
 export function TimelineView({ events, onEventClick }: TimelineViewProps) {
-  const sortedEvents = useMemo(() => {
-    return [...events].sort((a, b) => {
-      try {
-        return compareAsc(parseISO(a.event_date), parseISO(b.event_date));
-      } catch (e) {
-        return 0;
+  const displayedEvents = useMemo(() => {
+    const keyEvents = events.filter((event) => {
+      const importance = (event.importance || '').toLowerCase().trim();
+      const eventType = (event.event_type || '').toLowerCase().trim();
+      const title = (event.title || '').toLowerCase().trim();
+      const description = (event.description || '').toLowerCase().trim();
+
+      if (importance === 'high' || importance === 'medium') {
+        return true;
       }
+
+      const keyTerms = [
+        'hearing',
+        'trial',
+        'deposition',
+        'motion',
+        'filing',
+        'complaint',
+        'order',
+        'judgment',
+        'incident',
+        'accident',
+        'deadline',
+        'mediation',
+        'settlement',
+      ];
+
+      return keyTerms.some((term) =>
+        eventType.includes(term) || title.includes(term) || description.includes(term)
+      );
+    });
+
+    const deduped = keyEvents.filter((event, index, arr) => {
+      const datePart = (event.event_date || '').slice(0, 10);
+      const title = (event.title || '').trim().toLowerCase();
+      return arr.findIndex((candidate) =>
+        (candidate.event_date || '').slice(0, 10) === datePart &&
+        (candidate.title || '').trim().toLowerCase() === title
+      ) === index;
+    });
+
+    return deduped.sort((a, b) => {
+      const aDate = parseISO(a.event_date);
+      const bDate = parseISO(b.event_date);
+      if (!isValid(aDate) && !isValid(bDate)) return 0;
+      if (!isValid(aDate)) return 1;
+      if (!isValid(bDate)) return -1;
+      return compareAsc(aDate, bDate);
     });
   }, [events]);
 
@@ -80,9 +121,19 @@ export function TimelineView({ events, onEventClick }: TimelineViewProps) {
     );
   }
 
+  if (displayedEvents.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground">
+        <CalendarIcon className="h-12 w-12 mb-4 opacity-20" />
+        <p>No key events found.</p>
+        <p className="text-sm">Only high-signal case milestones are shown here.</p>
+      </div>
+    );
+  }
+
   return (
     <div className="relative space-y-8 before:absolute before:inset-0 before:ml-5 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-slate-300 before:to-transparent">
-      {sortedEvents.map((event, index) => (
+      {displayedEvents.map((event, index) => (
         <motion.div
           key={event.id}
           initial={{ opacity: 0, y: 20 }}
@@ -101,7 +152,12 @@ export function TimelineView({ events, onEventClick }: TimelineViewProps) {
             <div className="flex items-center justify-between space-x-2 mb-1">
               <div className="font-bold text-slate-900">{event.title}</div>
               <time className="font-mono text-xs font-medium text-accent bg-accent/10 px-2 py-0.5 rounded whitespace-nowrap">
-                {format(parseISO(event.event_date), 'MMM d, yyyy')}
+                {(() => {
+                  const parsedDate = parseISO(event.event_date);
+                  return isValid(parsedDate)
+                    ? format(parsedDate, 'MMM d, yyyy')
+                    : 'Unknown date';
+                })()}
               </time>
             </div>
             

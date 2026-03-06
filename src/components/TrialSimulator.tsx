@@ -119,7 +119,7 @@ export function TrialSimulator({ caseData, documents = [] }: TrialSimulatorProps
     return "foundational";
   };
 
-  const normalizeRiskLevel = (value?: string): DepositionQuestion["riskLevel"] => {
+const normalizeRiskLevel = (value?: string): DepositionQuestion["riskLevel"] => {
     const risk = (value || "").toLowerCase().trim();
     if (risk === "low" || risk === "medium" || risk === "high") {
       return risk;
@@ -262,8 +262,8 @@ export function TrialSimulator({ caseData, documents = [] }: TrialSimulatorProps
         suggestedFollowUp: "Why didn't this document change your testimony?",
       },
     ];
-    
-    return templates.slice(0, Math.min(docs.length, 4)).map((t, i) => ({
+
+    return templates.slice(0, 4).map((t, i) => ({
       ...t,
       id: `fallback-${i + 1}`,
       targetDocument: docs[i]?.name,
@@ -271,10 +271,10 @@ export function TrialSimulator({ caseData, documents = [] }: TrialSimulatorProps
   };
 
   const generateDepositionQuestions = async () => {
-    if (!caseData || documents.length === 0) {
+    if (!caseData) {
       toast({
         title: "Missing information",
-        description: "Please select a case and upload documents first.",
+        description: "Please select a case first.",
         variant: "destructive",
       });
       return;
@@ -288,7 +288,9 @@ export function TrialSimulator({ caseData, documents = [] }: TrialSimulatorProps
     if (analyzedDocs.length === 0) {
       toast({
         title: "Limited document context",
-        description: "No analyzed documents found yet. Generating baseline questions from document metadata.",
+        description: documents.length === 0
+          ? "No documents found. Generating baseline questions from case context."
+          : "No analyzed documents found yet. Generating baseline questions from document metadata.",
       });
     }
 
@@ -306,7 +308,8 @@ Return JSON with this shape:
 {"questions":[{"question":"...","type":"foundational|trap|clarifying|impeachment","purpose":"...","risk":"low|medium|high","followUp":"...","targetDocument":"..."}]}
 
 Focus areas: ${scenarios.find((s) => s.id === selectedScenario)?.focusAreas.join(', ') || "deposition strategy"}.
-Use the strongest available documents and prioritize contradictions, admissions, and impeachment setup.`
+Documents available: ${sourceDocs.length}.
+Use case facts and strongest available documents, and prioritize contradictions, admissions, and impeachment setup.`
           }]
         }
       });
@@ -555,7 +558,7 @@ ${recommendedQuestionContext || "- None generated yet"}`;
                 </div>
                 <Button 
                   onClick={generateDepositionQuestions}
-                  disabled={isGeneratingQuestions || documents.length === 0}
+                  disabled={isGeneratingQuestions || !caseData}
                   variant="outline"
                 >
                   {isGeneratingQuestions ? (
@@ -628,16 +631,11 @@ ${recommendedQuestionContext || "- None generated yet"}`;
                     </p>
                     <Button 
                       onClick={generateDepositionQuestions}
-                      disabled={documents.length === 0}
+                      disabled={!caseData}
                     >
                       <Brain className="mr-2 h-4 w-4" />
                       Generate Questions
                     </Button>
-                    {documents.length === 0 && (
-                      <p className="text-sm text-red-600 mt-2">
-                        Upload documents first to generate questions.
-                      </p>
-                    )}
                   </CardContent>
                 </Card>
               )}

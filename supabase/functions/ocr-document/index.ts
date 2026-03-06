@@ -146,8 +146,8 @@ const extractGeminiText = (payload: GeminiResponse): string => {
   return parts.map((part) => String(part?.text || '')).join('').trim();
 };
 
-const toDateOnlyString = (value: string | undefined): string => {
-  if (!value) return new Date().toISOString().split('T')[0];
+const toDateOnlyString = (value: string | undefined): string | null => {
+  if (!value) return null;
 
   const trimmed = value.trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
@@ -165,7 +165,7 @@ const toDateOnlyString = (value: string | undefined): string => {
     return parsed.toISOString().split('T')[0];
   }
 
-  return new Date().toISOString().split('T')[0];
+  return null;
 };
 
 const normalizeImportance = (value: string | undefined): TimelineImportance => {
@@ -181,21 +181,53 @@ const normalizeTimelineEvent = (
   caseId: string,
   documentId: string,
   ownerUserId: string
-): TimelineEventInsertRow => {
+): TimelineEventInsertRow | null => {
   const nowIso = new Date().toISOString();
+  const dateOnly = toDateOnlyString(event.date);
+  if (!dateOnly) {
+    return null;
+  }
+
   const title = (event.event_title || '').trim();
   const description = (event.description || '').trim();
   const eventType = (event.event_type || '').trim();
   const entities = Array.isArray(event.entities) ? event.entities : [];
+  const importance = normalizeImportance(event.importance);
+  const content = `${title} ${description} ${eventType}`.toLowerCase();
+  const keySignals = [
+    'trial',
+    'hearing',
+    'deposition',
+    'motion',
+    'complaint',
+    'filing',
+    'deadline',
+    'incident',
+    'accident',
+    'settlement',
+    'judgment',
+    'mediation',
+    'notice',
+    'service',
+    'meeting',
+  ];
+  const hasKeySignal = keySignals.some((signal) => content.includes(signal));
+
+  if (importance === 'low' && !hasKeySignal) {
+    return null;
+  }
+  if (!title && description.length < 20) {
+    return null;
+  }
 
   return {
     case_id: caseId,
     user_id: ownerUserId,
     linked_document_id: documentId,
-    event_date: new Date(toDateOnlyString(event.date)).toISOString(), // Convert to ISO timestamp
+    event_date: new Date(`${dateOnly}T00:00:00.000Z`).toISOString(),
     title: title.length > 0 ? title.slice(0, 180) : 'Untitled Event',
     description: description.slice(0, 2000),
-    importance: normalizeImportance(event.importance),
+    importance,
     event_type: eventType.length > 0 ? eventType.slice(0, 100) : 'general',
     entities: entities,
     created_at: nowIso,
@@ -305,16 +337,22 @@ const buildHeuristicAnalysis = (text: string): HeuristicAnalysisResult => {
   for (const sentence of sentences) {
     const dateToken = extractDateToken(sentence);
     if (!dateToken) continue;
+    if (!/\b(filed|served|hearing|trial|deposition|meeting|conference|incident|accident|injury|deadline|notice|email|letter|call|agreement|contract|payment|settlement|judgment|order|motion|complaint)\b/i.test(sentence)) {
+      continue;
+    }
+
+    const importance = inferImportance(sentence);
+    if (importance === 'low') continue;
 
     timelineEvents.push({
-      date: toDateOnlyString(dateToken),
+      date: toDateOnlyString(dateToken) || undefined,
       event_title: buildTimelineTitle(sentence, dateToken),
       description: sentence.slice(0, 280),
-      importance: inferImportance(sentence),
+      importance,
       event_type: inferEventType(sentence),
     });
 
-    if (timelineEvents.length >= 12) break;
+    if (timelineEvents.length >= 8) break;
   }
 
   const factCandidates = sentences.filter((sentence) =>
@@ -359,7 +397,11 @@ const buildHeuristicAnalysis = (text: string): HeuristicAnalysisResult => {
     favorableFindings,
     adverseFindings,
     actionItems,
-    timelineEvents,
+    timelineEvents.sort((a, b) => {
+      const aDate = toDateOnlyString(a.date) || '9999-12-31';
+      const bDate = toDateOnlyString(b.date) || '9999-12-31';
+      return aDate.localeCompare(bDate);
+    }),
   };
 };
 
@@ -836,6 +878,8 @@ ANALYSIS REQUIREMENTS:
    - "importance": "high", "medium", or "low"
    - "event_type": e.g., "communication", "filing", "incident", "meeting"
    - "entities": Array of key people/orgs involved in THIS specific event
+   - Include ONLY major case milestones (key events). Exclude boilerplate headers, repetitive procedural text, and minor administrative updates.
+   - Return at most 8 timeline events, sorted chronologically.
 
 7. ENTITIES: Extract all key entities (people, organizations, locations) mentioned in the document and their roles.
 
@@ -1044,9 +1088,17 @@ ${extractedText.substring(0, 20000)}`;
       console.log(`Preparing ${requestedTimelineEvents} timeline events for insertion...`);
       const caseId = (documentData as { case_id: string }).case_id;
 
-      const normalizedEvents = (timelineEvents as TimelineEventCandidate[]).map((event) =>
-        normalizeTimelineEvent(event, caseId, validatedDocumentId, ownerId)
-      );
+      const normalizedEvents = (timelineEvents as TimelineEventCandidate[])
+        .map((event) => normalizeTimelineEvent(event, caseId, validatedDocumentId, ownerId))
+        .filter((event): event is TimelineEventInsertRow => !!event)
+        .sort((a, b) => a.event_date.localeCompare(b.event_date))
+        .filter((event, index, arr) => {
+          const eventKey = `${event.event_date.slice(0, 10)}|${event.title.trim().toLowerCase()}`;
+          return arr.findIndex((candidate) =>
+            `${candidate.event_date.slice(0, 10)}|${candidate.title.trim().toLowerCase()}` === eventKey
+          ) === index;
+        })
+        .slice(0, 10);
 
       if (normalizedEvents.length > 0) {
         // Replace prior auto-generated events for this document to avoid stale duplicates.
