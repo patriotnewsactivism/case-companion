@@ -14,7 +14,7 @@ const MAX_ATTEMPTS = 3;
 const BACKOFF_DELAYS = [60000, 300000, 900000]; // 1min, 5min, 15min
 
 type OcrQueueStatus = 'pending' | 'processing' | 'completed' | 'failed';
-type QueueAction = 'process' | 'status' | 'enqueue';
+type QueueAction = 'process' | 'status' | 'enqueue' | 'retry';
 
 interface OcrQueueJob {
   id: string;
@@ -35,6 +35,7 @@ interface QueueRequest {
   caseId?: string;
   documentIds?: string[];
   priority?: number;
+  jobId?: string;
 }
 
 interface QueueJobResult {
@@ -889,6 +890,74 @@ async function handleStatusAction(
   };
 }
 
+async function handleRetryAction(
+  supabase: SupabaseClient,
+  userId: string,
+  caseId: string,
+  jobId: string
+): Promise<QueueResponse> {
+  const { data: caseData, error: caseError } = await supabase
+    .from('cases')
+    .select('user_id')
+    .eq('id', caseId)
+    .single();
+
+  if (caseError || !caseData) {
+    throw new Error('Case not found');
+  }
+
+  if ((caseData as { user_id: string }).user_id !== userId) {
+    throw new Error('You do not have access to this case');
+  }
+
+  const { data: jobData, error: jobError } = await supabase
+    .from('ocr_queue')
+    .select('id, document_id, status, case_id, user_id')
+    .eq('id', jobId)
+    .eq('case_id', caseId)
+    .eq('user_id', userId)
+    .single();
+
+  if (jobError || !jobData) {
+    throw new Error('Queue job not found');
+  }
+
+  if ((jobData as { status: OcrQueueStatus }).status !== 'failed') {
+    throw new Error('Only failed jobs can be retried');
+  }
+
+  const now = new Date().toISOString();
+  const { error: updateError } = await supabase
+    .from('ocr_queue')
+    .update({
+      status: 'pending',
+      attempts: 0,
+      retry_after: null,
+      error_message: null,
+      updated_at: now,
+      started_at: null,
+      completed_at: null
+    })
+    .eq('id', jobId)
+    .eq('case_id', caseId)
+    .eq('user_id', userId);
+
+  if (updateError) {
+    throw new Error(`Failed to retry queue job: ${updateError.message}`);
+  }
+
+  return {
+    processed: 0,
+    remaining: 1,
+    failed: 0,
+    jobs: [{
+      id: (jobData as { id: string }).id,
+      documentId: (jobData as { document_id: string }).document_id,
+      status: 'pending'
+    }]
+  };
+}
+
 async function handleEnqueueAction(
   supabase: SupabaseClient,
   userId: string,
@@ -1103,6 +1172,30 @@ serve(async (req) => {
         validatedCaseId,
         validatedDocIds,
         priority
+      );
+
+      return new Response(
+        JSON.stringify(result),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (action === 'retry') {
+      if (!requestBody.caseId) {
+        throw new Error('Missing required field: caseId');
+      }
+      if (!requestBody.jobId) {
+        throw new Error('Missing required field: jobId');
+      }
+
+      const validatedCaseId = validateUUID(requestBody.caseId, 'caseId');
+      const validatedJobId = validateUUID(requestBody.jobId, 'jobId');
+
+      const result = await handleRetryAction(
+        supabase,
+        userId,
+        validatedCaseId,
+        validatedJobId
       );
 
       return new Response(
