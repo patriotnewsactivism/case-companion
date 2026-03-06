@@ -6,6 +6,9 @@ export interface CaseEvent {
   event_title: string;
   description: string;
   source_doc_id: string;
+  event_type?: string;
+  phase?: string;
+  next_required_action?: string;
 }
 
 // Define the structure for extracted entities from documents

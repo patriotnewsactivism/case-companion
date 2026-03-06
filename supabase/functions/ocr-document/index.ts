@@ -44,6 +44,16 @@ interface GeminiResponse {
 }
 
 type TimelineImportance = 'low' | 'medium' | 'high';
+type TimelinePhase = 'pre-suit' | 'pleadings' | 'discovery' | 'dispositive' | 'trial' | 'post-trial';
+
+const DEFAULT_TIMELINE_EVENT_CAP = 20;
+
+const parsePositiveInt = (value: string | undefined, fallback: number): number => {
+  const parsed = Number.parseInt(value || '', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+const MAX_TIMELINE_EVENTS = parsePositiveInt(Deno.env.get('TIMELINE_EVENT_CAP'), DEFAULT_TIMELINE_EVENT_CAP);
 
 interface TimelineEventCandidate {
   date?: string;
@@ -51,6 +61,8 @@ interface TimelineEventCandidate {
   description?: string;
   importance?: string;
   event_type?: string;
+  phase?: string;
+  next_required_action?: string;
   entities?: string[];
 }
 
@@ -63,6 +75,8 @@ interface TimelineEventInsertRow {
   description: string;
   importance: TimelineImportance;
   event_type: string;
+  phase: TimelinePhase;
+  next_required_action: string | null;
   entities: string[];
   created_at: string;
   updated_at: string;
@@ -176,6 +190,57 @@ const normalizeImportance = (value: string | undefined): TimelineImportance => {
   return 'medium';
 };
 
+const normalizePhase = (value: string | undefined, fallbackContent: string): TimelinePhase => {
+  const normalized = (value || '').trim().toLowerCase();
+  if (normalized === 'pre-suit' || normalized === 'pleadings' || normalized === 'discovery' || normalized === 'dispositive' || normalized === 'trial' || normalized === 'post-trial') {
+    return normalized;
+  }
+
+  if (/\b(incident|accident|injury|demand|notice of claim|retainer|investigation|preservation)\b/i.test(fallbackContent)) {
+    return 'pre-suit';
+  }
+  if (/\b(complaint|answer|counterclaim|service|summons|amended complaint|pleading)\b/i.test(fallbackContent)) {
+    return 'pleadings';
+  }
+  if (/\b(interrogator|request for production|request for admission|deposition|subpoena|expert disclosure|discovery)\b/i.test(fallbackContent)) {
+    return 'discovery';
+  }
+  if (/\b(summary judgment|dismiss|dispositive|daubert|in limine|motion to strike|motion for judgment)\b/i.test(fallbackContent)) {
+    return 'dispositive';
+  }
+  if (/\b(trial|voir dire|jury|verdict|testimony|exhibit list|pretrial conference)\b/i.test(fallbackContent)) {
+    return 'trial';
+  }
+  if (/\b(appeal|post-trial|new trial|remittitur|enforcement|collection|satisfaction of judgment)\b/i.test(fallbackContent)) {
+    return 'post-trial';
+  }
+
+  return 'discovery';
+};
+
+const inferNextRequiredAction = (phase: TimelinePhase, content: string): string => {
+  if (phase === 'pre-suit') {
+    return /\b(statute|limitations)\b/i.test(content)
+      ? 'Confirm statute of limitations and file suit before deadline.'
+      : 'Collect foundational records and preserve evidence relevant to claims.';
+  }
+  if (phase === 'pleadings') {
+    return 'Calendar responsive pleading and service deadlines for all parties.';
+  }
+  if (phase === 'discovery') {
+    return /\b(deposition)\b/i.test(content)
+      ? 'Prepare deposition outlines and circulate witness document sets.'
+      : 'Track discovery responses and schedule follow-up meet-and-confer items.';
+  }
+  if (phase === 'dispositive') {
+    return 'Assemble evidentiary record and briefing schedule for dispositive motions.';
+  }
+  if (phase === 'trial') {
+    return 'Finalize trial preparation checklist: exhibits, witnesses, and motions in limine.';
+  }
+  return 'Evaluate post-trial motions, appellate deadlines, and enforcement strategy.';
+};
+
 const normalizeTimelineEvent = (
   event: TimelineEventCandidate,
   caseId: string,
@@ -191,31 +256,12 @@ const normalizeTimelineEvent = (
   const title = (event.event_title || '').trim();
   const description = (event.description || '').trim();
   const eventType = (event.event_type || '').trim();
+  const content = `${title} ${description} ${eventType}`.toLowerCase();
   const entities = Array.isArray(event.entities) ? event.entities : [];
   const importance = normalizeImportance(event.importance);
-  const content = `${title} ${description} ${eventType}`.toLowerCase();
-  const keySignals = [
-    'trial',
-    'hearing',
-    'deposition',
-    'motion',
-    'complaint',
-    'filing',
-    'deadline',
-    'incident',
-    'accident',
-    'settlement',
-    'judgment',
-    'mediation',
-    'notice',
-    'service',
-    'meeting',
-  ];
-  const hasKeySignal = keySignals.some((signal) => content.includes(signal));
+  const phase = normalizePhase(event.phase, content);
+  const nextRequiredAction = (event.next_required_action || '').trim() || inferNextRequiredAction(phase, content);
 
-  if (importance === 'low' && !hasKeySignal) {
-    return null;
-  }
   if (!title && description.length < 20) {
     return null;
   }
@@ -229,6 +275,8 @@ const normalizeTimelineEvent = (
     description: description.slice(0, 2000),
     importance,
     event_type: eventType.length > 0 ? eventType.slice(0, 100) : 'general',
+    phase,
+    next_required_action: nextRequiredAction.slice(0, 240) || null,
     entities: entities,
     created_at: nowIso,
     updated_at: nowIso,
@@ -342,17 +390,16 @@ const buildHeuristicAnalysis = (text: string): HeuristicAnalysisResult => {
     }
 
     const importance = inferImportance(sentence);
-    if (importance === 'low') continue;
-
     timelineEvents.push({
       date: toDateOnlyString(dateToken) || undefined,
       event_title: buildTimelineTitle(sentence, dateToken),
       description: sentence.slice(0, 280),
       importance,
       event_type: inferEventType(sentence),
+      phase: normalizePhase(undefined, sentence),
     });
 
-    if (timelineEvents.length >= 8) break;
+    if (timelineEvents.length >= MAX_TIMELINE_EVENTS) break;
   }
 
   const factCandidates = sentences.filter((sentence) =>
@@ -397,7 +444,7 @@ const buildHeuristicAnalysis = (text: string): HeuristicAnalysisResult => {
     favorableFindings,
     adverseFindings,
     actionItems,
-    timelineEvents.sort((a, b) => {
+    timelineEvents: timelineEvents.sort((a, b) => {
       const aDate = toDateOnlyString(a.date) || '9999-12-31';
       const bDate = toDateOnlyString(b.date) || '9999-12-31';
       return aDate.localeCompare(bDate);
@@ -878,8 +925,10 @@ ANALYSIS REQUIREMENTS:
    - "importance": "high", "medium", or "low"
    - "event_type": e.g., "communication", "filing", "incident", "meeting"
    - "entities": Array of key people/orgs involved in THIS specific event
+   - "phase": One of "pre-suit", "pleadings", "discovery", "dispositive", "trial", "post-trial"
+   - "next_required_action": Practical next step for litigation planning (one sentence)
    - Include ONLY major case milestones (key events). Exclude boilerplate headers, repetitive procedural text, and minor administrative updates.
-   - Return at most 8 timeline events, sorted chronologically.
+   - Return at most ${MAX_TIMELINE_EVENTS} timeline events, sorted chronologically.
 
 7. ENTITIES: Extract all key entities (people, organizations, locations) mentioned in the document and their roles.
 
@@ -900,6 +949,8 @@ Respond ONLY with valid JSON in this exact format:
       "source_doc_id": "${validatedDocumentId}", 
       "importance": "high", 
       "event_type": "...",
+      "phase": "discovery",
+      "next_required_action": "Schedule witness prep and collect supporting exhibits.",
       "entities": ["Person A", "Company B"]
     }
   ],
@@ -1088,17 +1139,30 @@ ${extractedText.substring(0, 20000)}`;
       console.log(`Preparing ${requestedTimelineEvents} timeline events for insertion...`);
       const caseId = (documentData as { case_id: string }).case_id;
 
+      const dedupedEvents = new Map<string, TimelineEventInsertRow[]>();
+
       const normalizedEvents = (timelineEvents as TimelineEventCandidate[])
         .map((event) => normalizeTimelineEvent(event, caseId, validatedDocumentId, ownerId))
         .filter((event): event is TimelineEventInsertRow => !!event)
         .sort((a, b) => a.event_date.localeCompare(b.event_date))
-        .filter((event, index, arr) => {
-          const eventKey = `${event.event_date.slice(0, 10)}|${event.title.trim().toLowerCase()}`;
-          return arr.findIndex((candidate) =>
-            `${candidate.event_date.slice(0, 10)}|${candidate.title.trim().toLowerCase()}` === eventKey
-          ) === index;
+        .filter((event) => {
+          const dedupeKey = `${event.event_date.slice(0, 10)}|${event.title.trim().toLowerCase()}`;
+          const existing = dedupedEvents.get(dedupeKey) || [];
+
+          if (existing.length === 0) {
+            dedupedEvents.set(dedupeKey, [event]);
+            return true;
+          }
+
+          const hasDifferentType = existing.some((candidate) => candidate.event_type !== event.event_type);
+          if (existing.length === 1 && hasDifferentType) {
+            dedupedEvents.set(dedupeKey, [...existing, event]);
+            return true;
+          }
+
+          return false;
         })
-        .slice(0, 10);
+        .slice(0, MAX_TIMELINE_EVENTS);
 
       if (normalizedEvents.length > 0) {
         // Replace prior auto-generated events for this document to avoid stale duplicates.
