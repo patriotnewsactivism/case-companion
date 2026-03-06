@@ -8,11 +8,18 @@ export type QueueStatus = 'pending' | 'processing' | 'completed' | 'failed';
 export interface QueueItem {
   id: string;
   document_id: string;
+  case_id: string;
+  user_id: string;
   status: QueueStatus;
   priority: number;
+  attempts: number;
+  max_attempts: number;
+  provider: 'ocr_space' | 'gemini' | null;
+  retry_after: string | null;
   error_message: string | null;
   created_at: string;
-  updated_at: string;
+  started_at: string | null;
+  updated_at: string | null;
   completed_at: string | null;
 }
 
@@ -34,10 +41,11 @@ export interface UseOCRQueueReturn {
   error: Error | null;
 }
 
-async function fetchQueue(): Promise<QueueItem[]> {
+async function fetchQueue(caseId: string): Promise<QueueItem[]> {
   const { data, error } = await supabase
     .from('ocr_queue')
     .select('*')
+    .eq('case_id', caseId)
     .order('priority', { ascending: false })
     .order('created_at', { ascending: true });
 
@@ -45,64 +53,41 @@ async function fetchQueue(): Promise<QueueItem[]> {
   return (data as QueueItem[]) || [];
 }
 
-export function useOCRQueue(): UseOCRQueueReturn {
+export function useOCRQueue(caseId: string): UseOCRQueueReturn {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [error, setError] = useState<Error | null>(null);
 
   const { data: queue = [], isLoading } = useQuery({
-    queryKey: ['ocr-queue'],
-    queryFn: fetchQueue,
-    enabled: !!user,
+    queryKey: ['ocr-queue', caseId],
+    queryFn: () => fetchQueue(caseId),
+    enabled: !!user && !!caseId,
     refetchInterval: 5000,
   });
 
   const enqueueMutation = useMutation({
     mutationFn: async ({ documentIds, priority = 5 }: { documentIds: string[]; priority?: number }) => {
-      const { data: { user: currentUser } } = await supabase.auth.getUser();
-      if (!currentUser) throw new Error('Not authenticated');
-
-      const items = documentIds.map((documentId) => ({
-        document_id: documentId,
-        status: 'pending' as QueueStatus,
-        priority,
-        user_id: currentUser.id,
-      }));
-
-      const { error: insertError } = await supabase
-        .from('ocr_queue')
-        .insert(items);
-
-      if (insertError) throw insertError;
-
       const { error: fnError } = await supabase.functions.invoke('ocr-queue-processor', {
-        body: { action: 'enqueue', documentIds },
+        body: { action: 'enqueue', caseId, documentIds, priority },
       });
 
       if (fnError) throw fnError;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['ocr-queue'] });
+      queryClient.invalidateQueries({ queryKey: ['ocr-queue', caseId] });
     },
   });
 
   const retryMutation = useMutation({
     mutationFn: async (jobId: string) => {
-      const { error: updateError } = await supabase
-        .from('ocr_queue')
-        .update({ status: 'pending', error_message: null, updated_at: new Date().toISOString() })
-        .eq('id', jobId);
-
-      if (updateError) throw updateError;
-
       const { error: fnError } = await supabase.functions.invoke('ocr-queue-processor', {
-        body: { action: 'retry', jobId },
+        body: { action: 'retry', caseId, jobId },
       });
 
       if (fnError) throw fnError;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['ocr-queue'] });
+      queryClient.invalidateQueries({ queryKey: ['ocr-queue', caseId] });
     },
   });
 
@@ -116,7 +101,7 @@ export function useOCRQueue(): UseOCRQueueReturn {
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['ocr-queue'] });
+      queryClient.invalidateQueries({ queryKey: ['ocr-queue', caseId] });
     },
   });
 
