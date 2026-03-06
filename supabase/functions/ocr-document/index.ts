@@ -397,7 +397,7 @@ const buildHeuristicAnalysis = (text: string): HeuristicAnalysisResult => {
     favorableFindings,
     adverseFindings,
     actionItems,
-    timelineEvents.sort((a, b) => {
+    timelineEvents: timelineEvents.sort((a, b) => {
       const aDate = toDateOnlyString(a.date) || '9999-12-31';
       const bDate = toDateOnlyString(b.date) || '9999-12-31';
       return aDate.localeCompare(bDate);
