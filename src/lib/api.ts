@@ -777,59 +777,84 @@ export async function batchAnalyzeDocuments(
   if (!session) throw new Error("Not authenticated");
 
   const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ocr-document`;
-  const BATCH_SIZE = 3;
+  const BATCH_SIZE = 2;
 
-  for (let i = 0; i < documentIds.length; i += BATCH_SIZE) {
-    const batch = documentIds.slice(i, i + BATCH_SIZE);
-    
-    await Promise.all(
-      batch.map(async (docId) => {
-        const fileUrl = docMap.get(docId);
-        
-        if (!fileUrl) {
-          result.failed++;
-          result.results.push({ documentId: docId, status: 'failed', error: 'File URL not found' });
+  const analyzeSingleDocument = async (docId: string): Promise<void> => {
+    const fileUrl = docMap.get(docId);
+
+    if (!fileUrl) {
+      result.failed++;
+      result.results.push({ documentId: docId, status: 'failed', error: 'File URL not found' });
+      return;
+    }
+
+    const runAttempt = async (): Promise<Response> =>
+      fetch(functionUrl, {
+        method: 'POST',
+        mode: 'cors',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+          'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+        },
+        body: JSON.stringify({ documentId: docId, fileUrl }),
+      });
+
+    const maxAttempts = 3;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        const response = await runAttempt();
+
+        if (response.ok) {
+          result.successful++;
+          result.results.push({ documentId: docId, status: 'success' });
           return;
         }
 
-        try {
-          const response = await fetch(functionUrl, {
-            method: 'POST',
-            mode: 'cors',
-            credentials: 'include',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${session.access_token}`,
-              'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-            },
-            body: JSON.stringify({ documentId: docId, fileUrl }),
-          });
+        const errorText = await response.text();
+        const retryable = response.status === 429 || response.status >= 500;
 
-          if (response.ok) {
-            result.successful++;
-            result.results.push({ documentId: docId, status: 'success' });
-          } else {
-            result.failed++;
-            const errorText = await response.text();
-            result.results.push({ 
-              documentId: docId, 
-              status: 'failed', 
-              error: errorText || `HTTP ${response.status}`
-            });
-          }
-        } catch (err) {
-          result.failed++;
-          result.results.push({ 
-            documentId: docId, 
-            status: 'failed', 
-            error: err instanceof Error ? err.message : 'Unknown error' 
-          });
+        if (retryable && attempt < maxAttempts) {
+          await new Promise((resolve) => setTimeout(resolve, attempt * 600));
+          continue;
         }
-      })
-    );
+
+        result.failed++;
+        result.results.push({
+          documentId: docId,
+          status: 'failed',
+          error: errorText || `HTTP ${response.status}`,
+        });
+        return;
+      } catch (err) {
+        if (attempt < maxAttempts) {
+          await new Promise((resolve) => setTimeout(resolve, attempt * 600));
+          continue;
+        }
+
+        result.failed++;
+        result.results.push({
+          documentId: docId,
+          status: 'failed',
+          error: err instanceof Error ? err.message : 'Unknown error',
+        });
+        return;
+      }
+    }
+  };
+
+  for (let i = 0; i < documentIds.length; i += BATCH_SIZE) {
+    const batch = documentIds.slice(i, i + BATCH_SIZE);
+
+    await Promise.all(batch.map((docId) => analyzeSingleDocument(docId)));
 
     const completed = Math.min(i + BATCH_SIZE, documentIds.length);
     onProgress?.(completed, documentIds.length);
+
+    if (i + BATCH_SIZE < documentIds.length) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
   }
 
   return result;
