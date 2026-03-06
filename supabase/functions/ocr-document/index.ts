@@ -77,6 +77,19 @@ interface HeuristicAnalysisResult {
   timelineEvents: TimelineEventCandidate[];
 }
 
+interface StructuredChunkAnalysis {
+  summary: string;
+  keyFacts: string[];
+  favorableFindings: string[];
+  adverseFindings: string[];
+  actionItems: string[];
+  timelineEvents: TimelineEventCandidate[];
+  entities: unknown[];
+}
+
+const ANALYSIS_CHUNK_CHAR_LIMIT = 12000;
+const ANALYSIS_CHUNK_OVERLAP = 500;
+
 function extractStoragePath(fileUrl: string): string | null {
   if (!fileUrl || typeof fileUrl !== 'string') {
     return null;
@@ -174,6 +187,131 @@ const normalizeImportance = (value: string | undefined): TimelineImportance => {
     return normalized;
   }
   return 'medium';
+};
+
+const importanceRank: Record<TimelineImportance, number> = {
+  low: 1,
+  medium: 2,
+  high: 3,
+};
+
+const normalizeTitleKey = (value: string | undefined): string =>
+  (value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const buildTextChunks = (text: string, maxChars: number, overlapChars: number): string[] => {
+  const cleaned = text.trim();
+  if (!cleaned) return [];
+
+  const chunks: string[] = [];
+  let cursor = 0;
+
+  while (cursor < cleaned.length) {
+    let end = Math.min(cursor + maxChars, cleaned.length);
+    if (end < cleaned.length) {
+      const breakIdx = cleaned.lastIndexOf('\n\n', end);
+      if (breakIdx > cursor + Math.floor(maxChars * 0.6)) {
+        end = breakIdx;
+      }
+    }
+
+    const chunk = cleaned.slice(cursor, end).trim();
+    if (chunk) {
+      chunks.push(chunk);
+    }
+
+    if (end >= cleaned.length) break;
+    cursor = Math.max(end - overlapChars, cursor + 1);
+  }
+
+  return chunks;
+};
+
+const mergeChunkAnalyses = (analyses: StructuredChunkAnalysis[]): StructuredChunkAnalysis => {
+  const timelineMap = new Map<string, TimelineEventCandidate>();
+  const summaryParts: string[] = [];
+
+  for (const analysis of analyses) {
+    if (analysis.summary.trim()) {
+      summaryParts.push(analysis.summary.trim());
+    }
+
+    for (const event of analysis.timelineEvents || []) {
+      const normalizedDate = toDateOnlyString(event.date);
+      const normalizedTitle = normalizeTitleKey(event.event_title);
+      if (!normalizedDate || !normalizedTitle) {
+        continue;
+      }
+
+      const key = `${normalizedDate}|${normalizedTitle}`;
+      const existing = timelineMap.get(key);
+      if (!existing) {
+        timelineMap.set(key, {
+          ...event,
+          date: normalizedDate,
+          event_title: event.event_title?.trim() || 'Untitled Event',
+          description: (event.description || '').trim(),
+          importance: normalizeImportance(event.importance),
+          entities: uniqueTrimmed(Array.isArray(event.entities) ? event.entities : [], 15),
+        });
+        continue;
+      }
+
+      const existingImportance = normalizeImportance(existing.importance);
+      const candidateImportance = normalizeImportance(event.importance);
+      const strongerImportance =
+        importanceRank[candidateImportance] > importanceRank[existingImportance]
+          ? candidateImportance
+          : existingImportance;
+
+      const mergedDescription =
+        (event.description || '').length > (existing.description || '').length
+          ? (event.description || '').trim()
+          : (existing.description || '').trim();
+
+      timelineMap.set(key, {
+        ...existing,
+        importance: strongerImportance,
+        description: mergedDescription,
+        entities: uniqueTrimmed(
+          [
+            ...(Array.isArray(existing.entities) ? existing.entities : []),
+            ...(Array.isArray(event.entities) ? event.entities : []),
+          ],
+          15
+        ),
+      });
+    }
+  }
+
+  return {
+    summary: uniqueTrimmed(summaryParts, 3).join(' '),
+    keyFacts: uniqueTrimmed(analyses.flatMap((analysis) => analysis.keyFacts || []), 12),
+    favorableFindings: uniqueTrimmed(
+      analyses.flatMap((analysis) => analysis.favorableFindings || []),
+      8
+    ),
+    adverseFindings: uniqueTrimmed(analyses.flatMap((analysis) => analysis.adverseFindings || []), 8),
+    actionItems: uniqueTrimmed(analyses.flatMap((analysis) => analysis.actionItems || []), 8),
+    timelineEvents: Array.from(timelineMap.values()).sort((a, b) =>
+      (toDateOnlyString(a.date) || '9999-12-31').localeCompare(toDateOnlyString(b.date) || '9999-12-31')
+    ),
+    entities: uniqueTrimmed(
+      analyses.flatMap((analysis) =>
+        (analysis.entities || []).map((entity) => JSON.stringify(entity))
+      ),
+      25
+    ).map((entity) => {
+      try {
+        return JSON.parse(entity);
+      } catch {
+        return entity;
+      }
+    }),
+  };
 };
 
 const normalizeTimelineEvent = (
@@ -397,7 +535,7 @@ const buildHeuristicAnalysis = (text: string): HeuristicAnalysisResult => {
     favorableFindings,
     adverseFindings,
     actionItems,
-    timelineEvents.sort((a, b) => {
+    timelineEvents: timelineEvents.sort((a, b) => {
       const aDate = toDateOnlyString(a.date) || '9999-12-31';
       const bDate = toDateOnlyString(b.date) || '9999-12-31';
       return aDate.localeCompare(bDate);
@@ -858,19 +996,28 @@ serve(async (req) => {
       !extractedText.startsWith('[File type') &&
       (hasOpenAI || hasGemini)
     ) {
-      console.log('Analyzing extracted text with AI...');
+      console.log('Analyzing extracted text with AI (chunked)...');
+      const textChunks = buildTextChunks(
+        extractedText,
+        ANALYSIS_CHUNK_CHAR_LIMIT,
+        ANALYSIS_CHUNK_OVERLAP
+      );
 
-      const analysisPrompt = `You are an expert legal document analyst specializing in litigation support. Analyze documents with precision and identify strategic insights for case preparation.
+      const chunkResults: StructuredChunkAnalysis[] = [];
 
-Analyze this legal document and provide a JSON response with comprehensive legal analysis, including chronological timeline events.
+      for (let index = 0; index < textChunks.length; index += 1) {
+        const textChunk = textChunks[index];
+        const analysisPrompt = `You are an expert legal document analyst specializing in litigation support. Analyze documents with precision and identify strategic insights for case preparation.
+
+Analyze this legal document CHUNK and provide a JSON response with comprehensive legal analysis for this chunk only.
 
 ANALYSIS REQUIREMENTS:
-1. SUMMARY: 2-4 sentence executive summary of the document's content and significance
-2. KEY_FACTS: 5-10 specific factual findings (dates, events, statements, numbers)
-3. FAVORABLE_FINDINGS: 3-5 findings that could support the case (admissions, favorable testimony, helpful evidence)
-4. ADVERSE_FINDINGS: 3-5 findings that could hurt the case (contradictions, damaging statements, weaknesses)
-5. ACTION_ITEMS: 3-5 specific follow-up actions (witnesses to interview, documents to request, issues to research)
-6. TIMELINE_EVENTS: Extract chronological events found in the document. For each event provide:
+1. SUMMARY: 1-2 sentence summary of this chunk's significance
+2. KEY_FACTS: up to 6 specific factual findings from this chunk
+3. FAVORABLE_FINDINGS: up to 4 findings that could support the case
+4. ADVERSE_FINDINGS: up to 4 findings that could hurt the case
+5. ACTION_ITEMS: up to 4 specific follow-up actions from this chunk
+6. TIMELINE_EVENTS: Extract chronological events in this chunk. For each event provide:
    - "date": YYYY-MM-DD format (if approximate, use first of month/year)
    - "event_title": Short title (5-10 words)
    - "description": Detailed description (1-2 sentences)
@@ -878,27 +1025,24 @@ ANALYSIS REQUIREMENTS:
    - "importance": "high", "medium", or "low"
    - "event_type": e.g., "communication", "filing", "incident", "meeting"
    - "entities": Array of key people/orgs involved in THIS specific event
-   - Include ONLY major case milestones (key events). Exclude boilerplate headers, repetitive procedural text, and minor administrative updates.
-   - Return at most 8 timeline events, sorted chronologically.
+   - Include ONLY major case milestones found in this chunk.
 
-7. ENTITIES: Extract all key entities (people, organizations, locations) mentioned in the document and their roles.
-
-Be thorough, precise, and strategic. Focus on facts that matter for litigation.
+7. ENTITIES: Extract key entities (people, organizations, locations) with role.
 
 Respond ONLY with valid JSON in this exact format:
 {
   "summary": "string",
-  "key_facts": ["fact1", "fact2", ...],
-  "favorable_findings": ["finding1", "finding2", ...],
-  "adverse_findings": ["finding1", "finding2", ...],
-  "action_items": ["action1", "action2", ...],
+  "key_facts": ["fact1", "fact2"],
+  "favorable_findings": ["finding1", "finding2"],
+  "adverse_findings": ["finding1", "finding2"],
+  "action_items": ["action1", "action2"],
   "timeline_events": [
-    { 
-      "date": "2023-01-01", 
-      "event_title": "...", 
-      "description": "...", 
-      "source_doc_id": "${validatedDocumentId}", 
-      "importance": "high", 
+    {
+      "date": "2023-01-01",
+      "event_title": "...",
+      "description": "...",
+      "source_doc_id": "${validatedDocumentId}",
+      "importance": "high",
       "event_type": "...",
       "entities": ["Person A", "Company B"]
     }
@@ -908,100 +1052,118 @@ Respond ONLY with valid JSON in this exact format:
   ]
 }
 
-Document text:
-${extractedText.substring(0, 20000)}`;
+Chunk ${index + 1} of ${textChunks.length}:
+${textChunk}`;
 
-      let content = '';
+        let content = '';
 
-      if (hasOpenAI) {
-        try {
-          const apiUrl = aiGatewayUrl || 'https://api.openai.com/v1/chat/completions';
-          const analysisResponse = await fetch(apiUrl, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${openaiApiKey}`,
-            },
-            body: JSON.stringify({
-              model: 'gpt-4o',
-              messages: [{ role: 'user', content: analysisPrompt }],
-              temperature: 0.2,
-              max_tokens: 4096,
-              response_format: { type: 'json_object' },
-            }),
-          });
-
-          if (analysisResponse.ok) {
-            const analysisData = await analysisResponse.json();
-            content = analysisData.choices?.[0]?.message?.content || '';
-            if (content) {
-              analysisProvider = 'openai';
-            }
-            console.log('OpenAI analysis completed successfully');
-          } else {
-            console.error('OpenAI analysis failed:', await analysisResponse.text());
-          }
-        } catch (openaiError) {
-          console.error('OpenAI analysis error:', openaiError);
-        }
-      }
-
-      if (!content && hasGemini) {
-        try {
-          const analysisResponse = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${googleApiKey}`,
-            {
+        if (hasOpenAI) {
+          try {
+            const apiUrl = aiGatewayUrl || 'https://api.openai.com/v1/chat/completions';
+            const analysisResponse = await fetch(apiUrl, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
+                'Authorization': `Bearer ${openaiApiKey}`,
               },
               body: JSON.stringify({
-                contents: [
-                  {
-                    parts: [{ text: analysisPrompt }],
-                  },
-                ],
-                generationConfig: {
-                  temperature: 0.2,
-                  maxOutputTokens: 4096,
-                  responseMimeType: 'application/json',
-                },
+                model: 'gpt-4o',
+                messages: [{ role: 'user', content: analysisPrompt }],
+                temperature: 0.1,
+                max_tokens: 2500,
+                response_format: { type: 'json_object' },
               }),
-            }
-          );
+            });
 
-          if (analysisResponse.ok) {
-            const analysisData = (await analysisResponse.json()) as GeminiResponse;
-            content = extractGeminiText(analysisData);
-            if (content) {
-              analysisProvider = 'gemini';
+            if (analysisResponse.ok) {
+              const analysisData = await analysisResponse.json();
+              content = analysisData.choices?.[0]?.message?.content || '';
+              if (content) {
+                analysisProvider = 'openai';
+              }
+            } else {
+              console.error(`OpenAI chunk analysis failed (${index + 1}):`, await analysisResponse.text());
             }
-            console.log('Gemini analysis completed successfully');
-          } else {
-            console.error('Gemini analysis failed:', await analysisResponse.text());
+          } catch (openaiError) {
+            console.error(`OpenAI chunk analysis error (${index + 1}):`, openaiError);
           }
-        } catch (geminiError) {
-          console.error('Gemini analysis error:', geminiError);
+        }
+
+        if (!content && hasGemini) {
+          try {
+            const analysisResponse = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${googleApiKey}`,
+              {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  contents: [
+                    {
+                      parts: [{ text: analysisPrompt }],
+                    },
+                  ],
+                  generationConfig: {
+                    temperature: 0.1,
+                    maxOutputTokens: 2500,
+                    responseMimeType: 'application/json',
+                  },
+                }),
+              }
+            );
+
+            if (analysisResponse.ok) {
+              const analysisData = (await analysisResponse.json()) as GeminiResponse;
+              content = extractGeminiText(analysisData);
+              if (content) {
+                analysisProvider = 'gemini';
+              }
+            } else {
+              console.error(`Gemini chunk analysis failed (${index + 1}):`, await analysisResponse.text());
+            }
+          } catch (geminiError) {
+            console.error(`Gemini chunk analysis error (${index + 1}):`, geminiError);
+          }
+        }
+
+        if (!content) continue;
+
+        try {
+          const jsonMatch = content.match(/\{[\s\S]*\}/);
+          if (!jsonMatch) continue;
+          const parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
+          chunkResults.push({
+            summary: String(parsed.summary || ''),
+            keyFacts: Array.isArray(parsed.key_facts) ? parsed.key_facts.map((item) => String(item)) : [],
+            favorableFindings: Array.isArray(parsed.favorable_findings)
+              ? parsed.favorable_findings.map((item) => String(item))
+              : [],
+            adverseFindings: Array.isArray(parsed.adverse_findings)
+              ? parsed.adverse_findings.map((item) => String(item))
+              : [],
+            actionItems: Array.isArray(parsed.action_items)
+              ? parsed.action_items.map((item) => String(item))
+              : [],
+            timelineEvents: Array.isArray(parsed.timeline_events)
+              ? (parsed.timeline_events as TimelineEventCandidate[])
+              : [],
+            entities: Array.isArray(parsed.entities) ? parsed.entities : [],
+          });
+        } catch (parseError) {
+          console.error(`Failed to parse chunk analysis JSON (${index + 1}):`, parseError);
         }
       }
 
-      try {
-        const jsonMatch = content.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          const analysis = JSON.parse(jsonMatch[0]);
-          summary = analysis.summary || '';
-          keyFacts = Array.isArray(analysis.key_facts) ? analysis.key_facts : [];
-          favorableFindings = Array.isArray(analysis.favorable_findings) ? analysis.favorable_findings : [];
-          adverseFindings = Array.isArray(analysis.adverse_findings) ? analysis.adverse_findings : [];
-          actionItems = Array.isArray(analysis.action_items) ? analysis.action_items : [];
-          timelineEvents = Array.isArray(analysis.timeline_events) ? analysis.timeline_events : [];
-          extractedEntities = Array.isArray(analysis.entities) ? analysis.entities : [];
-          console.log(`Analysis complete: ${keyFacts.length} facts, ${timelineEvents.length} events, ${extractedEntities.length} entities found`);
-        }
-      } catch (parseError) {
-        console.error('Failed to parse analysis JSON:', parseError);
-        console.error('Raw content:', content);
-        summary = content.substring(0, 500);
+      if (chunkResults.length > 0) {
+        const merged = mergeChunkAnalyses(chunkResults);
+        summary = merged.summary;
+        keyFacts = merged.keyFacts;
+        favorableFindings = merged.favorableFindings;
+        adverseFindings = merged.adverseFindings;
+        actionItems = merged.actionItems;
+        timelineEvents = merged.timelineEvents;
+        extractedEntities = merged.entities;
       }
     }
 

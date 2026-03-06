@@ -13,6 +13,169 @@ const STORAGE_BUCKET = 'case-documents';
 const MAX_ATTEMPTS = 3;
 const BACKOFF_DELAYS = [60000, 300000, 900000]; // 1min, 5min, 15min
 
+
+type TimelineImportance = 'low' | 'medium' | 'high';
+
+interface TimelineEventCandidate {
+  event_date?: string;
+  title?: string;
+  description?: string;
+  importance?: string;
+  event_type?: string;
+}
+
+interface ChunkAnalysisResult {
+  summary: string;
+  keyFacts: string[];
+  favorableFindings: string[];
+  adverseFindings: string[];
+  actionItems: string[];
+  timelineEvents: TimelineEventCandidate[];
+}
+
+const ANALYSIS_CHUNK_CHAR_LIMIT = 12000;
+const ANALYSIS_CHUNK_OVERLAP = 500;
+
+const importanceRank: Record<TimelineImportance, number> = {
+  low: 1,
+  medium: 2,
+  high: 3,
+};
+
+const normalizeImportance = (value: string | undefined): TimelineImportance => {
+  const normalized = (value || '').trim().toLowerCase();
+  if (normalized === 'low' || normalized === 'medium' || normalized === 'high') {
+    return normalized;
+  }
+  return 'medium';
+};
+
+const normalizeTitleKey = (value: string | undefined): string =>
+  (value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const toDateOnlyString = (value: string | undefined): string | null => {
+  if (!value) return null;
+
+  const trimmed = value.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+  if (/^\d{4}-\d{2}$/.test(trimmed)) return `${trimmed}-01`;
+  if (/^\d{4}$/.test(trimmed)) return `${trimmed}-01-01`;
+
+  const parsed = new Date(trimmed);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toISOString().split('T')[0];
+  }
+
+  return null;
+};
+
+const uniqueTrimmed = (items: string[], maxItems: number): string[] => {
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const item of items) {
+    const cleaned = item.trim().replace(/\s+/g, ' ');
+    if (!cleaned) continue;
+    const key = cleaned.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(cleaned);
+    if (result.length >= maxItems) break;
+  }
+
+  return result;
+};
+
+const buildTextChunks = (text: string, maxChars: number, overlapChars: number): string[] => {
+  const cleaned = text.trim();
+  if (!cleaned) return [];
+
+  const chunks: string[] = [];
+  let cursor = 0;
+
+  while (cursor < cleaned.length) {
+    let end = Math.min(cursor + maxChars, cleaned.length);
+    if (end < cleaned.length) {
+      const breakIdx = cleaned.lastIndexOf('\n\n', end);
+      if (breakIdx > cursor + Math.floor(maxChars * 0.6)) {
+        end = breakIdx;
+      }
+    }
+
+    const chunk = cleaned.slice(cursor, end).trim();
+    if (chunk) {
+      chunks.push(chunk);
+    }
+
+    if (end >= cleaned.length) break;
+    cursor = Math.max(end - overlapChars, cursor + 1);
+  }
+
+  return chunks;
+};
+
+const mergeChunkAnalyses = (analyses: ChunkAnalysisResult[]): ChunkAnalysisResult => {
+  const timelineMap = new Map<string, TimelineEventCandidate>();
+  const summaryParts: string[] = [];
+
+  for (const analysis of analyses) {
+    if (analysis.summary.trim()) {
+      summaryParts.push(analysis.summary.trim());
+    }
+
+    for (const event of analysis.timelineEvents || []) {
+      const normalizedDate = toDateOnlyString(event.event_date);
+      const normalizedTitle = normalizeTitleKey(event.title);
+      if (!normalizedDate || !normalizedTitle) continue;
+
+      const key = `${normalizedDate}|${normalizedTitle}`;
+      const existing = timelineMap.get(key);
+      if (!existing) {
+        timelineMap.set(key, {
+          ...event,
+          event_date: normalizedDate,
+          title: event.title?.trim() || 'Untitled Event',
+          description: (event.description || '').trim(),
+          importance: normalizeImportance(event.importance),
+        });
+        continue;
+      }
+
+      const existingImportance = normalizeImportance(existing.importance);
+      const candidateImportance = normalizeImportance(event.importance);
+      const strongerImportance =
+        importanceRank[candidateImportance] > importanceRank[existingImportance]
+          ? candidateImportance
+          : existingImportance;
+
+      timelineMap.set(key, {
+        ...existing,
+        description:
+          (event.description || '').length > (existing.description || '').length
+            ? (event.description || '').trim()
+            : (existing.description || '').trim(),
+        importance: strongerImportance,
+      });
+    }
+  }
+
+  return {
+    summary: uniqueTrimmed(summaryParts, 3).join(' '),
+    keyFacts: uniqueTrimmed(analyses.flatMap((analysis) => analysis.keyFacts || []), 12),
+    favorableFindings: uniqueTrimmed(analyses.flatMap((analysis) => analysis.favorableFindings || []), 8),
+    adverseFindings: uniqueTrimmed(analyses.flatMap((analysis) => analysis.adverseFindings || []), 8),
+    actionItems: uniqueTrimmed(analyses.flatMap((analysis) => analysis.actionItems || []), 8),
+    timelineEvents: Array.from(timelineMap.values()).sort((a, b) =>
+      (toDateOnlyString(a.event_date) || '9999-12-31').localeCompare(toDateOnlyString(b.event_date) || '9999-12-31')
+    ),
+  };
+};
+
+
 type OcrQueueStatus = 'pending' | 'processing' | 'completed' | 'failed';
 type QueueAction = 'process' | 'status' | 'enqueue';
 
@@ -436,133 +599,154 @@ async function analyzeWithAI(
   favorableFindings: string[];
   adverseFindings: string[];
   actionItems: string[];
-  timelineEvents: unknown[];
+  timelineEvents: TimelineEventCandidate[];
 }> {
-  let summary = '';
-  let keyFacts: string[] = [];
-  let favorableFindings: string[] = [];
-  let adverseFindings: string[] = [];
-  let actionItems: string[] = [];
-  let timelineEvents: unknown[] = [];
-
   const hasOpenAI = !!openaiApiKey;
   const hasGemini = !!googleApiKey;
 
-  if (extractedText.length <= 50) {
-    return { summary, keyFacts, favorableFindings, adverseFindings, actionItems, timelineEvents };
+  const emptyResult: ChunkAnalysisResult = {
+    summary: '',
+    keyFacts: [],
+    favorableFindings: [],
+    adverseFindings: [],
+    actionItems: [],
+    timelineEvents: [],
+  };
+
+  if (extractedText.length <= 50 || (!hasOpenAI && !hasGemini)) {
+    return emptyResult;
   }
 
-  const analysisPrompt = `You are an expert legal document analyst specializing in litigation support. Analyze documents with precision and identify strategic insights for case preparation.
+  const chunks = buildTextChunks(extractedText, ANALYSIS_CHUNK_CHAR_LIMIT, ANALYSIS_CHUNK_OVERLAP);
+  const chunkResults: ChunkAnalysisResult[] = [];
 
-Analyze this legal document and provide a JSON response with comprehensive legal analysis, including chronological timeline events.
+  for (let index = 0; index < chunks.length; index += 1) {
+    const chunk = chunks[index];
+    const analysisPrompt = `You are an expert legal document analyst specializing in litigation support. Analyze documents with precision and identify strategic insights for case preparation.
+
+Analyze this legal document chunk and provide JSON output for this chunk only.
 
 ANALYSIS REQUIREMENTS:
-1. SUMMARY: 2-4 sentence executive summary of the document's content and significance
-2. KEY_FACTS: 5-10 specific factual findings (dates, events, statements, numbers)
-3. FAVORABLE_FINDINGS: 3-5 findings that could support the case (admissions, favorable testimony, helpful evidence)
-4. ADVERSE_FINDINGS: 3-5 findings that could hurt the case (contradictions, damaging statements, weaknesses)
-5. ACTION_ITEMS: 3-5 specific follow-up actions (witnesses to interview, documents to request, issues to research)
-6. TIMELINE_EVENTS: Extract chronological events found in the document. For each event provide:
+1. SUMMARY: 1-2 sentence chunk summary
+2. KEY_FACTS: up to 6 factual findings
+3. FAVORABLE_FINDINGS: up to 4 helpful findings
+4. ADVERSE_FINDINGS: up to 4 harmful findings
+5. ACTION_ITEMS: up to 4 follow-up actions
+6. TIMELINE_EVENTS: Extract chronological events from this chunk. For each event provide:
    - "event_date": YYYY-MM-DD format (if approximate, use first of month/year)
    - "title": Short title (5-10 words)
    - "description": Detailed description (1-2 sentences)
    - "importance": "high", "medium", or "low"
    - "event_type": e.g., "communication", "filing", "incident", "meeting"
 
-Be thorough, precise, and strategic. Focus on facts that matter for litigation.
-
 Respond ONLY with valid JSON in this exact format:
 {
   "summary": "string",
-  "key_facts": ["fact1", "fact2", ...],
-  "favorable_findings": ["finding1", "finding2", ...],
-  "adverse_findings": ["finding1", "finding2", ...],
-  "action_items": ["action1", "action2", ...],
+  "key_facts": ["fact1", "fact2"],
+  "favorable_findings": ["finding1", "finding2"],
+  "adverse_findings": ["finding1", "finding2"],
+  "action_items": ["action1", "action2"],
   "timeline_events": [
     { "event_date": "2023-01-01", "title": "...", "description": "...", "importance": "high", "event_type": "..." }
   ]
 }
 
-Document text:
-${extractedText.substring(0, 20000)}`;
+Chunk ${index + 1} of ${chunks.length}:
+${chunk}`;
 
-  let content = '';
+    let content = '';
 
-  if (hasOpenAI) {
-    try {
-      const apiUrl = aiGatewayUrl || 'https://api.openai.com/v1/chat/completions';
-      const analysisResponse = await fetch(apiUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${openaiApiKey}`,
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o',
-          messages: [{ role: 'user', content: analysisPrompt }],
-          temperature: 0.2,
-          max_tokens: 4096,
-          response_format: { type: 'json_object' },
-        }),
-      });
+    if (hasOpenAI) {
+      try {
+        const apiUrl = aiGatewayUrl || 'https://api.openai.com/v1/chat/completions';
+        const analysisResponse = await fetch(apiUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${openaiApiKey}`,
+          },
+          body: JSON.stringify({
+            model: 'gpt-4o',
+            messages: [{ role: 'user', content: analysisPrompt }],
+            temperature: 0.1,
+            max_tokens: 2500,
+            response_format: { type: 'json_object' },
+          }),
+        });
 
-      if (analysisResponse.ok) {
-        const analysisData = await analysisResponse.json();
-        content = analysisData.choices?.[0]?.message?.content || '';
+        if (analysisResponse.ok) {
+          const analysisData = await analysisResponse.json();
+          content = analysisData.choices?.[0]?.message?.content || '';
+        }
+      } catch (error) {
+        console.error(`OpenAI analysis error (chunk ${index + 1}):`, error);
       }
-    } catch (error) {
-      console.error('OpenAI analysis error:', error);
     }
-  }
 
-  if (!content && hasGemini) {
-    try {
-      const analysisResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${googleApiKey}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [{ text: analysisPrompt }]
+    if (!content && hasGemini) {
+      try {
+        const analysisResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${googleApiKey}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            contents: [
+              {
+                parts: [{ text: analysisPrompt }]
+              }
+            ],
+            generationConfig: {
+              temperature: 0.1,
+              maxOutputTokens: 2500,
+              responseMimeType: 'application/json',
             }
-          ],
-          generationConfig: {
-            temperature: 0.2,
-            maxOutputTokens: 4096,
-            responseMimeType: 'application/json',
-          }
-        }),
-      });
+          }),
+        });
 
-      if (analysisResponse.ok) {
-        const analysisData = await analysisResponse.json();
-        content = extractGeminiText(analysisData);
+        if (analysisResponse.ok) {
+          const analysisData = await analysisResponse.json();
+          content = extractGeminiText(analysisData);
+        }
+      } catch (error) {
+        console.error(`Gemini analysis error (chunk ${index + 1}):`, error);
       }
-    } catch (error) {
-      console.error('Gemini analysis error:', error);
+    }
+
+    if (!content) continue;
+
+    try {
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) continue;
+      const analysis = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
+      chunkResults.push({
+        summary: String(analysis.summary || ''),
+        keyFacts: Array.isArray(analysis.key_facts) ? analysis.key_facts.map((item) => String(item)) : [],
+        favorableFindings: Array.isArray(analysis.favorable_findings)
+          ? analysis.favorable_findings.map((item) => String(item))
+          : [],
+        adverseFindings: Array.isArray(analysis.adverse_findings)
+          ? analysis.adverse_findings.map((item) => String(item))
+          : [],
+        actionItems: Array.isArray(analysis.action_items)
+          ? analysis.action_items.map((item) => String(item))
+          : [],
+        timelineEvents: Array.isArray(analysis.timeline_events)
+          ? (analysis.timeline_events as TimelineEventCandidate[])
+          : [],
+      });
+    } catch (parseError) {
+      console.error(`Failed to parse analysis JSON (chunk ${index + 1}):`, parseError);
     }
   }
 
-  try {
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      const analysis = JSON.parse(jsonMatch[0]);
-      summary = analysis.summary || '';
-      keyFacts = Array.isArray(analysis.key_facts) ? analysis.key_facts : [];
-      favorableFindings = Array.isArray(analysis.favorable_findings) ? analysis.favorable_findings : [];
-      adverseFindings = Array.isArray(analysis.adverse_findings) ? analysis.adverse_findings : [];
-      actionItems = Array.isArray(analysis.action_items) ? analysis.action_items : [];
-      timelineEvents = Array.isArray(analysis.timeline_events) ? analysis.timeline_events : [];
-    }
-  } catch (parseError) {
-    console.error('Failed to parse analysis JSON:', parseError);
-    summary = content.substring(0, 500);
+  if (chunkResults.length === 0) {
+    return emptyResult;
   }
 
-  return { summary, keyFacts, favorableFindings, adverseFindings, actionItems, timelineEvents };
+  return mergeChunkAnalyses(chunkResults);
 }
+
 
 async function processOcrJob(
   supabase: SupabaseClient,
@@ -663,15 +847,23 @@ async function processOcrJob(
       return { success: false, error: 'OCR extraction returned too little text' };
     }
 
-    const { summary, keyFacts, favorableFindings, adverseFindings, actionItems, timelineEvents } = 
+    const { summary, keyFacts, favorableFindings, adverseFindings, actionItems, timelineEvents } =
       await analyzeWithAI(extractedText, openaiApiKey, aiGatewayUrl, googleApiKey);
+
+    const hasAnalysis =
+      summary.length > 0 ||
+      keyFacts.length > 0 ||
+      favorableFindings.length > 0 ||
+      adverseFindings.length > 0 ||
+      actionItems.length > 0 ||
+      timelineEvents.length > 0;
 
     const { error: updateError } = await supabase
       .from('documents')
       .update({
         ocr_text: extractedText,
         ocr_processed_at: new Date().toISOString(),
-        ai_analyzed: !!summary,
+        ai_analyzed: hasAnalysis,
         summary: summary || null,
         key_facts: keyFacts.length > 0 ? keyFacts : null,
         favorable_findings: favorableFindings.length > 0 ? favorableFindings : null,
@@ -684,27 +876,67 @@ async function processOcrJob(
       return { success: false, error: `Failed to update document: ${updateError.message}` };
     }
 
-    if (timelineEvents.length > 0) {
-      const eventsToInsert = (timelineEvents as Array<{
-        event_date?: string;
-        title?: string;
-        description?: string;
-        importance?: string;
-        event_type?: string;
-      }>).map((event) => ({
-        case_id: doc.case_id,
-        user_id: job.user_id,
-        linked_document_id: doc.id,
-        event_date: event.event_date || new Date().toISOString().split('T')[0],
-        title: event.title || 'Untitled Event',
-        description: event.description || '',
-        importance: event.importance || 'medium',
-        event_type: event.event_type || 'general',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      }));
+    const normalizedEvents = timelineEvents
+      .map((event) => {
+        const normalizedDate = toDateOnlyString(event.event_date);
+        const normalizedTitle = (event.title || '').trim();
+        if (!normalizedDate || !normalizedTitle) return null;
 
-      await supabase.from('timeline_events').insert(eventsToInsert);
+        const nowIso = new Date().toISOString();
+        return {
+          case_id: doc.case_id,
+          user_id: job.user_id,
+          linked_document_id: doc.id,
+          event_date: new Date(`${normalizedDate}T00:00:00.000Z`).toISOString(),
+          title: normalizedTitle.slice(0, 180),
+          description: (event.description || '').trim().slice(0, 2000),
+          importance: normalizeImportance(event.importance),
+          event_type: (event.event_type || 'general').trim().slice(0, 100),
+          created_at: nowIso,
+          updated_at: nowIso,
+        };
+      })
+      .filter((event): event is {
+        case_id: string;
+        user_id: string;
+        linked_document_id: string;
+        event_date: string;
+        title: string;
+        description: string;
+        importance: TimelineImportance;
+        event_type: string;
+        created_at: string;
+        updated_at: string;
+      } => !!event)
+      .sort((a, b) => a.event_date.localeCompare(b.event_date))
+      .filter((event, index, arr) => {
+        const dedupeKey = `${event.event_date.slice(0, 10)}|${normalizeTitleKey(event.title)}`;
+        return (
+          arr.findIndex(
+            (candidate) =>
+              `${candidate.event_date.slice(0, 10)}|${normalizeTitleKey(candidate.title)}` === dedupeKey
+          ) === index
+        );
+      })
+      .slice(0, 10);
+
+    if (normalizedEvents.length > 0) {
+      const { error: clearError } = await supabase
+        .from('timeline_events')
+        .delete()
+        .eq('linked_document_id', doc.id);
+
+      if (clearError) {
+        return { success: false, error: `Failed to clear prior timeline events: ${clearError.message}` };
+      }
+
+      const { error: insertError } = await supabase
+        .from('timeline_events')
+        .insert(normalizedEvents);
+
+      if (insertError) {
+        return { success: false, error: `Failed to insert timeline events: ${insertError.message}` };
+      }
     }
 
     return { success: true };
