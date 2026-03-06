@@ -245,6 +245,42 @@ const extractSentences = (text: string): string[] => {
   );
 };
 
+const buildAnalysisDocumentContext = (text: string, maxChars = 22000): string => {
+  const normalized = normalizeExtractedText(text);
+  if (normalized.length <= maxChars) {
+    return normalized;
+  }
+
+  const sentences = extractSentences(normalized);
+  const keyTimelineSentences = uniqueTrimmed(
+    sentences.filter((sentence) => {
+      const hasDate = dateTokenMatchers.some((matcher) => matcher.test(sentence));
+      const hasCaseSignal = /\b(filed|hearing|trial|deposition|meeting|conference|incident|accident|injury|deadline|notice|email|letter|call|agreement|contract|payment|settlement|judgment|order|motion|complaint)\b/i.test(
+        sentence
+      );
+      return hasDate || hasCaseSignal;
+    }),
+    90
+  );
+
+  const head = normalized.slice(0, 6000);
+  const tail = normalized.slice(-4000);
+  const timelineBlock = keyTimelineSentences.join('\n');
+
+  const combined = [
+    '[DOCUMENT_HEAD]',
+    head,
+    '[TIMELINE_CANDIDATES]',
+    timelineBlock,
+    '[DOCUMENT_TAIL]',
+    tail,
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+
+  return combined.slice(0, maxChars);
+};
+
 const monthNames =
   '(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)';
 
@@ -397,7 +433,7 @@ const buildHeuristicAnalysis = (text: string): HeuristicAnalysisResult => {
     favorableFindings,
     adverseFindings,
     actionItems,
-    timelineEvents.sort((a, b) => {
+    timelineEvents: timelineEvents.sort((a, b) => {
       const aDate = toDateOnlyString(a.date) || '9999-12-31';
       const bDate = toDateOnlyString(b.date) || '9999-12-31';
       return aDate.localeCompare(bDate);
@@ -860,6 +896,8 @@ serve(async (req) => {
     ) {
       console.log('Analyzing extracted text with AI...');
 
+      const analysisContext = buildAnalysisDocumentContext(extractedText);
+
       const analysisPrompt = `You are an expert legal document analyst specializing in litigation support. Analyze documents with precision and identify strategic insights for case preparation.
 
 Analyze this legal document and provide a JSON response with comprehensive legal analysis, including chronological timeline events.
@@ -909,7 +947,7 @@ Respond ONLY with valid JSON in this exact format:
 }
 
 Document text:
-${extractedText.substring(0, 20000)}`;
+${analysisContext}`;
 
       let content = '';
 
