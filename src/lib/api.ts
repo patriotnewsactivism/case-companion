@@ -382,6 +382,8 @@ export interface TimelineEvent {
   description: string | null;
   event_date: string;
   event_type: string | null;
+  phase: string;
+  next_required_action: string | null;
   linked_document_id: string | null;
   importance: string;
   created_at: string;
@@ -415,6 +417,8 @@ export interface CreateTimelineEventInput {
   description?: string;
   event_date: string;
   event_type?: string;
+  phase?: "pre-suit" | "pleadings" | "discovery" | "dispositive" | "trial" | "post-trial";
+  next_required_action?: string;
   linked_document_id?: string;
   importance: "low" | "medium" | "high";
 }
