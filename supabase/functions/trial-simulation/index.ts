@@ -17,11 +17,24 @@ interface SimulationRequest {
   caseId: string;
   mode: 'cross-examination' | 'direct-examination' | 'opening-statement' | 'closing-argument' | 'deposition' | 'motion-hearing' | 'objections-practice' | 'voir-dire' | 'evidence-foundation' | 'deposition-prep';
   messages: Message[];
+  context?: string;
+  scenario?: string;
   objectionContext?: {
     lastQuestion?: string;
     objectionType?: string;
   };
 }
+
+interface DepositionPrepQuestion {
+  question: string;
+  type: 'foundational' | 'trap' | 'clarifying' | 'impeachment';
+  purpose: string;
+  risk: 'low' | 'medium' | 'high';
+  followUp: string;
+  targetDocument?: string;
+}
+
+type AIProvider = 'gemini' | 'openai' | 'fallback';
 
 const OBJECTION_TYPES = [
   'Hearsay',
@@ -318,6 +331,293 @@ function buildFallbackCoaching(mode: SimulationRequest['mode'], lastUserMessage:
   }
 }
 
+function normalizeDepositionQuestionType(value: unknown): DepositionPrepQuestion['type'] {
+  const type = String(value || '').toLowerCase().trim();
+  if (type === 'foundational' || type === 'trap' || type === 'clarifying' || type === 'impeachment') {
+    return type;
+  }
+  return 'foundational';
+}
+
+function normalizeDepositionRisk(value: unknown): DepositionPrepQuestion['risk'] {
+  const risk = String(value || '').toLowerCase().trim();
+  if (risk === 'low' || risk === 'medium' || risk === 'high') {
+    return risk;
+  }
+  return 'medium';
+}
+
+function parseDepositionQuestionsFromJson(rawText: string): DepositionPrepQuestion[] {
+  const candidates: string[] = [rawText.trim()];
+  const fencedMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fencedMatch?.[1]) {
+    candidates.push(fencedMatch[1].trim());
+  }
+
+  const jsonObjectMatch = rawText.match(/\{[\s\S]*\}/);
+  if (jsonObjectMatch?.[0]) {
+    candidates.push(jsonObjectMatch[0].trim());
+  }
+
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    try {
+      const parsed = JSON.parse(candidate) as unknown;
+      const source = Array.isArray(parsed)
+        ? parsed
+        : parsed && typeof parsed === 'object' && Array.isArray((parsed as Record<string, unknown>).questions)
+          ? (parsed as Record<string, unknown>).questions as unknown[]
+          : [];
+
+      const questions = source
+        .map((item): DepositionPrepQuestion | null => {
+          if (!item || typeof item !== 'object') return null;
+          const record = item as Record<string, unknown>;
+          const question = String(record.question || '').trim();
+          if (!question) return null;
+
+          return {
+            question,
+            type: normalizeDepositionQuestionType(record.type),
+            purpose: String(record.purpose || 'Establish relevant testimony tied to case facts.').trim(),
+            risk: normalizeDepositionRisk(record.risk ?? record.riskLevel),
+            followUp: String(record.followUp ?? record.suggestedFollowUp ?? 'What specific fact supports that answer?').trim(),
+            targetDocument: record.targetDocument ? String(record.targetDocument).trim() : undefined,
+          };
+        })
+        .filter((item): item is DepositionPrepQuestion => !!item);
+
+      if (questions.length > 0) {
+        return questions.slice(0, 8);
+      }
+    } catch {
+      // Keep trying other JSON candidates.
+    }
+  }
+
+  return [];
+}
+
+function parseDepositionQuestionsFromText(rawText: string): DepositionPrepQuestion[] {
+  const questions: DepositionPrepQuestion[] = [];
+  const lines = rawText.split('\n');
+  let current: Partial<DepositionPrepQuestion> | null = null;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    if (/^(QUESTION\s*\d*[:\-]|\d+[.)]\s+)/i.test(trimmed)) {
+      if (current?.question) {
+        questions.push({
+          question: current.question,
+          type: normalizeDepositionQuestionType(current.type),
+          purpose: String(current.purpose || 'Establish relevant testimony tied to case facts.'),
+          risk: normalizeDepositionRisk(current.risk),
+          followUp: String(current.followUp || 'What specific fact supports that answer?'),
+          targetDocument: current.targetDocument,
+        });
+      }
+
+      const questionText = trimmed
+        .replace(/^(QUESTION\s*\d*[:\-]|\d+[.)]\s+)/i, '')
+        .trim();
+
+      current = questionText ? { question: questionText } : null;
+      continue;
+    }
+
+    if (!current) continue;
+
+    const typeMatch = trimmed.match(/^TYPE:\s*(.+)$/i);
+    const purposeMatch = trimmed.match(/^PURPOSE:\s*(.+)$/i);
+    const riskMatch = trimmed.match(/^RISK:\s*(.+)$/i);
+    const followUpMatch = trimmed.match(/^FOLLOW[- ]?UP:\s*(.+)$/i);
+    const targetDocMatch = trimmed.match(/^TARGET DOCUMENT:\s*(.+)$/i);
+
+    if (typeMatch) current.type = typeMatch[1].trim() as DepositionPrepQuestion['type'];
+    if (purposeMatch) current.purpose = purposeMatch[1].trim();
+    if (riskMatch) current.risk = riskMatch[1].trim() as DepositionPrepQuestion['risk'];
+    if (followUpMatch) current.followUp = followUpMatch[1].trim();
+    if (targetDocMatch) current.targetDocument = targetDocMatch[1].trim();
+  }
+
+  if (current?.question) {
+    questions.push({
+      question: current.question,
+      type: normalizeDepositionQuestionType(current.type),
+      purpose: String(current.purpose || 'Establish relevant testimony tied to case facts.'),
+      risk: normalizeDepositionRisk(current.risk),
+      followUp: String(current.followUp || 'What specific fact supports that answer?'),
+      targetDocument: current.targetDocument,
+    });
+  }
+
+  return questions.slice(0, 8);
+}
+
+function parseDepositionPrepQuestions(rawText: string): DepositionPrepQuestion[] {
+  const fromJson = parseDepositionQuestionsFromJson(rawText);
+  if (fromJson.length > 0) return fromJson;
+  return parseDepositionQuestionsFromText(rawText);
+}
+
+function buildFallbackDepositionQuestions(documentNames: string[]): DepositionPrepQuestion[] {
+  const docs = documentNames.filter(Boolean);
+
+  const templates: DepositionPrepQuestion[] = [
+    {
+      question: 'Please identify this document and explain when you first reviewed it.',
+      type: 'foundational',
+      purpose: 'Establish authentication and personal knowledge before substantive questioning.',
+      risk: 'low',
+      followUp: 'Who gave you this document and what did you do after reading it?',
+      targetDocument: docs[0],
+    },
+    {
+      question: 'Your testimony today is that timeline was clear, but this document reflects a different date. Which is accurate?',
+      type: 'impeachment',
+      purpose: 'Create a direct credibility conflict between testimony and written record.',
+      risk: 'high',
+      followUp: 'What contemporaneous evidence supports your version over the document?',
+      targetDocument: docs[1] || docs[0],
+    },
+    {
+      question: 'What specific facts did you rely on before making that decision?',
+      type: 'clarifying',
+      purpose: 'Pin down vague conclusions and force concrete factual commitments.',
+      risk: 'medium',
+      followUp: 'Can you identify the exact line or exhibit that supports that point?',
+      targetDocument: docs[2] || docs[0],
+    },
+    {
+      question: 'You did not mention this fact in your prior statement, correct?',
+      type: 'trap',
+      purpose: 'Set up omission-based impeachment and expose selective memory.',
+      risk: 'high',
+      followUp: 'Why should the record now include this fact when your prior statement did not?',
+      targetDocument: docs[3] || docs[0],
+    },
+  ];
+
+  return templates.slice(0, 8);
+}
+
+function cleanModelMessage(rawMessage: string): string {
+  return rawMessage
+    .replace(/\*\*/g, '')
+    .replace(/\*/g, '')
+    .replace(/^#+\s/gm, '')
+    .replace(/^[-*]\s/gm, '')
+    .replace(/^\d+\.\s/gm, '')
+    .trim();
+}
+
+async function callGemini(
+  prompt: string,
+  googleApiKey: string,
+  maxOutputTokens: number,
+  temperature: number
+): Promise<string | null> {
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${googleApiKey}`;
+  const response = await fetch(geminiUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      generationConfig: {
+        maxOutputTokens,
+        temperature,
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error('Gemini API error:', errorText);
+    return null;
+  }
+
+  const data = await response.json() as Record<string, unknown>;
+  const candidates = Array.isArray(data.candidates) ? data.candidates : [];
+  const firstCandidate = candidates[0] as Record<string, unknown> | undefined;
+  const content = (firstCandidate?.content || {}) as Record<string, unknown>;
+  const parts = Array.isArray(content.parts) ? content.parts : [];
+  const text = parts
+    .map((part) => {
+      if (!part || typeof part !== 'object') return '';
+      return String((part as Record<string, unknown>).text || '');
+    })
+    .join('')
+    .trim();
+
+  return text || null;
+}
+
+async function callOpenAICompatible(
+  systemPrompt: string,
+  messages: Message[],
+  apiKey: string,
+  gatewayUrl: string,
+  model: string,
+  maxTokens: number,
+  temperature: number
+): Promise<string | null> {
+  const response = await fetch(gatewayUrl, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        ...messages
+          .filter((msg) => msg.role === 'user' || msg.role === 'assistant')
+          .map((msg) => ({ role: msg.role, content: msg.content })),
+      ],
+      temperature,
+      max_tokens: maxTokens,
+      stream: false,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error('OpenAI-compatible API error:', errorText);
+    return null;
+  }
+
+  const data = await response.json() as Record<string, unknown>;
+  const choices = Array.isArray(data.choices) ? data.choices : [];
+  const firstChoice = choices[0] as Record<string, unknown> | undefined;
+  const message = (firstChoice?.message || firstChoice?.delta || {}) as Record<string, unknown>;
+  const content = message.content;
+
+  if (typeof content === 'string' && content.trim().length > 0) {
+    return content.trim();
+  }
+
+  if (Array.isArray(content)) {
+    const text = content
+      .map((item) => {
+        if (!item || typeof item !== 'object') return '';
+        return String((item as Record<string, unknown>).text || '');
+      })
+      .join('')
+      .trim();
+    if (text) return text;
+  }
+
+  const outputText = data.output_text;
+  if (typeof outputText === 'string' && outputText.trim().length > 0) {
+    return outputText.trim();
+  }
+
+  return null;
+}
+
 serve(async (req) => {
   const corsHeaders = getCorsHeaders(req);
 
@@ -345,7 +645,25 @@ serve(async (req) => {
 
     const caseId = validateUUID(requestBody.caseId, 'caseId');
     const mode = requestBody.mode as SimulationRequest['mode'];
-    const messages = requestBody.messages as Message[];
+    const messages = (Array.isArray(requestBody.messages) ? requestBody.messages : [])
+      .filter((message): message is Message => {
+        if (!message || typeof message !== 'object') return false;
+        const candidate = message as Record<string, unknown>;
+        return (
+          (candidate.role === 'user' || candidate.role === 'assistant' || candidate.role === 'system') &&
+          typeof candidate.content === 'string'
+        );
+      })
+      .map((message) => ({
+        role: message.role,
+        content: message.content.slice(0, 4000),
+      }));
+    const scenarioContext = typeof requestBody.scenario === 'string'
+      ? requestBody.scenario.trim().slice(0, 300)
+      : '';
+    const additionalContext = typeof requestBody.context === 'string'
+      ? requestBody.context.trim().slice(0, 6000)
+      : '';
 
     // Verify case ownership
     const { data: caseData, error: caseError } = await supabase
@@ -367,9 +685,8 @@ serve(async (req) => {
     // Get case documents and their analysis
     const { data: documents } = await supabase
       .from('documents')
-      .select('name, summary, key_facts, favorable_findings, adverse_findings, action_items, ocr_text')
+      .select('name, summary, key_facts, favorable_findings, adverse_findings, action_items, ocr_text, ai_analyzed')
       .eq('case_id', caseId)
-      .eq('ai_analyzed', true)
       .limit(20);
 
     // Get depositions for context
@@ -407,7 +724,12 @@ serve(async (req) => {
       status: caseData.status,
     };
 
-    const documentContext = documents?.map(doc => ({
+    const prioritizedDocuments = (documents || []).filter((doc) =>
+      doc.ai_analyzed || !!doc.summary || !!doc.ocr_text || (doc.key_facts || []).length > 0
+    );
+    const documentsForContext = prioritizedDocuments.length > 0 ? prioritizedDocuments : (documents || []);
+
+    const documentContext = documentsForContext.map(doc => ({
       name: doc.name,
       summary: doc.summary,
       keyFacts: doc.key_facts || [],
@@ -453,8 +775,9 @@ Case Theory: ${caseContext.caseTheory || 'Not specified'}
 Key Issues: ${caseContext.keyIssues.join('; ') || 'None specified'}
 Winning Factors: ${caseContext.winningFactors.join('; ') || 'None specified'}
 ${caseContext.notes ? `Case Notes: ${caseContext.notes}` : ''}
+${scenarioContext ? `Requested Scenario: ${scenarioContext}` : ''}
 
-=== KEY DOCUMENTS (${documentContext.length} analyzed) ===
+=== KEY DOCUMENTS (${documentContext.length} available) ===
 ${documentContext.slice(0, 5).map((doc, i) => `
 Document ${i + 1}: ${doc.name}
 - Summary: ${doc.summary || 'N/A'}
@@ -484,9 +807,16 @@ ${timelineContext.slice(0, 10).map(event =>
   `${event.date}: ${event.title}${event.description ? ` - ${event.description}` : ''}`
 ).join('\n')}` : ''}
 
+${additionalContext ? `=== ADDITIONAL ATTORNEY CONTEXT ===
+${additionalContext}` : ''}
+
 === INSTRUCTIONS ===
 Stay in character as ${simulationConfig.role}. Be realistic, challenging, and immersive.
-Remember: your response will be converted to speech, so write naturally with no markdown, no bullet points, no asterisks, no headers.
+${mode === 'deposition-prep'
+  ? `Return ONLY valid JSON using this exact shape:
+{"questions":[{"question":"...","type":"foundational|trap|clarifying|impeachment","purpose":"...","risk":"low|medium|high","followUp":"...","targetDocument":"..."}]}
+No markdown, no code fences, and no text outside the JSON object.`
+  : 'Remember: your response will be converted to speech, so write naturally with no markdown, no bullet points, no asterisks, no headers.'}
 ${mode === 'objections-practice' ? `
 When presenting questions, vary between:
 - Clearly objectionable questions
@@ -494,135 +824,112 @@ When presenting questions, vary between:
 - Questions where objection timing matters strategically
 
 After each exchange, score performance and teach proper objection technique.` : ''}
-Keep responses concise (under 150 words) unless the mode requires longer feedback.
-${messages.length === 0 ? `This is the beginning of the session. The attorney has just said their first words. Respond in character to set the scene.` : ''}`;
+${mode === 'deposition-prep'
+  ? 'Generate 4-8 strategically varied questions and ensure each one includes purpose, risk, and follow-up.'
+  : 'Keep responses concise (under 150 words) unless the mode requires longer feedback.'}
+${messages.length === 0 && mode !== 'deposition-prep'
+  ? 'This is the beginning of the session. The attorney has just said their first words. Respond in character to set the scene.'
+  : ''}`;
+    const googleApiKey = Deno.env.get('GOOGLE_AI_API_KEY')?.trim() || '';
+    const openAiApiKey = Deno.env.get('OPENAI_API_KEY')?.trim() || '';
+    const aiGatewayUrl = Deno.env.get('AI_GATEWAY_URL') || 'https://api.openai.com/v1/chat/completions';
+    const aiGatewayModel = Deno.env.get('AI_GATEWAY_MODEL') || 'google/gemini-3-flash-preview';
+    const maxOutputTokens = mode === 'deposition-prep' ? 900 : 600;
+    const modelTemperature = mode === 'deposition-prep' ? 0.6 : 0.85;
+    const chatPrompt = systemPrompt + '\n\n' + messages.map((m) => `${m.role}: ${m.content}`).join('\n');
 
-    // Call Google Gemini API directly
-    const GOOGLE_AI_KEY = Deno.env.get('GOOGLE_AI_API_KEY');
-    if (!GOOGLE_AI_KEY) {
-      console.warn('GOOGLE_AI_API_KEY is not configured. Using deterministic fallback response.');
-      const fallbackLastUserMessage = messages.filter(m => m.role === 'user').slice(-1)[0]?.content || '';
-      const fallbackMessage = buildFallbackResponse(mode, fallbackLastUserMessage);
-      const fallbackCoaching = messages.length > 0
-        ? buildFallbackCoaching(mode, fallbackLastUserMessage)
-        : null;
+    let aiMessage: string | null = null;
+    let provider: AIProvider = 'fallback';
 
-      return new Response(
-        JSON.stringify({
-          success: true,
-          message: fallbackMessage,
-          coaching: fallbackCoaching,
-          role: simulationConfig.role,
-          performanceHints: undefined,
-          objectionTypes: mode === 'objections-practice' ? OBJECTION_TYPES : undefined,
-        }),
-        {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        }
-      );
+    if (googleApiKey) {
+      aiMessage = await callGemini(chatPrompt, googleApiKey, maxOutputTokens, modelTemperature);
+      if (aiMessage) provider = 'gemini';
     }
 
-    const chatMessages = [
-      { role: 'user', content: systemPrompt + '\n\n' + messages.map((m: { role: string; content: string }) => `${m.role}: ${m.content}`).join('\n') },
-    ];
-
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GOOGLE_AI_KEY}`;
-
-    const response = await fetch(geminiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: chatMessages.map(m => ({ role: m.role, parts: [{ text: m.content }] })),
-        generationConfig: {
-          maxOutputTokens: 600,
-          temperature: 0.85,
-        },
-      }),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Gemini API error:', errorText);
-      const fallbackLastUserMessage = messages.filter(m => m.role === 'user').slice(-1)[0]?.content || '';
-      const fallbackMessage = buildFallbackResponse(mode, fallbackLastUserMessage);
-      const fallbackCoaching = messages.length > 0
-        ? buildFallbackCoaching(mode, fallbackLastUserMessage)
-        : null;
-
-      return new Response(
-        JSON.stringify({
-          success: true,
-          message: fallbackMessage,
-          coaching: fallbackCoaching,
-          role: simulationConfig.role,
-          performanceHints: undefined,
-          objectionTypes: mode === 'objections-practice' ? OBJECTION_TYPES : undefined,
-        }),
-        {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        }
+    if (!aiMessage && openAiApiKey) {
+      aiMessage = await callOpenAICompatible(
+        systemPrompt,
+        messages,
+        openAiApiKey,
+        aiGatewayUrl,
+        aiGatewayModel,
+        maxOutputTokens,
+        modelTemperature
       );
+      if (aiMessage) provider = 'openai';
     }
-
-    const data = await response.json();
-    const aiMessage = data.candidates?.[0]?.content?.parts?.[0]?.text;
 
     if (!aiMessage) {
-      throw new Error('No response from AI');
+      console.warn('No AI provider available. Using deterministic fallback response.');
+      const fallbackLastUserMessage = messages.filter((m) => m.role === 'user').slice(-1)[0]?.content || '';
+      const fallbackMessage = buildFallbackResponse(mode, fallbackLastUserMessage);
+      const fallbackCoaching = mode !== 'deposition-prep' && messages.length > 0
+        ? buildFallbackCoaching(mode, fallbackLastUserMessage)
+        : null;
+      const fallbackQuestions = mode === 'deposition-prep'
+        ? buildFallbackDepositionQuestions(documentContext.map((doc) => doc.name))
+        : undefined;
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          message: fallbackMessage,
+          coaching: fallbackCoaching,
+          role: simulationConfig.role,
+          performanceHints: undefined,
+          objectionTypes: mode === 'objections-practice' ? OBJECTION_TYPES : undefined,
+          questions: fallbackQuestions,
+          provider,
+        }),
+        {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      );
     }
 
-    // Clean up the response for speech — remove any accidental markdown
-    const cleanedMessage = aiMessage
-      .replace(/\*\*/g, '')
-      .replace(/\*/g, '')
-      .replace(/^#+\s/gm, '')
-      .replace(/^[-*]\s/gm, '')
-      .replace(/^\d+\.\s/gm, '')
-      .trim();
+    const cleanedMessage = cleanModelMessage(aiMessage);
+    const parsedDepositionQuestions = mode === 'deposition-prep'
+      ? parseDepositionPrepQuestions(aiMessage)
+      : [];
+    const depositionQuestions = mode === 'deposition-prep'
+      ? (parsedDepositionQuestions.length > 0
+          ? parsedDepositionQuestions
+          : buildFallbackDepositionQuestions(documentContext.map((doc) => doc.name)))
+      : undefined;
 
     // Generate coaching feedback periodically
     let coaching = null;
-    const shouldProvideCoaching = messages.length > 0 && (
-      messages.length % 4 === 0 || // Every 4 exchanges
+    const shouldProvideCoaching = mode !== 'deposition-prep' && messages.length > 0 && (
+      messages.length % 4 === 0 ||
       mode === 'objections-practice' ||
       mode === 'opening-statement' ||
       mode === 'closing-argument'
     );
 
     if (shouldProvideCoaching) {
-      const coachingPrompt = `You are an elite trial advocacy coach who has trained top litigators at the National Institute for Trial Advocacy. Review this ${mode.replace(/-/g, ' ')} practice and provide coaching.
+      const coachingPrompt = `Review this ${mode.replace(/-/g, ' ')} practice and provide coaching.\n\nRecent exchange:\n${messages.slice(-4).map((m) => `${m.role === 'user' ? 'Attorney' : 'Opponent/Witness'}: ${m.content}`).join('\n\n')}\n\nAI Response: ${cleanedMessage}\n\nProvide 2-4 specific, actionable coaching points. Write in natural sentences (this will be displayed as text, not spoken). Focus on:\n1. TECHNIQUE: What worked well and what needs improvement\n2. STRATEGY: Tactical observations and opportunities missed\n3. ${mode === 'objections-practice' ? 'OBJECTION TIMING: When to object and when to let it go' : 'DELIVERY: Voice, pacing, and courtroom presence suggestions'}\n4. NEXT STEP: One specific thing to try in the next exchange\n\nBe encouraging but direct. Give specific examples from the exchange.`;
 
-Recent exchange:
-${messages.slice(-4).map(m => `${m.role === 'user' ? 'Attorney' : 'Opponent/Witness'}: ${m.content}`).join('\n\n')}
+      if (provider === 'gemini' && googleApiKey) {
+        coaching = await callGemini(
+          `You are an elite trial advocacy coach who has trained top litigators at the National Institute for Trial Advocacy.\n\n${coachingPrompt}`,
+          googleApiKey,
+          300,
+          0.7
+        );
+      }
 
-AI Response: ${cleanedMessage}
-
-Provide 2-4 specific, actionable coaching points. Write in natural sentences (this will be displayed as text, not spoken). Focus on:
-1. TECHNIQUE: What worked well and what needs improvement
-2. STRATEGY: Tactical observations and opportunities missed
-3. ${mode === 'objections-practice' ? 'OBJECTION TIMING: When to object and when to let it go' : 'DELIVERY: Voice, pacing, and courtroom presence suggestions'}
-4. NEXT STEP: One specific thing to try in the next exchange
-
-Be encouraging but direct. Give specific examples from the exchange.`;
-
-      const coachingResponse = await fetch(geminiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ role: 'user', parts: [{ text: coachingPrompt }] }],
-          generationConfig: {
-            maxOutputTokens: 300,
-            temperature: 0.7,
-          },
-        }),
-      });
-
-      if (coachingResponse.ok) {
-        const coachingData = await coachingResponse.json();
-        coaching = coachingData.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!coaching && openAiApiKey) {
+        coaching = await callOpenAICompatible(
+          'You are an elite trial advocacy coach who has trained top litigators at the National Institute for Trial Advocacy.',
+          [{ role: 'user', content: coachingPrompt }],
+          openAiApiKey,
+          aiGatewayUrl,
+          aiGatewayModel,
+          350,
+          0.7
+        );
       }
     }
-
     // Analyze for performance hints
     const performanceHints: string[] = [];
     const lastUserMessage = messages.filter(m => m.role === 'user').slice(-1)[0]?.content || '';
@@ -660,6 +967,8 @@ Be encouraging but direct. Give specific examples from the exchange.`;
         role: simulationConfig.role,
         performanceHints: performanceHints.length > 0 ? performanceHints : undefined,
         objectionTypes: mode === 'objections-practice' ? OBJECTION_TYPES : undefined,
+        questions: depositionQuestions,
+        provider,
       }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -670,3 +979,4 @@ Be encouraging but direct. Give specific examples from the exchange.`;
     return createErrorResponse(error, 500, 'trial-simulation', corsHeaders);
   }
 });
+

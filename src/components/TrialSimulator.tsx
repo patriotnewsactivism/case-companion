@@ -52,6 +52,24 @@ interface DepositionQuestion {
   purpose: string;
 }
 
+interface TrialSimulationQuestionPayload {
+  question?: string;
+  type?: string;
+  purpose?: string;
+  risk?: string;
+  riskLevel?: string;
+  followUp?: string;
+  suggestedFollowUp?: string;
+  targetDocument?: string;
+}
+
+interface TrialSimulationResponse {
+  message?: string;
+  questions?: TrialSimulationQuestionPayload[];
+  coaching?: string;
+  performanceHints?: string[];
+}
+
 export function TrialSimulator({ caseData, documents = [] }: TrialSimulatorProps) {
   const [activeTab, setActiveTab] = useState("scenarios");
   const [isLoading, setIsLoading] = useState(false);
@@ -93,7 +111,66 @@ export function TrialSimulator({ caseData, documents = [] }: TrialSimulatorProps
   const [isGeneratingQuestions, setIsGeneratingQuestions] = useState(false);
   const { toast } = useToast();
 
+  const normalizeQuestionType = (value?: string): DepositionQuestion["type"] => {
+    const type = (value || "").toLowerCase().trim();
+    if (type === "trap" || type === "clarifying" || type === "impeachment" || type === "foundational") {
+      return type;
+    }
+    return "foundational";
+  };
+
+  const normalizeRiskLevel = (value?: string): DepositionQuestion["riskLevel"] => {
+    const risk = (value || "").toLowerCase().trim();
+    if (risk === "low" || risk === "medium" || risk === "high") {
+      return risk;
+    }
+    return "medium";
+  };
+
+  const mapQuestionPayload = (
+    payload: TrialSimulationQuestionPayload,
+    index: number,
+    docs: Document[]
+  ): DepositionQuestion => {
+    const text = String(payload.question || "").trim();
+    const targetFromPayload = String(payload.targetDocument || "").trim();
+    const matchedDoc = docs.find((doc) =>
+      targetFromPayload &&
+      (doc.name.toLowerCase().includes(targetFromPayload.toLowerCase()) ||
+        targetFromPayload.toLowerCase().includes(doc.name.toLowerCase()))
+    );
+
+    return {
+      id: `q-${index + 1}`,
+      question: text,
+      type: normalizeQuestionType(payload.type),
+      riskLevel: normalizeRiskLevel(payload.riskLevel || payload.risk),
+      purpose: String(payload.purpose || "Gather testimony tied to case facts."),
+      suggestedFollowUp: String(payload.suggestedFollowUp || payload.followUp || "").trim() || undefined,
+      targetDocument: matchedDoc?.name || targetFromPayload || undefined,
+    };
+  };
+
   const parseDepositionQuestions = (aiResponse: string, docs: Document[]): DepositionQuestion[] => {
+    const questionsFromJson = (() => {
+      const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) return [] as DepositionQuestion[];
+
+      try {
+        const parsed = JSON.parse(jsonMatch[0]) as { questions?: TrialSimulationQuestionPayload[] };
+        if (!Array.isArray(parsed.questions)) return [] as DepositionQuestion[];
+        return parsed.questions
+          .map((q, i) => mapQuestionPayload(q, i, docs))
+          .filter((q) => q.question.length > 0);
+      } catch {
+        return [] as DepositionQuestion[];
+      }
+    })();
+
+    if (questionsFromJson.length > 0) {
+      return questionsFromJson.slice(0, 8);
+    }
+
     const questions: DepositionQuestion[] = [];
     const lines = aiResponse.split('\n');
     let currentQuestion: Partial<DepositionQuestion> | null = null;
@@ -101,7 +178,7 @@ export function TrialSimulator({ caseData, documents = [] }: TrialSimulatorProps
     for (const line of lines) {
       const trimmed = line.trim();
       
-      if (trimmed.match(/^(\d+[.)]|[Qq]uestion\s*\d*:)/) || trimmed.includes('?')) {
+      if (trimmed.match(/^(\d+[.)]|[Qq]uestion\s*\d*[:\-])/)) {
         if (currentQuestion?.question) {
           questions.push({
             id: `q-${questions.length + 1}`,
@@ -113,9 +190,10 @@ export function TrialSimulator({ caseData, documents = [] }: TrialSimulatorProps
             purpose: currentQuestion.purpose || 'Gather information',
           });
         }
-        currentQuestion = {
-          question: trimmed.replace(/^(\d+[.)]|[Qq]uestion\s*\d*:)\s*/, ''),
-        };
+        const questionText = trimmed
+          .replace(/^(\d+[.)]|[Qq]uestion\s*\d*[:\-])\s*/, '')
+          .trim();
+        currentQuestion = questionText ? { question: questionText } : null;
       }
       
       if (currentQuestion) {
@@ -202,15 +280,33 @@ export function TrialSimulator({ caseData, documents = [] }: TrialSimulatorProps
       return;
     }
 
+    const analyzedDocs = documents.filter(
+      (doc) => doc.ai_analyzed || !!doc.summary || !!doc.ocr_text
+    );
+    const sourceDocs = analyzedDocs.length > 0 ? analyzedDocs : documents;
+
+    if (analyzedDocs.length === 0) {
+      toast({
+        title: "Limited document context",
+        description: "No analyzed documents found yet. Generating baseline questions from document metadata.",
+      });
+    }
+
     setIsGeneratingQuestions(true);
     try {
       const { data, error } = await supabase.functions.invoke('trial-simulation', {
         body: {
           caseId: caseData.id,
           mode: 'deposition-prep',
+          scenario: scenarios.find((s) => s.id === selectedScenario)?.title,
           messages: [{
             role: 'user',
-            content: `Generate deposition questions for this case based on ${documents.length} analyzed documents. Format each question with type, purpose, risk level, and target document.`
+            content: `Generate strategic deposition questions for case "${caseData.name}".
+Return JSON with this shape:
+{"questions":[{"question":"...","type":"foundational|trap|clarifying|impeachment","purpose":"...","risk":"low|medium|high","followUp":"...","targetDocument":"..."}]}
+
+Focus areas: ${scenarios.find((s) => s.id === selectedScenario)?.focusAreas.join(', ') || "deposition strategy"}.
+Use the strongest available documents and prioritize contradictions, admissions, and impeachment setup.`
           }]
         }
       });
@@ -218,20 +314,27 @@ export function TrialSimulator({ caseData, documents = [] }: TrialSimulatorProps
       if (error) throw error;
 
       let generatedQuestions: DepositionQuestion[] = [];
+      const payload = (data || {}) as TrialSimulationResponse;
+
+      if (Array.isArray(payload.questions) && payload.questions.length > 0) {
+        generatedQuestions = payload.questions
+          .map((question, index) => mapQuestionPayload(question, index, sourceDocs))
+          .filter((question) => question.question.length > 0);
+      }
       
-      if (data?.message) {
-        const parsedQuestions = parseDepositionQuestions(data.message, documents);
+      if (generatedQuestions.length === 0 && payload.message) {
+        const parsedQuestions = parseDepositionQuestions(payload.message, sourceDocs);
         generatedQuestions = parsedQuestions;
       }
 
       if (generatedQuestions.length === 0) {
-        generatedQuestions = generateFallbackQuestions(documents);
+        generatedQuestions = generateFallbackQuestions(sourceDocs);
       }
 
       setQuestions(generatedQuestions);
       toast({
         title: "Questions generated",
-        description: `Generated ${generatedQuestions.length} deposition questions based on your ${documents.length} documents.`,
+        description: `Generated ${generatedQuestions.length} deposition questions based on ${sourceDocs.length} relevant documents.`,
       });
     } catch (error) {
       console.error("Failed to generate questions:", error);
@@ -252,13 +355,22 @@ export function TrialSimulator({ caseData, documents = [] }: TrialSimulatorProps
     try {
       const scenario = scenarios.find(s => s.id === selectedScenario);
       const mode = mapScenarioToMode(scenario?.title || 'deposition');
+      const recommendedQuestionContext = questions
+        .slice(0, 3)
+        .map((question, index) => `${index + 1}. ${question.question}`)
+        .join('\n');
       
       // Get case facts from Zustand store
       const caseEvents = useCaseFactsStore.getState().getEvents(caseData.id);
       const caseFacts = useCaseFactsStore.getState().getFacts(caseData.id);
       const caseEntities = useCaseFactsStore.getState().getEntities(caseData.id);
       
-      const context = `CASE FACTS:
+      const context = `SCENARIO:
+${scenario?.title || "Deposition"}
+${scenario?.description || ""}
+Focus Areas: ${scenario?.focusAreas.join(", ") || "General trial preparation"}
+
+CASE FACTS:
 ${caseFacts.map(f => `- ${f.text}`).join('\n')}
 
 CASE EVENTS:
@@ -268,12 +380,16 @@ CASE ENTITIES:
 ${caseEntities.map(e => `- ${e.text} (${e.type})`).join('\n')}
 
 DOCUMENTS:
-${documents.map(d => `- ${d.name}: ${d.summary || 'No summary'}`).join('\n')}`;
+${documents.map(d => `- ${d.name}: ${d.summary || 'No summary'}`).join('\n')}
+
+TOP RECOMMENDED QUESTIONS:
+${recommendedQuestionContext || "- None generated yet"}`;
       
       const { data, error } = await supabase.functions.invoke('trial-simulation', {
         body: {
           caseId: caseData.id,
           mode,
+          scenario: scenario?.title,
           context,
           messages: [
             ...conversationHistory,
@@ -284,25 +400,27 @@ ${documents.map(d => `- ${d.name}: ${d.summary || 'No summary'}`).join('\n')}`;
 
       if (error) throw error;
 
-      if (data?.message) {
-        setAiResponse(data.message);
+      const payload = (data || {}) as TrialSimulationResponse;
+
+      if (payload?.message) {
+        setAiResponse(payload.message);
         setConversationHistory(prev => [
           ...prev,
           { role: 'user', content: userInput },
-          { role: 'assistant', content: data.message }
+          { role: 'assistant', content: payload.message as string }
         ]);
         
-        if (data.coaching) {
+        if (payload.coaching) {
           toast({
             title: "AI Coaching",
-            description: data.coaching.substring(0, 150) + (data.coaching.length > 150 ? '...' : ''),
+            description: payload.coaching.substring(0, 150) + (payload.coaching.length > 150 ? '...' : ''),
           });
         }
         
-        if (data.performanceHints?.length) {
+        if (payload.performanceHints?.length) {
           toast({
             title: "Performance Tip",
-            description: data.performanceHints[0],
+            description: payload.performanceHints[0],
             variant: "default",
           });
         }
