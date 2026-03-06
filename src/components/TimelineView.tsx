@@ -67,10 +67,6 @@ export function TimelineView({ events, onEventClick }: TimelineViewProps) {
       const title = (event.title || '').toLowerCase().trim();
       const description = (event.description || '').toLowerCase().trim();
 
-      if (importance === 'high' || importance === 'medium') {
-        return true;
-      }
-
       const keyTerms = [
         'hearing',
         'trial',
@@ -87,9 +83,13 @@ export function TimelineView({ events, onEventClick }: TimelineViewProps) {
         'settlement',
       ];
 
-      return keyTerms.some((term) =>
+      const hasKeyTerm = keyTerms.some((term) =>
         eventType.includes(term) || title.includes(term) || description.includes(term)
       );
+
+      if (importance === 'high') return true;
+      if (importance === 'medium') return hasKeyTerm;
+      return hasKeyTerm && !!event.linked_document_id;
     });
 
     const deduped = keyEvents.filter((event, index, arr) => {
