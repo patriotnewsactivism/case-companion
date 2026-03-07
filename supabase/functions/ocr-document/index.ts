@@ -665,7 +665,7 @@ Return plain text only. Preserve line breaks, headings, and table structure. Inc
 Process every page and return plain text only. Preserve line breaks, headings, and table structure. Prefix each page with "=== PAGE X ===".`;
 
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${googleApiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${googleApiKey}`,
         {
           method: 'POST',
           headers: {
