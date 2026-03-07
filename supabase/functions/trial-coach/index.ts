@@ -176,7 +176,7 @@ serve(async (req) => {
       .single();
 
     if (caseError || !caseData) {
-      return createErrorResponse(new Error("Case not found"), 404, "trial-coach");
+      return createErrorResponse(new Error("Case not found"), 404, "trial-coach", corsHeaders);
     }
 
     if ((caseData as CaseData).user_id !== user.id) {
