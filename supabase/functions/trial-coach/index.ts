@@ -143,7 +143,12 @@ serve(async (req) => {
 
     const authResult = await verifyAuth(req);
     if (!authResult.authorized || !authResult.user || !authResult.supabase) {
-      return createErrorResponse(new Error(authResult.error || "Unauthorized"), 401, "trial-coach");
+      return createErrorResponse(
+        new Error(authResult.error || "Unauthorized"),
+        401,
+        "trial-coach",
+        corsHeaders
+      );
     }
 
     const { user, supabase } = authResult;
