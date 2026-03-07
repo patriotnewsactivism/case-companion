@@ -304,6 +304,6 @@ JSON schema:
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error) {
-    return createErrorResponse(error, 500, "trial-coach");
+    return createErrorResponse(error, 500, "trial-coach", corsHeaders);
   }
 });
