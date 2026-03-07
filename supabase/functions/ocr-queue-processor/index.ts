@@ -244,7 +244,7 @@ OUTPUT FORMAT:
 
 Extract now:`;
 
-  const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${googleApiKey}`, {
+  const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${googleApiKey}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -380,7 +380,7 @@ ${extractedText.substring(0, 20000)}`;
 
   if (!content && hasGemini) {
     try {
-      const analysisResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${googleApiKey}`, {
+      const analysisResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${googleApiKey}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

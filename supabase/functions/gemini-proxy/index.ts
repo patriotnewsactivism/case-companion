@@ -17,9 +17,9 @@ serve(async (req) => {
       throw new Error('GOOGLE_AI_API_KEY is not set')
     }
 
-    const { model = 'gemini-2.0-flash', contents, system_instruction, generationConfig } = await req.json()
+    const { model = 'gemini-1.5-flash', contents, system_instruction, generationConfig } = await req.json()
 
-    // Default to gemini-2.0-flash if not specified
+    // Default to gemini-1.5-flash if not specified
     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${googleApiKey}`
 
     const response = await fetch(apiUrl, {
