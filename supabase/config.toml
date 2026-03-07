@@ -1,6 +1,7 @@
 project_id = "rerbrlrxptnusypzpghj"
 
 [db]
+port = 54323
 shadow_port = 54420
 
 [functions.create-video-room]
