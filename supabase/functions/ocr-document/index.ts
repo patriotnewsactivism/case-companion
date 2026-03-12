@@ -39,7 +39,7 @@ interface GeminiResponse {
 type TimelineImportance = 'low' | 'medium' | 'high';
 type TimelinePhase = 'pre-suit' | 'pleadings' | 'discovery' | 'dispositive' | 'trial' | 'post-trial';
 
-const DEFAULT_TIMELINE_EVENT_CAP = 20;
+const DEFAULT_TIMELINE_EVENT_CAP = 30;
 
 const parsePositiveInt = (value: string | undefined, fallback: number): number => {
   const parsed = Number.parseInt(value || '', 10);
@@ -85,25 +85,13 @@ interface HeuristicAnalysisResult {
 }
 
 function extractStoragePath(fileUrl: string): string | null {
-  if (!fileUrl || typeof fileUrl !== 'string') {
-    return null;
-  }
-
-  if (!fileUrl.startsWith('http')) {
-    return fileUrl.replace(/^\/+/, '');
-  }
-
+  if (!fileUrl || typeof fileUrl !== 'string') return null;
+  if (!fileUrl.startsWith('http')) return fileUrl.replace(/^\/+/, '');
   const lower = fileUrl.toLowerCase();
-  if (!lower.includes('/storage/v1/object/')) {
-    return null;
-  }
-
+  if (!lower.includes('/storage/v1/object/')) return null;
   const marker = `/${STORAGE_BUCKET}/`;
   const markerIndex = lower.indexOf(marker);
-  if (markerIndex === -1) {
-    return null;
-  }
-
+  if (markerIndex === -1) return null;
   const pathWithQuery = fileUrl.slice(markerIndex + marker.length);
   return pathWithQuery.split('?')[0];
 }
@@ -113,26 +101,13 @@ async function loadFileBlob(
   fileUrl: string
 ): Promise<{ blob: Blob; contentType: string }> {
   const storagePath = extractStoragePath(fileUrl);
-
   if (storagePath) {
-    const { data, error } = await supabase.storage
-      .from(STORAGE_BUCKET)
-      .download(storagePath);
-
-    if (!error && data) {
-      return { blob: data, contentType: data.type || '' };
-    }
+    const { data, error } = await supabase.storage.from(STORAGE_BUCKET).download(storagePath);
+    if (!error && data) return { blob: data, contentType: data.type || '' };
   }
-
-  if (!fileUrl.startsWith('http')) {
-    throw new Error('File URL is not a valid URL');
-  }
-
+  if (!fileUrl.startsWith('http')) throw new Error('File URL is not a valid URL');
   const response = await fetch(fileUrl);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch file: ${response.status} ${response.statusText}`);
-  }
-
+  if (!response.ok) throw new Error(`Failed to fetch file: ${response.status} ${response.statusText}`);
   const contentType = response.headers.get('content-type') || '';
   const blob = await response.blob();
   return { blob, contentType };
@@ -152,11 +127,7 @@ const arrayBufferToBase64 = (buffer: ArrayBuffer): string => {
 };
 
 const normalizeExtractedText = (text: string) =>
-  text
-    .replace(/\r\n/g, '\n')
-    .replace(/[ \t]+\n/g, '\n')
-    .replace(/\n{4,}/g, '\n\n\n')
-    .trim();
+  text.replace(/\r\n/g, '\n').replace(/[ \t]+\n/g, '\n').replace(/\n{4,}/g, '\n\n\n').trim();
 
 const extractGeminiText = (payload: GeminiResponse): string => {
   const parts = payload?.candidates?.[0]?.content?.parts;
@@ -166,82 +137,39 @@ const extractGeminiText = (payload: GeminiResponse): string => {
 
 const toDateOnlyString = (value: string | undefined): string | null => {
   if (!value) return null;
-
   const trimmed = value.trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-    return trimmed;
-  }
-  if (/^\d{4}-\d{2}$/.test(trimmed)) {
-    return `${trimmed}-01`;
-  }
-  if (/^\d{4}$/.test(trimmed)) {
-    return `${trimmed}-01-01`;
-  }
-
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+  if (/^\d{4}-\d{2}$/.test(trimmed)) return `${trimmed}-01`;
+  if (/^\d{4}$/.test(trimmed)) return `${trimmed}-01-01`;
   const parsed = new Date(trimmed);
-  if (!Number.isNaN(parsed.getTime())) {
-    return parsed.toISOString().split('T')[0];
-  }
-
+  if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().split('T')[0];
   return null;
 };
 
 const normalizeImportance = (value: string | undefined): TimelineImportance => {
   const normalized = (value || '').trim().toLowerCase();
-  if (normalized === 'low' || normalized === 'medium' || normalized === 'high') {
-    return normalized;
-  }
+  if (normalized === 'low' || normalized === 'medium' || normalized === 'high') return normalized;
   return 'medium';
 };
 
 const normalizePhase = (value: string | undefined, fallbackContent: string): TimelinePhase => {
   const normalized = (value || '').trim().toLowerCase();
-  if (normalized === 'pre-suit' || normalized === 'pleadings' || normalized === 'discovery' || normalized === 'dispositive' || normalized === 'trial' || normalized === 'post-trial') {
-    return normalized;
-  }
-
-  if (/\b(incident|accident|injury|demand|notice of claim|retainer|investigation|preservation)\b/i.test(fallbackContent)) {
-    return 'pre-suit';
-  }
-  if (/\b(complaint|answer|counterclaim|service|summons|amended complaint|pleading)\b/i.test(fallbackContent)) {
-    return 'pleadings';
-  }
-  if (/\b(interrogator|request for production|request for admission|deposition|subpoena|expert disclosure|discovery)\b/i.test(fallbackContent)) {
-    return 'discovery';
-  }
-  if (/\b(summary judgment|dismiss|dispositive|daubert|in limine|motion to strike|motion for judgment)\b/i.test(fallbackContent)) {
-    return 'dispositive';
-  }
-  if (/\b(trial|voir dire|jury|verdict|testimony|exhibit list|pretrial conference)\b/i.test(fallbackContent)) {
-    return 'trial';
-  }
-  if (/\b(appeal|post-trial|new trial|remittitur|enforcement|collection|satisfaction of judgment)\b/i.test(fallbackContent)) {
-    return 'post-trial';
-  }
-
+  if (['pre-suit', 'pleadings', 'discovery', 'dispositive', 'trial', 'post-trial'].includes(normalized)) return normalized as TimelinePhase;
+  if (/\b(incident|accident|injury|demand|notice of claim|retainer|investigation|preservation)\b/i.test(fallbackContent)) return 'pre-suit';
+  if (/\b(complaint|answer|counterclaim|service|summons|amended complaint|pleading)\b/i.test(fallbackContent)) return 'pleadings';
+  if (/\b(interrogator|request for production|request for admission|deposition|subpoena|expert disclosure|discovery)\b/i.test(fallbackContent)) return 'discovery';
+  if (/\b(summary judgment|dismiss|dispositive|daubert|in limine|motion to strike|motion for judgment)\b/i.test(fallbackContent)) return 'dispositive';
+  if (/\b(trial|voir dire|jury|verdict|testimony|exhibit list|pretrial conference)\b/i.test(fallbackContent)) return 'trial';
+  if (/\b(appeal|post-trial|new trial|remittitur|enforcement|collection|satisfaction of judgment)\b/i.test(fallbackContent)) return 'post-trial';
   return 'discovery';
 };
 
 const inferNextRequiredAction = (phase: TimelinePhase, content: string): string => {
-  if (phase === 'pre-suit') {
-    return /\b(statute|limitations)\b/i.test(content)
-      ? 'Confirm statute of limitations and file suit before deadline.'
-      : 'Collect foundational records and preserve evidence relevant to claims.';
-  }
-  if (phase === 'pleadings') {
-    return 'Calendar responsive pleading and service deadlines for all parties.';
-  }
-  if (phase === 'discovery') {
-    return /\b(deposition)\b/i.test(content)
-      ? 'Prepare deposition outlines and circulate witness document sets.'
-      : 'Track discovery responses and schedule follow-up meet-and-confer items.';
-  }
-  if (phase === 'dispositive') {
-    return 'Assemble evidentiary record and briefing schedule for dispositive motions.';
-  }
-  if (phase === 'trial') {
-    return 'Finalize trial preparation checklist: exhibits, witnesses, and motions in limine.';
-  }
+  if (phase === 'pre-suit') return /\b(statute|limitations)\b/i.test(content) ? 'Confirm statute of limitations and file suit before deadline.' : 'Collect foundational records and preserve evidence relevant to claims.';
+  if (phase === 'pleadings') return 'Calendar responsive pleading and service deadlines for all parties.';
+  if (phase === 'discovery') return /\b(deposition)\b/i.test(content) ? 'Prepare deposition outlines and circulate witness document sets.' : 'Track discovery responses and schedule follow-up meet-and-confer items.';
+  if (phase === 'dispositive') return 'Assemble evidentiary record and briefing schedule for dispositive motions.';
+  if (phase === 'trial') return 'Finalize trial preparation checklist: exhibits, witnesses, and motions in limine.';
   return 'Evaluate post-trial motions, appellate deadlines, and enforcement strategy.';
 };
 
@@ -253,10 +181,7 @@ const normalizeTimelineEvent = (
 ): TimelineEventInsertRow | null => {
   const nowIso = new Date().toISOString();
   const dateOnly = toDateOnlyString(event.date);
-  if (!dateOnly) {
-    return null;
-  }
-
+  if (!dateOnly) return null;
   const title = (event.event_title || '').trim();
   const description = (event.description || '').trim();
   const eventType = (event.event_type || '').trim();
@@ -265,11 +190,7 @@ const normalizeTimelineEvent = (
   const importance = normalizeImportance(event.importance);
   const phase = normalizePhase(event.phase, content);
   const nextRequiredAction = (event.next_required_action || '').trim() || inferNextRequiredAction(phase, content);
-
-  if (!title && description.length < 20) {
-    return null;
-  }
-
+  if (!title && description.length < 20) return null;
   return {
     case_id: caseId,
     user_id: ownerUserId,
@@ -281,60 +202,31 @@ const normalizeTimelineEvent = (
     event_type: eventType.length > 0 ? eventType.slice(0, 100) : 'general',
     phase,
     next_required_action: nextRequiredAction.slice(0, 240) || null,
-    entities: entities,
+    entities,
     created_at: nowIso,
     updated_at: nowIso,
   };
 };
 
-const sentenceSplitRegex = /[^.!?\n]+[.!?]?/g;
+const sentenceSplitRegex = /[^.!?\\n]+[.!?]?/g;
 
 const extractSentences = (text: string): string[] => {
   const normalized = text.replace(/\s+/g, ' ').trim();
   if (!normalized) return [];
-  return (
-    normalized.match(sentenceSplitRegex)?.map((sentence) => sentence.trim()).filter(Boolean) || []
-  );
+  return normalized.match(sentenceSplitRegex)?.map((s) => s.trim()).filter(Boolean) || [];
 };
 
-const buildAnalysisDocumentContext = (text: string, maxChars = 22000): string => {
+// Send the FULL document to the AI model - Gemini 2.5 supports 1M+ tokens
+const buildAnalysisDocumentContext = (text: string, maxChars = 120000): string => {
   const normalized = normalizeExtractedText(text);
-  if (normalized.length <= maxChars) {
-    return normalized;
-  }
-
-  const sentences = extractSentences(normalized);
-  const keyTimelineSentences = uniqueTrimmed(
-    sentences.filter((sentence) => {
-      const hasDate = dateTokenMatchers.some((matcher) => matcher.test(sentence));
-      const hasCaseSignal = /\b(filed|hearing|trial|deposition|meeting|conference|incident|accident|injury|deadline|notice|email|letter|call|agreement|contract|payment|settlement|judgment|order|motion|complaint)\b/i.test(
-        sentence
-      );
-      return hasDate || hasCaseSignal;
-    }),
-    90
-  );
-
-  const head = normalized.slice(0, 6000);
-  const tail = normalized.slice(-4000);
-  const timelineBlock = keyTimelineSentences.join('\n');
-
-  const combined = [
-    '[DOCUMENT_HEAD]',
-    head,
-    '[TIMELINE_CANDIDATES]',
-    timelineBlock,
-    '[DOCUMENT_TAIL]',
-    tail,
-  ]
-    .filter(Boolean)
-    .join('\n\n');
-
-  return combined.slice(0, maxChars);
+  if (normalized.length <= maxChars) return normalized;
+  // For extremely long documents, keep head + tail + key sentences
+  const head = normalized.slice(0, maxChars * 0.7);
+  const tail = normalized.slice(-maxChars * 0.2);
+  return `${head}\n\n[... document continues ...]\n\n${tail}`;
 };
 
-const monthNames =
-  '(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)';
+const monthNames = '(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)';
 
 const dateTokenMatchers = [
   new RegExp(`\\b${monthNames}\\s+\\d{1,2},\\s+\\d{4}\\b`, 'i'),
@@ -346,65 +238,36 @@ const dateTokenMatchers = [
 const extractDateToken = (sentence: string): string | null => {
   for (const matcher of dateTokenMatchers) {
     const match = sentence.match(matcher);
-    if (match?.[0]) {
-      return match[0];
-    }
+    if (match?.[0]) return match[0];
   }
   return null;
 };
 
 const buildTimelineTitle = (sentence: string, dateToken: string | null): string => {
   const withoutDate = dateToken ? sentence.replace(dateToken, ' ') : sentence;
-  const words = withoutDate
-    .replace(/[^a-zA-Z0-9\s]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .split(' ')
-    .filter(Boolean)
-    .slice(0, 8);
-
-  if (words.length === 0) {
-    return 'Document event';
-  }
-
+  const words = withoutDate.replace(/[^a-zA-Z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean).slice(0, 8);
+  if (words.length === 0) return 'Document event';
   const base = words.join(' ');
   return base.charAt(0).toUpperCase() + base.slice(1);
 };
 
 const inferEventType = (sentence: string): string => {
-  if (/\b(filed|motion|complaint|petition|answer|brief|order)\b/i.test(sentence)) {
-    return 'filing';
-  }
-  if (/\b(hearing|trial|deposition|mediation|conference|meeting)\b/i.test(sentence)) {
-    return 'meeting';
-  }
-  if (/\b(email|letter|call|message|notice|response)\b/i.test(sentence)) {
-    return 'communication';
-  }
-  if (/\b(incident|accident|collision|injury|damage)\b/i.test(sentence)) {
-    return 'incident';
-  }
+  if (/\b(filed|motion|complaint|petition|answer|brief|order)\b/i.test(sentence)) return 'filing';
+  if (/\b(hearing|trial|deposition|mediation|conference|meeting)\b/i.test(sentence)) return 'meeting';
+  if (/\b(email|letter|call|message|notice|response)\b/i.test(sentence)) return 'communication';
+  if (/\b(incident|accident|collision|injury|damage)\b/i.test(sentence)) return 'incident';
   return 'general';
 };
 
 const inferImportance = (sentence: string): TimelineImportance => {
-  if (
-    /\b(trial|hearing|deadline|deposition|filed|served|breach|injury|accident|default|termination)\b/i.test(
-      sentence
-    )
-  ) {
-    return 'high';
-  }
-  if (/\b(meeting|mediation|response|notice|email|letter|call)\b/i.test(sentence)) {
-    return 'medium';
-  }
+  if (/\b(trial|hearing|deadline|deposition|filed|served|breach|injury|accident|default|termination)\b/i.test(sentence)) return 'high';
+  if (/\b(meeting|mediation|response|notice|email|letter|call)\b/i.test(sentence)) return 'medium';
   return 'low';
 };
 
 const uniqueTrimmed = (items: string[], maxItems: number): string[] => {
   const seen = new Set<string>();
   const result: string[] = [];
-
   for (const item of items) {
     const cleaned = item.trim().replace(/\s+/g, ' ');
     if (!cleaned) continue;
@@ -414,76 +277,40 @@ const uniqueTrimmed = (items: string[], maxItems: number): string[] => {
     result.push(cleaned);
     if (result.length >= maxItems) break;
   }
-
   return result;
 };
 
 const buildHeuristicAnalysis = (text: string): HeuristicAnalysisResult => {
-  const sentences = extractSentences(text).slice(0, 60);
+  const sentences = extractSentences(text).slice(0, 100);
   const timelineEvents: TimelineEventCandidate[] = [];
-
   for (const sentence of sentences) {
     const dateToken = extractDateToken(sentence);
     if (!dateToken) continue;
-    if (!/\b(filed|served|hearing|trial|deposition|meeting|conference|incident|accident|injury|deadline|notice|email|letter|call|agreement|contract|payment|settlement|judgment|order|motion|complaint)\b/i.test(sentence)) {
-      continue;
-    }
-
-    const importance = inferImportance(sentence);
+    if (!/\b(filed|served|hearing|trial|deposition|meeting|conference|incident|accident|injury|deadline|notice|email|letter|call|agreement|contract|payment|settlement|judgment|order|motion|complaint)\b/i.test(sentence)) continue;
     timelineEvents.push({
       date: toDateOnlyString(dateToken) || undefined,
       event_title: buildTimelineTitle(sentence, dateToken),
       description: sentence.slice(0, 280),
-      importance,
+      importance: inferImportance(sentence),
       event_type: inferEventType(sentence),
       phase: normalizePhase(undefined, sentence),
     });
-
     if (timelineEvents.length >= MAX_TIMELINE_EVENTS) break;
   }
-
-  const factCandidates = sentences.filter((sentence) =>
-    /\b(\d{1,2}\/\d{1,2}\/\d{2,4}|\d{4}-\d{2}-\d{2}|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|\$|\d{2,}|agreement|demand|response|meeting|incident|email|letter)\b/i.test(
-      sentence
-    )
-  );
-
-  const favorableCandidates = sentences.filter((sentence) =>
-    /\b(admit|confirmed|supports|favorable|complied|approved|paid|received|signed)\b/i.test(sentence)
-  );
-  const adverseCandidates = sentences.filter((sentence) =>
-    /\b(deny|denied|dispute|late|overdue|breach|damaging|adverse|inconsistent|liability|default|failed)\b/i.test(
-      sentence
-    )
-  );
-
-  const summary = uniqueTrimmed(sentences.slice(0, 2), 2).join(' ');
-  const keyFacts = uniqueTrimmed(factCandidates, 8);
-  const favorableFindings = uniqueTrimmed(favorableCandidates, 4);
-  const adverseFindings = uniqueTrimmed(adverseCandidates, 4);
-
-  const actionItems = uniqueTrimmed(
-    [
-      timelineEvents.length > 0
-        ? 'Validate timeline events against the source document and related exhibits.'
-        : '',
-      adverseFindings.length > 0
-        ? 'Address adverse statements with corroborating evidence and witness preparation.'
-        : '',
-      keyFacts.length > 0
-        ? 'Link key factual statements to Bates-numbered exhibits for trial use.'
-        : '',
-      'Review OCR output for any transcription issues before filing or strategy use.',
-    ],
-    4
-  );
-
+  const factCandidates = sentences.filter((s) => /\b(\d{1,2}\/\d{1,2}\/\d{2,4}|\d{4}-\d{2}-\d{2}|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|\$|\d{2,}|agreement|demand|response|meeting|incident|email|letter)\b/i.test(s));
+  const favorableCandidates = sentences.filter((s) => /\b(admit|confirmed|supports|favorable|complied|approved|paid|received|signed)\b/i.test(s));
+  const adverseCandidates = sentences.filter((s) => /\b(deny|denied|dispute|late|overdue|breach|damaging|adverse|inconsistent|liability|default|failed)\b/i.test(s));
   return {
-    summary,
-    keyFacts,
-    favorableFindings,
-    adverseFindings,
-    actionItems,
+    summary: uniqueTrimmed(sentences.slice(0, 3), 3).join(' '),
+    keyFacts: uniqueTrimmed(factCandidates, 10),
+    favorableFindings: uniqueTrimmed(favorableCandidates, 5),
+    adverseFindings: uniqueTrimmed(adverseCandidates, 5),
+    actionItems: uniqueTrimmed([
+      timelineEvents.length > 0 ? 'Validate timeline events against the source document and related exhibits.' : '',
+      adverseCandidates.length > 0 ? 'Address adverse statements with corroborating evidence and witness preparation.' : '',
+      factCandidates.length > 0 ? 'Link key factual statements to Bates-numbered exhibits for trial use.' : '',
+      'Review OCR output for any transcription issues before filing or strategy use.',
+    ], 4),
     timelineEvents: timelineEvents.sort((a, b) => {
       const aDate = toDateOnlyString(a.date) || '9999-12-31';
       const bDate = toDateOnlyString(b.date) || '9999-12-31';
@@ -491,6 +318,88 @@ const buildHeuristicAnalysis = (text: string): HeuristicAnalysisResult => {
     }),
   };
 };
+
+// ===== Azure Document Intelligence OCR =====
+async function azureDocumentIntelligenceOcr(fileBlob: Blob, contentType: string): Promise<string> {
+  const endpoint = Deno.env.get('AZURE_DOC_INTELLIGENCE_ENDPOINT') || Deno.env.get('AZURE_VISION_ENDPOINT');
+  const apiKey = Deno.env.get('AZURE_DOC_INTELLIGENCE_KEY') || Deno.env.get('AZURE_VISION_API_KEY');
+  
+  if (!endpoint || !apiKey) throw new Error('Azure Document Intelligence not configured');
+  
+  const baseUrl = endpoint.replace(/\/+$/, '');
+  // Use the prebuilt-read model for best OCR quality
+  const analyzeUrl = `${baseUrl}/documentintelligence/documentModels/prebuilt-read:analyze?api-version=2024-11-30`;
+  
+  console.log(`Azure Document Intelligence: Submitting ${(fileBlob.size / 1024 / 1024).toFixed(2)}MB document...`);
+  
+  const submitResponse = await fetch(analyzeUrl, {
+    method: 'POST',
+    headers: {
+      'Ocp-Apim-Subscription-Key': apiKey,
+      'Content-Type': contentType || 'application/octet-stream',
+    },
+    body: fileBlob,
+  });
+  
+  if (!submitResponse.ok) {
+    const errorText = await submitResponse.text();
+    throw new Error(`Azure DI submit failed (${submitResponse.status}): ${errorText}`);
+  }
+  
+  const operationLocation = submitResponse.headers.get('Operation-Location');
+  if (!operationLocation) throw new Error('Azure DI: No Operation-Location header returned');
+  
+  // Poll for results - Azure DI is fast, usually <10s
+  let result: any = null;
+  for (let attempt = 0; attempt < 60; attempt++) {
+    await delay(attempt < 5 ? 1000 : 2000);
+    
+    const pollResponse = await fetch(operationLocation, {
+      headers: { 'Ocp-Apim-Subscription-Key': apiKey },
+    });
+    
+    if (!pollResponse.ok) {
+      throw new Error(`Azure DI poll failed: ${pollResponse.status}`);
+    }
+    
+    result = await pollResponse.json();
+    
+    if (result.status === 'succeeded') break;
+    if (result.status === 'failed') throw new Error(`Azure DI analysis failed: ${JSON.stringify(result.error)}`);
+    // still running, continue polling
+  }
+  
+  if (!result || result.status !== 'succeeded') {
+    throw new Error('Azure DI: Timed out waiting for results');
+  }
+  
+  // Extract text from all pages
+  const pages = result.analyzeResult?.pages || [];
+  const content = result.analyzeResult?.content || '';
+  
+  if (content && content.trim().length > 0) {
+    console.log(`Azure DI extracted ${content.length} chars from ${pages.length} pages`);
+    return content;
+  }
+  
+  // Fallback: build from pages
+  const pageTexts: string[] = [];
+  for (const page of pages) {
+    const lines = page.lines || [];
+    const pageText = lines.map((l: any) => l.content || '').join('\n');
+    if (pages.length > 1) {
+      pageTexts.push(`=== PAGE ${page.pageNumber} ===\n${pageText}`);
+    } else {
+      pageTexts.push(pageText);
+    }
+  }
+  
+  const extracted = pageTexts.join('\n\n');
+  if (!extracted.trim()) throw new Error('Azure DI returned empty text');
+  
+  console.log(`Azure DI extracted ${extracted.length} chars from ${pages.length} pages (line-level)`);
+  return extracted;
+}
 
 serve(async (req) => {
   const corsHeaders = getCorsHeaders(req);
@@ -503,25 +412,20 @@ serve(async (req) => {
     validateEnvVars(['SUPABASE_URL', 'SUPABASE_ANON_KEY']);
 
     const ocrSpaceApiKey = Deno.env.get('OCR_SPACE_API_KEY');
-    const openaiApiKey = Deno.env.get('OPENAI_API_KEY');
-    const aiGatewayUrl = Deno.env.get('AI_GATEWAY_URL');
     const googleApiKey = Deno.env.get('GOOGLE_AI_API_KEY');
+    const azureEndpoint = Deno.env.get('AZURE_DOC_INTELLIGENCE_ENDPOINT') || Deno.env.get('AZURE_VISION_ENDPOINT');
+    const azureKey = Deno.env.get('AZURE_DOC_INTELLIGENCE_KEY') || Deno.env.get('AZURE_VISION_API_KEY');
 
+    const hasAzure = !!(azureEndpoint && azureKey);
     const hasOcrSpace = !!ocrSpaceApiKey;
-    const hasOpenAI = !!openaiApiKey;
     const hasGemini = !!googleApiKey;
 
-    console.log(
-      `OCR providers available: GeminiOCR=${hasGemini}, OCR.space=${hasOcrSpace}`
-    );
-    console.log(`AI providers available: OpenAI=${hasOpenAI}, Gemini=${hasGemini}`);
+    console.log(`OCR providers: Azure=${hasAzure}, Gemini=${hasGemini}, OCR.space=${hasOcrSpace}`);
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
     const authHeader = req.headers.get('Authorization') || '';
-    const bearerToken = authHeader.startsWith('Bearer ')
-      ? authHeader.slice('Bearer '.length).trim()
-      : authHeader.trim();
+    const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : authHeader.trim();
 
     type AuthUser = { id: string };
     type DocumentOwner = { cases?: { user_id?: string } | Array<{ user_id?: string }> };
@@ -531,45 +435,32 @@ serve(async (req) => {
     let isServiceRole = false;
 
     if (serviceRoleKey && bearerToken === serviceRoleKey) {
-      console.log('Service role authentication detected - internal call');
+      console.log('Service role authentication detected');
       isServiceRole = true;
       supabase = createClient(supabaseUrl, serviceRoleKey);
       user = { id: 'service-role' };
     } else {
       const authResult = await verifyAuth(req);
       if (!authResult.authorized || !authResult.user || !authResult.supabase) {
-        return createErrorResponse(
-          new Error(authResult.error || 'Unauthorized'),
-          401,
-          'ocr-document',
-          corsHeaders
-        );
+        return createErrorResponse(new Error(authResult.error || 'Unauthorized'), 401, 'ocr-document', corsHeaders);
       }
       user = authResult.user;
       supabase = authResult.supabase;
     }
 
+    // Higher rate limit - 60 per minute to support batch processing
     if (!isServiceRole) {
-      const rateLimitCheck = checkRateLimit(`ocr:${user.id}`, 30, 60000);
+      const rateLimitCheck = checkRateLimit(`ocr:${user.id}`, 60, 60000);
       if (!rateLimitCheck.allowed) {
         return new Response(
-          JSON.stringify({
-            error: 'Rate limit exceeded',
-            resetAt: new Date(rateLimitCheck.resetAt).toISOString(),
-          }),
-          {
-            status: 429,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          }
+          JSON.stringify({ error: 'Rate limit exceeded', resetAt: new Date(rateLimitCheck.resetAt).toISOString() }),
+          { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
     }
 
     const requestBody = (await req.json()) as Record<string, unknown>;
-    validateRequestBody<{ documentId: string; fileUrl: string }>(
-      requestBody,
-      ['documentId', 'fileUrl']
-    );
+    validateRequestBody<{ documentId: string; fileUrl: string }>(requestBody, ['documentId', 'fileUrl']);
 
     const { documentId, fileUrl } = requestBody;
     const validatedDocumentId = validateUUID(documentId as string, 'documentId');
@@ -584,62 +475,21 @@ serve(async (req) => {
       .single();
 
     if (docError || !documentData) {
-      console.error('Document not found:', docError);
-      return createErrorResponse(
-        new Error('Document not found'),
-        404,
-        'ocr-document',
-        corsHeaders
-      );
+      return createErrorResponse(new Error('Document not found'), 404, 'ocr-document', corsHeaders);
     }
 
     const caseRelation = (documentData as DocumentOwner).cases;
-    const ownerId = Array.isArray(caseRelation)
-      ? caseRelation[0]?.user_id
-      : caseRelation?.user_id;
+    const ownerId = Array.isArray(caseRelation) ? caseRelation[0]?.user_id : caseRelation?.user_id;
 
     if (!ownerId) {
-      console.error('Unable to resolve document owner from case relationship');
-      return createErrorResponse(
-        new Error('Document owner could not be resolved'),
-        500,
-        'ocr-document',
-        corsHeaders
-      );
+      return createErrorResponse(new Error('Document owner could not be resolved'), 500, 'ocr-document', corsHeaders);
     }
 
     if (!isServiceRole && ownerId !== user.id) {
-      console.error('User does not own this document');
-      return forbiddenResponse(
-        'You do not have access to this document',
-        corsHeaders
-      );
+      return forbiddenResponse('You do not have access to this document', corsHeaders);
     }
 
-    console.log(`User verified as owner of document ${validatedDocumentId}: ${documentData.name}`);
-
-    const fetchWithRetry = async (
-      url: string,
-      options: RequestInit,
-      context: string,
-      attempts = 3
-    ) => {
-      let lastError = '';
-
-      for (let attempt = 1; attempt <= attempts; attempt += 1) {
-        const response = await fetch(url, options);
-        if (response.ok) return response;
-
-        lastError = await response.text();
-        if (attempt < attempts && (response.status === 429 || response.status >= 500)) {
-          await delay(attempt * 300);
-          continue;
-        }
-        throw new Error(`${context} failed (${response.status}): ${lastError}`);
-      }
-
-      throw new Error(`${context} failed: ${lastError}`);
-    };
+    console.log(`Processing: ${documentData.name}`);
 
     const { blob: fileBlob, contentType } = await loadFileBlob(supabase, validatedFileUrl);
     const resolvedContentType = contentType || fileBlob.type || '';
@@ -647,82 +497,48 @@ serve(async (req) => {
     const extractedTables: unknown[] = [];
     let ocrProvider = '';
 
-
+    // ===== OCR EXTRACTION - Triple-tier with Azure as primary =====
     const geminiOcr = async (fileBlob: Blob, mimeType: string, isImage: boolean): Promise<string> => {
-      if (!googleApiKey) {
-        throw new Error('Google AI API key not configured');
-      }
+      if (!googleApiKey) throw new Error('Google AI API key not configured');
 
       const arrayBuffer = await fileBlob.arrayBuffer();
       const base64 = arrayBufferToBase64(arrayBuffer);
 
       const prompt = isImage
-        ? `You are a professional legal document OCR system. Extract all text from this image with high accuracy.
+        ? `You are a professional legal document OCR system. Extract ALL text from this image with the highest possible accuracy. Preserve exact formatting, line breaks, headings, tables, stamps, dates, signatures, marginalia, Bates numbers, exhibit numbers, and document identifiers. Return plain text only.`
+        : `You are a professional legal document OCR system. Extract ALL text from every page of this PDF with the highest possible accuracy. Preserve exact formatting, line breaks, headings, tables, stamps, dates, signatures, marginalia, Bates numbers, exhibit numbers, and document identifiers. Prefix each page with "=== PAGE X ===". Return plain text only.`;
 
-Return plain text only. Preserve line breaks, headings, and table structure. Include all visible stamps, dates, and document identifiers.`
-        : `You are a professional legal document OCR system. Extract all text from this PDF with high accuracy.
-
-Process every page and return plain text only. Preserve line breaks, headings, and table structure. Prefix each page with "=== PAGE X ===".`;
-
+      // Use gemini-2.5-flash for best speed+quality balance
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${googleApiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${googleApiKey}`,
         {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            contents: [
-              {
-                parts: [
-                  { text: prompt },
-                  {
-                    inline_data: {
-                      mime_type: mimeType,
-                      data: base64,
-                    },
-                  },
-                ],
-              },
-            ],
-            generationConfig: {
-              temperature: 0.1,
-              maxOutputTokens: 65536,
-            },
+            contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mimeType, data: base64 } }] }],
+            generationConfig: { temperature: 0.05, maxOutputTokens: 65536 },
           }),
         }
       );
 
       if (!response.ok) {
         const errorText = await response.text();
-        if (response.status === 429) {
-          throw new Error('Gemini OCR rate limit exceeded');
-        }
+        if (response.status === 429) throw new Error('Gemini OCR rate limit exceeded');
         throw new Error(`Gemini OCR failed (${response.status}): ${errorText}`);
       }
 
       const payload = (await response.json()) as GeminiResponse;
       const text = extractGeminiText(payload);
-      if (!text || !text.trim()) {
-        throw new Error('Gemini returned empty OCR text');
-      }
-
+      if (!text?.trim()) throw new Error('Gemini returned empty OCR text');
       return text;
     };
 
     const ocrSpaceExtract = async (fileBlob: Blob, isImage: boolean, contentType?: string): Promise<string> => {
-      if (!ocrSpaceApiKey) {
-        throw new Error('OCR.space API key not configured');
-      }
-
-      console.log('Using OCR.space fallback OCR service...');
-
+      if (!ocrSpaceApiKey) throw new Error('OCR.space API key not configured');
+      console.log('Using OCR.space fallback...');
       const extension = isImage ? 'jpg' : 'pdf';
       const fileName = `document.${extension}`;
-      const file = new File([fileBlob], fileName, {
-        type: contentType || (isImage ? 'image/jpeg' : 'application/pdf')
-      });
-
+      const file = new File([fileBlob], fileName, { type: contentType || (isImage ? 'image/jpeg' : 'application/pdf') });
       const formData = new FormData();
       formData.append('file', file, fileName);
       formData.append('apikey', ocrSpaceApiKey);
@@ -733,57 +549,61 @@ Process every page and return plain text only. Preserve line breaks, headings, a
       formData.append('OCREngine', '2');
       formData.append('filetype', extension.toUpperCase());
 
-      const response = await fetch('https://api.ocr.space/parse/image', {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!response.ok) {
-        throw new Error(`OCR.space API failed: ${response.status} ${response.statusText}`);
-      }
+      const response = await fetch('https://api.ocr.space/parse/image', { method: 'POST', body: formData });
+      if (!response.ok) throw new Error(`OCR.space API failed: ${response.status}`);
 
       const result = (await response.json()) as OcrSpaceResponse;
-
-      if (result.OCRExitCode !== 1 || !result.ParsedResults || result.ParsedResults.length === 0) {
-        const errorMessage = Array.isArray(result.ErrorMessage)
-          ? result.ErrorMessage.join(', ')
-          : (result.ErrorMessage || 'Unknown error');
+      if (result.OCRExitCode !== 1 || !result.ParsedResults?.length) {
+        const errorMessage = Array.isArray(result.ErrorMessage) ? result.ErrorMessage.join(', ') : (result.ErrorMessage || 'Unknown error');
         throw new Error(`OCR.space parsing failed: ${errorMessage}`);
       }
 
-      const extractedText = result.ParsedResults
+      const extracted = result.ParsedResults
         .map((page, idx: number) => {
           const pageText = page.ParsedText || '';
           return result.ParsedResults!.length > 1 ? `=== PAGE ${idx + 1} ===\n${pageText}` : pageText;
         })
         .join('\n\n');
 
-      console.log(`OCR.space extracted ${extractedText.length} characters`);
-      return extractedText;
+      console.log(`OCR.space extracted ${extracted.length} characters`);
+      return extracted;
     };
 
     const isOcrTarget =
       resolvedContentType.includes('image') ||
       resolvedContentType.includes('pdf') ||
-      validatedFileUrl.match(/\.(jpg|jpeg|png|gif|webp|bmp|tiff|pdf)$/i);
+      !!validatedFileUrl.match(/\.(jpg|jpeg|png|gif|webp|bmp|tiff|pdf)$/i);
 
     if (isOcrTarget) {
-      if (!hasGemini && !hasOcrSpace) {
-        throw new Error('No OCR providers configured. Please set GOOGLE_AI_API_KEY or OCR_SPACE_API_KEY.');
+      if (!hasAzure && !hasGemini && !hasOcrSpace) {
+        throw new Error('No OCR providers configured.');
       }
 
-      console.log('Processing document with OCR...');
-      const isImage = resolvedContentType.includes('image') || validatedFileUrl.match(/\.(jpg|jpeg|png|gif|webp|bmp|tiff)$/i);
-      const sizeInMB = (fileBlob.size / 1024 / 1024).toFixed(2);
-      console.log(`Document size: ${sizeInMB}MB, MIME: ${resolvedContentType}`);
+      const isImage = resolvedContentType.includes('image') || !!validatedFileUrl.match(/\.(jpg|jpeg|png|gif|webp|bmp|tiff)$/i);
+      console.log(`Document: ${(fileBlob.size / 1024 / 1024).toFixed(2)}MB, MIME: ${resolvedContentType}, isImage: ${isImage}`);
 
       const errors: string[] = [];
 
-      if (hasGemini) {
+      // Tier 1: Azure Document Intelligence (best quality, handles large docs)
+      if (hasAzure) {
         try {
-          console.log('Attempting Gemini OCR (primary)...');
+          console.log('Attempting Azure Document Intelligence (primary - best quality)...');
           const mimeType = resolvedContentType || (isImage ? 'image/jpeg' : 'application/pdf');
-          extractedText = await geminiOcr(fileBlob, mimeType, !!isImage);
+          extractedText = await azureDocumentIntelligenceOcr(fileBlob, mimeType);
+          ocrProvider = 'azure_di';
+          console.log(`Azure DI extracted ${extractedText.length} characters`);
+        } catch (error) {
+          console.error('Azure DI error:', error);
+          errors.push(`Azure: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+
+      // Tier 2: Gemini 2.5 Flash (great AI-powered OCR)
+      if (!extractedText && hasGemini) {
+        try {
+          console.log('Attempting Gemini 2.5 Flash OCR...');
+          const mimeType = resolvedContentType || (isImage ? 'image/jpeg' : 'application/pdf');
+          extractedText = await geminiOcr(fileBlob, mimeType, isImage);
           ocrProvider = 'gemini';
           console.log(`Gemini OCR extracted ${extractedText.length} characters`);
         } catch (error) {
@@ -792,27 +612,25 @@ Process every page and return plain text only. Preserve line breaks, headings, a
         }
       }
 
+      // Tier 3: OCR.space (reliable fallback)
       if (!extractedText && hasOcrSpace) {
-        console.log('Trying OCR.space fallback...');
         try {
-          extractedText = await ocrSpaceExtract(fileBlob, !!isImage, resolvedContentType);
+          extractedText = await ocrSpaceExtract(fileBlob, isImage, resolvedContentType);
           ocrProvider = 'ocr_space';
         } catch (error) {
-          console.error('OCR.space OCR error:', error);
+          console.error('OCR.space error:', error);
           errors.push(`OCR.space: ${error instanceof Error ? error.message : String(error)}`);
         }
       }
 
       if (!extractedText) {
-        throw new Error(`OCR failed. ${errors.join('; ')}`.trim());
+        throw new Error(`All OCR providers failed. ${errors.join('; ')}`);
       }
-
-    } else if (resolvedContentType.includes('text') || validatedFileUrl.match(/\.(txt|doc|docx)$/i)) {
+    } else if (resolvedContentType.includes('text') || !!validatedFileUrl.match(/\.(txt|doc|docx)$/i)) {
       extractedText = await fileBlob.text();
       ocrProvider = 'direct-text';
       console.log(`Read ${extractedText.length} characters from text file`);
     } else {
-      console.log(`Unsupported file type: ${resolvedContentType || 'unknown'}`);
       extractedText = `[File type ${resolvedContentType || 'unknown'} - OCR not available for this format]`;
       ocrProvider = 'none';
     }
@@ -820,11 +638,10 @@ Process every page and return plain text only. Preserve line breaks, headings, a
     extractedText = normalizeExtractedText(extractedText);
 
     if (isOcrTarget && extractedText.length < 30) {
-      throw new Error(
-        'OCR extraction returned too little text. The file may be corrupted, heavily redacted, or require re-upload.'
-      );
+      throw new Error('OCR extraction returned too little text. The file may be corrupted or heavily redacted.');
     }
 
+    // ===== AI ANALYSIS - Use Gemini 2.5 Flash for best speed+quality =====
     let keyFacts: string[] = [];
     let favorableFindings: string[] = [];
     let adverseFindings: string[] = [];
@@ -832,69 +649,44 @@ Process every page and return plain text only. Preserve line breaks, headings, a
     let summary = '';
     let timelineEvents: unknown[] = [];
     let extractedEntities: unknown[] = [];
+    let analysisProvider: 'gemini' | 'heuristic' | 'none' = 'none';
 
-    let analysisProvider: 'openai' | 'gemini' | 'heuristic' | 'none' = 'none';
+    if (extractedText && extractedText.length > 50 && !extractedText.startsWith('[File type') && hasGemini) {
+      console.log('Analyzing extracted text with Gemini 2.5 Flash...');
 
-    if (
-      extractedText &&
-      extractedText.length > 50 &&
-      !extractedText.startsWith('[File type') &&
-      (hasOpenAI || hasGemini)
-    ) {
-      console.log('Analyzing extracted text with AI...');
-
+      // Send the FULL document text - Gemini 2.5 Flash handles 1M+ tokens
       const analysisContext = buildAnalysisDocumentContext(extractedText);
 
-      const analysisPrompt = `You are an expert legal document analyst specializing in litigation support. Analyze documents with precision and identify strategic insights for case preparation.
-
-Analyze this legal document and provide a JSON response with comprehensive legal analysis, including chronological timeline events.
-
+      const analysisPrompt = `You are an expert legal document analyst specializing in litigation support. Analyze this document with maximum precision and extract every strategically relevant detail.
+      
 ANALYSIS REQUIREMENTS:
-1. SUMMARY: 2-4 sentence executive summary of the document's content and significance
-2. KEY_FACTS: 5-10 specific factual findings (dates, events, statements, numbers)
-3. FAVORABLE_FINDINGS: 3-5 findings that could support the case (admissions, favorable testimony, helpful evidence)
-4. ADVERSE_FINDINGS: 3-5 findings that could hurt the case (contradictions, damaging statements, weaknesses)
-5. ACTION_ITEMS: 3-5 specific follow-up actions (witnesses to interview, documents to request, issues to research)
-6. TIMELINE_EVENTS: Extract chronological events found in the document. For each event provide:
-   - "date": YYYY-MM-DD format (if approximate, use first of month/year)
+1. SUMMARY: 3-5 sentence executive summary covering the document's content, significance, and strategic implications
+2. KEY_FACTS: 8-15 specific factual findings (dates, events, statements, amounts, names, locations)
+3. FAVORABLE_FINDINGS: 5-8 findings supporting the case (admissions, favorable testimony, helpful evidence, compliance, corroboration)
+4. ADVERSE_FINDINGS: 5-8 findings that could hurt the case (contradictions, damaging statements, weaknesses, non-compliance)
+5. ACTION_ITEMS: 5-8 specific follow-up actions (witnesses to interview, documents to request, issues to research, deadlines to calendar)
+6. TIMELINE_EVENTS: Extract ALL chronological events (up to ${MAX_TIMELINE_EVENTS}). For each:
+   - "date": YYYY-MM-DD (approximate if needed)
    - "event_title": Short title (5-10 words)
-   - "description": Detailed description (1-2 sentences)
-   - "source_doc_id": Use "${validatedDocumentId}" for all events
+   - "description": Detailed description (1-3 sentences)
    - "importance": "high", "medium", or "low"
-   - "event_type": e.g., "communication", "filing", "incident", "meeting"
-   - "entities": Array of key people/orgs involved in THIS specific event
-   - "phase": One of "pre-suit", "pleadings", "discovery", "dispositive", "trial", "post-trial"
-   - "next_required_action": Practical next step for litigation planning (one sentence)
-   - Include ONLY major case milestones (key events). Exclude boilerplate headers, repetitive procedural text, and minor administrative updates.
-   - Return at most ${MAX_TIMELINE_EVENTS} timeline events, sorted chronologically.
+   - "event_type": "communication", "filing", "incident", "meeting", "deadline", "medical", "financial", "contractual"
+   - "entities": Array of key people/orgs involved
+   - "phase": "pre-suit", "pleadings", "discovery", "dispositive", "trial", or "post-trial"
+   - "next_required_action": Practical next step for litigation planning
+7. ENTITIES: Extract ALL key entities (people, organizations, locations) with their roles and relationships
 
-7. ENTITIES: Extract all key entities (people, organizations, locations) mentioned in the document and their roles.
+Be exhaustive. Extract every date, every person mentioned, every significant fact. This analysis drives the entire case strategy.
 
-Be thorough, precise, and strategic. Focus on facts that matter for litigation.
-
-Respond ONLY with valid JSON in this exact format:
+Respond ONLY with valid JSON:
 {
   "summary": "string",
-  "key_facts": ["fact1", "fact2", ...],
-  "favorable_findings": ["finding1", "finding2", ...],
-  "adverse_findings": ["finding1", "finding2", ...],
-  "action_items": ["action1", "action2", ...],
-  "timeline_events": [
-    { 
-      "date": "2023-01-01", 
-      "event_title": "...", 
-      "description": "...", 
-      "source_doc_id": "${validatedDocumentId}", 
-      "importance": "high", 
-      "event_type": "...",
-      "phase": "discovery",
-      "next_required_action": "Schedule witness prep and collect supporting exhibits.",
-      "entities": ["Person A", "Company B"]
-    }
-  ],
-  "entities": [
-    { "name": "...", "type": "person/organization/location", "role": "..." }
-  ]
+  "key_facts": ["fact1", ...],
+  "favorable_findings": ["finding1", ...],
+  "adverse_findings": ["finding1", ...],
+  "action_items": ["action1", ...],
+  "timeline_events": [{ "date": "2023-01-01", "event_title": "...", "description": "...", "importance": "high", "event_type": "...", "phase": "...", "next_required_action": "...", "entities": ["Person A"] }],
+  "entities": [{ "name": "...", "type": "person/organization/location", "role": "..." }]
 }
 
 Document text:
@@ -902,80 +694,37 @@ ${analysisContext}`;
 
       let content = '';
 
-      if (hasOpenAI) {
-        try {
-          const apiUrl = aiGatewayUrl || 'https://api.openai.com/v1/chat/completions';
-          const analysisResponse = await fetch(apiUrl, {
+      try {
+        const analysisResponse = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${googleApiKey}`,
+          {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${openaiApiKey}`,
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              model: 'gpt-4o',
-              messages: [{ role: 'user', content: analysisPrompt }],
-              temperature: 0.2,
-              max_tokens: 4096,
-              response_format: { type: 'json_object' },
-            }),
-          });
-
-          if (analysisResponse.ok) {
-            const analysisData = await analysisResponse.json();
-            content = analysisData.choices?.[0]?.message?.content || '';
-            if (content) {
-              analysisProvider = 'openai';
-            }
-            console.log('OpenAI analysis completed successfully');
-          } else {
-            console.error('OpenAI analysis failed:', await analysisResponse.text());
-          }
-        } catch (openaiError) {
-          console.error('OpenAI analysis error:', openaiError);
-        }
-      }
-
-      if (!content && hasGemini) {
-        try {
-          const analysisResponse = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${googleApiKey}`,
-            {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
+              contents: [{ parts: [{ text: analysisPrompt }] }],
+              generationConfig: {
+                temperature: 0.15,
+                maxOutputTokens: 16384,
+                responseMimeType: 'application/json',
               },
-              body: JSON.stringify({
-                contents: [
-                  {
-                    parts: [{ text: analysisPrompt }],
-                  },
-                ],
-                generationConfig: {
-                  temperature: 0.2,
-                  maxOutputTokens: 4096,
-                  responseMimeType: 'application/json',
-                },
-              }),
-            }
-          );
-
-          if (analysisResponse.ok) {
-            const analysisData = (await analysisResponse.json()) as GeminiResponse;
-            content = extractGeminiText(analysisData);
-            if (content) {
-              analysisProvider = 'gemini';
-            }
-            console.log('Gemini analysis completed successfully');
-          } else {
-            console.error('Gemini analysis failed:', await analysisResponse.text());
+            }),
           }
-        } catch (geminiError) {
-          console.error('Gemini analysis error:', geminiError);
+        );
+
+        if (analysisResponse.ok) {
+          const analysisData = (await analysisResponse.json()) as GeminiResponse;
+          content = extractGeminiText(analysisData);
+          if (content) analysisProvider = 'gemini';
+          console.log('Gemini 2.5 Flash analysis completed');
+        } else {
+          console.error('Gemini analysis failed:', await analysisResponse.text());
         }
+      } catch (geminiError) {
+        console.error('Gemini analysis error:', geminiError);
       }
 
       try {
-        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        const jsonMatch = content.match(/{[\s\S]*}/);
         if (jsonMatch) {
           const analysis = JSON.parse(jsonMatch[0]);
           summary = analysis.summary || '';
@@ -985,26 +734,17 @@ ${analysisContext}`;
           actionItems = Array.isArray(analysis.action_items) ? analysis.action_items : [];
           timelineEvents = Array.isArray(analysis.timeline_events) ? analysis.timeline_events : [];
           extractedEntities = Array.isArray(analysis.entities) ? analysis.entities : [];
-          console.log(`Analysis complete: ${keyFacts.length} facts, ${timelineEvents.length} events, ${extractedEntities.length} entities found`);
+          console.log(`Analysis: ${keyFacts.length} facts, ${timelineEvents.length} events, ${extractedEntities.length} entities`);
         }
       } catch (parseError) {
         console.error('Failed to parse analysis JSON:', parseError);
-        console.error('Raw content:', content);
         summary = content.substring(0, 500);
       }
     }
 
-    if (
-      extractedText &&
-      extractedText.length > 80 &&
-      summary.length === 0 &&
-      keyFacts.length === 0 &&
-      favorableFindings.length === 0 &&
-      adverseFindings.length === 0 &&
-      actionItems.length === 0 &&
-      timelineEvents.length === 0
-    ) {
-      console.log('AI analysis unavailable or empty. Falling back to heuristic extraction...');
+    // Heuristic fallback
+    if (extractedText && extractedText.length > 80 && summary.length === 0 && keyFacts.length === 0) {
+      console.log('AI analysis unavailable. Falling back to heuristic extraction...');
       const heuristic = buildHeuristicAnalysis(extractedText);
       analysisProvider = 'heuristic';
       summary = heuristic.summary;
@@ -1015,13 +755,7 @@ ${analysisContext}`;
       timelineEvents = heuristic.timelineEvents;
     }
 
-    const hasAnalysis =
-      summary.length > 0 ||
-      keyFacts.length > 0 ||
-      favorableFindings.length > 0 ||
-      adverseFindings.length > 0 ||
-      actionItems.length > 0 ||
-      timelineEvents.length > 0;
+    const hasAnalysis = summary.length > 0 || keyFacts.length > 0 || favorableFindings.length > 0 || adverseFindings.length > 0 || actionItems.length > 0 || timelineEvents.length > 0;
 
     const updateData: Record<string, unknown> = {
       ocr_text: extractedText,
@@ -1036,19 +770,13 @@ ${analysisContext}`;
       entities: extractedEntities.length > 0 ? extractedEntities : null,
     };
 
-    if (extractedTables.length > 0) {
-      updateData.extracted_tables = extractedTables;
-    }
+    if (extractedTables.length > 0) updateData.extracted_tables = extractedTables;
 
-    const { error: updateError } = await supabase
-      .from('documents')
-      .update(updateData)
-      .eq('id', validatedDocumentId);
+    const { error: updateError } = await supabase.from('documents').update(updateData).eq('id', validatedDocumentId);
 
     if (updateError) {
-      console.warn('Primary documents update failed. Trying legacy-compatible update...', updateError);
-
-      const legacyUpdateData: Record<string, unknown> = {
+      console.warn('Primary update failed, trying legacy...', updateError);
+      const legacyData: Record<string, unknown> = {
         ocr_text: extractedText,
         ai_analyzed: hasAnalysis,
         summary: summary || null,
@@ -1057,28 +785,19 @@ ${analysisContext}`;
         adverse_findings: adverseFindings.length > 0 ? adverseFindings : null,
         action_items: actionItems.length > 0 ? actionItems : null,
       };
-
-      const { error: legacyUpdateError } = await supabase
-        .from('documents')
-        .update(legacyUpdateData)
-        .eq('id', validatedDocumentId);
-
-      if (legacyUpdateError) {
-        console.error('Failed legacy documents update:', legacyUpdateError);
-        throw new Error(`Failed to update document: ${legacyUpdateError.message}`);
-      }
+      const { error: legacyError } = await supabase.from('documents').update(legacyData).eq('id', validatedDocumentId);
+      if (legacyError) throw new Error(`Failed to update document: ${legacyError.message}`);
     }
 
+    // ===== Timeline events insertion =====
     let timelineEventsInserted = 0;
     let timelineInsertWarning: string | null = null;
-    const requestedTimelineEvents = timelineEvents.length;
 
-    if (requestedTimelineEvents > 0) {
-      console.log(`Preparing ${requestedTimelineEvents} timeline events for insertion...`);
+    if (timelineEvents.length > 0) {
+      console.log(`Inserting ${timelineEvents.length} timeline events...`);
       const caseId = (documentData as { case_id: string }).case_id;
 
       const dedupedEvents = new Map<string, TimelineEventInsertRow[]>();
-
       const normalizedEvents = (timelineEvents as TimelineEventCandidate[])
         .map((event) => normalizeTimelineEvent(event, caseId, validatedDocumentId, ownerId))
         .filter((event): event is TimelineEventInsertRow => !!event)
@@ -1086,50 +805,29 @@ ${analysisContext}`;
         .filter((event) => {
           const dedupeKey = `${event.event_date.slice(0, 10)}|${event.title.trim().toLowerCase()}`;
           const existing = dedupedEvents.get(dedupeKey) || [];
-
-          if (existing.length === 0) {
-            dedupedEvents.set(dedupeKey, [event]);
-            return true;
-          }
-
-          const hasDifferentType = existing.some((candidate) => candidate.event_type !== event.event_type);
-          if (existing.length === 1 && hasDifferentType) {
-            dedupedEvents.set(dedupeKey, [...existing, event]);
-            return true;
-          }
-
+          if (existing.length === 0) { dedupedEvents.set(dedupeKey, [event]); return true; }
+          const hasDiffType = existing.some((c) => c.event_type !== event.event_type);
+          if (existing.length === 1 && hasDiffType) { dedupedEvents.set(dedupeKey, [...existing, event]); return true; }
           return false;
         })
         .slice(0, MAX_TIMELINE_EVENTS);
 
       if (normalizedEvents.length > 0) {
-        // Replace prior auto-generated events for this document to avoid stale duplicates.
-        const { error: clearError } = await supabase
-          .from('timeline_events')
-          .delete()
-          .eq('linked_document_id', validatedDocumentId);
+        const { error: clearError } = await supabase.from('timeline_events').delete().eq('linked_document_id', validatedDocumentId);
+        if (clearError) { timelineInsertWarning = `Failed clearing old events: ${clearError.message}`; console.warn(timelineInsertWarning); }
 
-        if (clearError) {
-          timelineInsertWarning = `Failed clearing old timeline events: ${clearError.message}`;
-          console.warn(timelineInsertWarning);
-        }
-
-        const { data: insertedRows, error: timelineError } = await supabase
-          .from('timeline_events')
-          .insert(normalizedEvents)
-          .select('id');
-
+        const { data: insertedRows, error: timelineError } = await supabase.from('timeline_events').insert(normalizedEvents).select('id');
         if (timelineError) {
           timelineInsertWarning = `Failed to insert timeline events: ${timelineError.message}`;
-          console.error('Failed to insert timeline events:', timelineError);
+          console.error(timelineInsertWarning);
         } else {
           timelineEventsInserted = insertedRows?.length ?? normalizedEvents.length;
-          console.log(`Timeline events inserted successfully: ${timelineEventsInserted}`);
+          console.log(`Timeline events inserted: ${timelineEventsInserted}`);
         }
       }
     }
 
-    console.log('Document updated successfully with OCR and analysis results');
+    console.log('Document processed successfully');
 
     return new Response(
       JSON.stringify({
@@ -1143,19 +841,15 @@ ${analysisContext}`;
         favorableFindings,
         adverseFindings,
         actionItems,
-        requestedTimelineEvents,
+        requestedTimelineEvents: timelineEvents.length,
         timelineEventsInserted,
         timelineInsertWarning,
         tablesExtracted: extractedTables.length,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
-
   } catch (error: unknown) {
     console.error('OCR Error:', error);
-    if (error instanceof Error) {
-        return createErrorResponse(error, 500, 'ocr-document', corsHeaders);
-    }
-    return createErrorResponse(new Error('An unknown error occurred'), 500, 'ocr-document', corsHeaders);
+    return createErrorResponse(error instanceof Error ? error : new Error('An unknown error occurred'), 500, 'ocr-document', getCorsHeaders(req));
   }
 });

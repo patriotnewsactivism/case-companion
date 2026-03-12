@@ -779,7 +779,7 @@ export async function batchAnalyzeDocuments(
   if (!session) throw new Error("Not authenticated");
 
   const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ocr-document`;
-  const BATCH_SIZE = 2;
+  const BATCH_SIZE = 5;
 
   const analyzeSingleDocument = async (docId: string): Promise<void> => {
     const fileUrl = docMap.get(docId);
@@ -855,7 +855,7 @@ export async function batchAnalyzeDocuments(
     onProgress?.(completed, documentIds.length);
 
     if (i + BATCH_SIZE < documentIds.length) {
-      await new Promise((resolve) => setTimeout(resolve, 250));
+      await new Promise((resolve) => setTimeout(resolve, 100));
     }
   }
 
