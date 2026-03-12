@@ -855,7 +855,7 @@ export async function batchAnalyzeDocuments(
     onProgress?.(completed, documentIds.length);
 
     if (i + BATCH_SIZE < documentIds.length) {
-      await new Promise((resolve) => setTimeout(resolve, 250));
+      await new Promise((resolve) => setTimeout(resolve, 100));
     }
   }
 
