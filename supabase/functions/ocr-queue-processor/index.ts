@@ -12,6 +12,7 @@ import { validateUUID, validateInteger } from '../_shared/validation.ts';
 const STORAGE_BUCKET = 'case-documents';
 const MAX_ATTEMPTS = 3;
 const BACKOFF_DELAYS = [60000, 300000, 900000]; // 1min, 5min, 15min
+const DEFAULT_GEMINI_MODEL = Deno.env.get('GOOGLE_AI_MODEL') || 'gemini-2.0-flash';
 
 type OcrQueueStatus = 'pending' | 'processing' | 'completed' | 'failed';
 type QueueAction = 'process' | 'status' | 'enqueue' | 'retry';
@@ -244,7 +245,7 @@ OUTPUT FORMAT:
 
 Extract now:`;
 
-  const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${googleApiKey}`, {
+  const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${DEFAULT_GEMINI_MODEL}:generateContent?key=${googleApiKey}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -380,7 +381,7 @@ ${extractedText.substring(0, 20000)}`;
 
   if (!content && hasGemini) {
     try {
-      const analysisResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${googleApiKey}`, {
+      const analysisResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${DEFAULT_GEMINI_MODEL}:generateContent?key=${googleApiKey}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

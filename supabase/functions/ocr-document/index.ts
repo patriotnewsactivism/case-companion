@@ -419,6 +419,12 @@ serve(async (req) => {
     const hasAzure = !!(azureEndpoint && azureKey);
     const hasOcrSpace = !!ocrSpaceApiKey;
     const hasGemini = !!googleApiKey;
+    const configuredGeminiModel = (Deno.env.get('GOOGLE_AI_MODEL') || '').trim();
+    const geminiModelCandidates = Array.from(new Set([
+      configuredGeminiModel,
+      'gemini-2.0-flash',
+      'gemini-1.5-flash',
+    ].filter(Boolean)));
 
     console.log(`OCR providers: Azure=${hasAzure}, Gemini=${hasGemini}, OCR.space=${hasOcrSpace}`);
 
@@ -498,9 +504,51 @@ serve(async (req) => {
     let ocrProvider = '';
 
     // ===== OCR EXTRACTION - Triple-tier with Azure as primary =====
-    const geminiOcr = async (fileBlob: Blob, mimeType: string, isImage: boolean): Promise<string> => {
+    const invokeGeminiWithFallback = async (
+      body: Record<string, unknown>,
+      purpose: 'OCR' | 'analysis'
+    ): Promise<{ payload: GeminiResponse; model: string }> => {
       if (!googleApiKey) throw new Error('Google AI API key not configured');
 
+      let lastError = 'No Gemini models attempted';
+
+      for (const model of geminiModelCandidates) {
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${googleApiKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          }
+        );
+
+        if (response.ok) {
+          const payload = (await response.json()) as GeminiResponse;
+          return { payload, model };
+        }
+
+        const errorText = await response.text();
+        const unavailableModel =
+          (response.status === 404 || response.status === 400) &&
+          /model|not found|not supported/i.test(errorText);
+
+        if (response.status === 429) {
+          throw new Error(`Gemini ${purpose} rate limit exceeded (${model})`);
+        }
+
+        if (unavailableModel) {
+          lastError = `${model}: ${errorText}`;
+          console.warn(`Gemini model unavailable for ${purpose}, trying next model: ${model}`);
+          continue;
+        }
+
+        throw new Error(`Gemini ${purpose} failed (${model}, ${response.status}): ${errorText}`);
+      }
+
+      throw new Error(`Gemini ${purpose} failed for all models: ${lastError}`);
+    };
+
+    const geminiOcr = async (fileBlob: Blob, mimeType: string, isImage: boolean): Promise<string> => {
       const arrayBuffer = await fileBlob.arrayBuffer();
       const base64 = arrayBufferToBase64(arrayBuffer);
 
@@ -508,28 +556,17 @@ serve(async (req) => {
         ? `You are a professional legal document OCR system. Extract ALL text from this image with the highest possible accuracy. Preserve exact formatting, line breaks, headings, tables, stamps, dates, signatures, marginalia, Bates numbers, exhibit numbers, and document identifiers. Return plain text only.`
         : `You are a professional legal document OCR system. Extract ALL text from every page of this PDF with the highest possible accuracy. Preserve exact formatting, line breaks, headings, tables, stamps, dates, signatures, marginalia, Bates numbers, exhibit numbers, and document identifiers. Prefix each page with "=== PAGE X ===". Return plain text only.`;
 
-      // Use gemini-2.5-flash for best speed+quality balance
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${googleApiKey}`,
+      const { payload, model } = await invokeGeminiWithFallback(
         {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mimeType, data: base64 } }] }],
-            generationConfig: { temperature: 0.05, maxOutputTokens: 65536 },
-          }),
-        }
+          contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mimeType, data: base64 } }] }],
+          generationConfig: { temperature: 0.05, maxOutputTokens: 65536 },
+        },
+        'OCR'
       );
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        if (response.status === 429) throw new Error('Gemini OCR rate limit exceeded');
-        throw new Error(`Gemini OCR failed (${response.status}): ${errorText}`);
-      }
-
-      const payload = (await response.json()) as GeminiResponse;
       const text = extractGeminiText(payload);
-      if (!text?.trim()) throw new Error('Gemini returned empty OCR text');
+      if (!text?.trim()) throw new Error(`Gemini returned empty OCR text (${model})`);
+      console.log(`Gemini OCR succeeded with model: ${model}`);
       return text;
     };
 
@@ -695,30 +732,21 @@ ${analysisContext}`;
       let content = '';
 
       try {
-        const analysisResponse = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${googleApiKey}`,
+        const { payload: analysisData, model } = await invokeGeminiWithFallback(
           {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: analysisPrompt }] }],
-              generationConfig: {
-                temperature: 0.15,
-                maxOutputTokens: 16384,
-                responseMimeType: 'application/json',
-              },
-            }),
-          }
+            contents: [{ parts: [{ text: analysisPrompt }] }],
+            generationConfig: {
+              temperature: 0.15,
+              maxOutputTokens: 16384,
+              responseMimeType: 'application/json',
+            },
+          },
+          'analysis'
         );
 
-        if (analysisResponse.ok) {
-          const analysisData = (await analysisResponse.json()) as GeminiResponse;
-          content = extractGeminiText(analysisData);
-          if (content) analysisProvider = 'gemini';
-          console.log('Gemini 2.5 Flash analysis completed');
-        } else {
-          console.error('Gemini analysis failed:', await analysisResponse.text());
-        }
+        content = extractGeminiText(analysisData);
+        if (content) analysisProvider = 'gemini';
+        console.log(`Gemini analysis completed with model: ${model}`);
       } catch (geminiError) {
         console.error('Gemini analysis error:', geminiError);
       }
