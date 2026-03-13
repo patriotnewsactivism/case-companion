@@ -230,29 +230,9 @@ export async function bulkUploadDocuments(input: BulkDocumentUploadInput): Promi
   let currentBatesNumber = maxBatesNumber + 1;
   const batesPrefix = input.bates_prefix || 'DOC';
 
-  const storageBatchSize = 10;
-
-  for (let i = 0; i < input.files.length; i += storageBatchSize) {
-    const batch = input.files.slice(i, i + storageBatchSize);
-    const batchPromises = batch.map(async (file, index) => {
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${user.id}/${input.case_id}/${Date.now()}-${i + index}.${fileExt}`;
-
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('case-documents')
-        .upload(fileName, file, {
-          cacheControl: '3600',
-          upsert: false
-        });
-
-      if (uploadError) {
-        throw new Error(`Failed to upload ${file.name}: ${uploadError.message}`);
-      }
-
-      const { data: { publicUrl } } = supabase.storage
-        .from('case-documents')
-        .getPublicUrl(uploadData.path);
-
+  for (let i = 0; i < input.files.length; i++) {
+    const file = input.files[i];
+    try {
       const batesNumber = input.generate_bates 
         ? `${batesPrefix}-${currentBatesNumber.toString().padStart(4, '0')}`
         : null;
@@ -261,68 +241,26 @@ export async function bulkUploadDocuments(input: BulkDocumentUploadInput): Promi
         currentBatesNumber++;
       }
 
-      const documentInput: CreateDocumentInput = {
-        case_id: input.case_id,
-        name: file.name,
-        file_url: publicUrl,
-        file_type: file.type,
-        file_size: file.size,
-        bates_number: batesNumber,
-      };
+      const uploadResult = await uploadAndProcessFile(
+        file,
+        input.case_id,
+        user.id,
+        undefined, // organizationId
+        { bates_number: batesNumber }, // metadata
+        input.ocr_priority
+      );
 
-      const { data: docData, error: docError } = await supabase
-        .from("documents")
-        .insert({
-          ...documentInput,
-          user_id: user.id,
-        })
-        .select()
-        .single();
-
-      if (docError) {
-        throw new Error(`Failed to create document record for ${file.name}: ${docError.message}`);
-      }
-
-      return docData as unknown as Document;
-    });
-
-    try {
-      const batchResults = await Promise.allSettled(batchPromises);
-      
-      await Promise.all(batchResults.map(async (result, index) => {
-        if (result.status === 'fulfilled') {
-          results.successful++;
-          results.documents.push(result.value);
-        } else {
-          results.failed++;
-          results.errors.push(`File ${batch[index].name}: ${result.reason.message || 'Unknown error'}`);
-        }
-      }));
+      results.successful++;
+      results.documents.push(uploadResult.document);
     } catch (error) {
-      results.failed += batch.length;
-      results.errors.push(`Batch upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      results.failed++;
+      results.errors.push(`File ${file.name}: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
-  const ocrDocumentIds = results.documents
-    .filter((doc) => doc.file_url && (doc.file_type?.includes('pdf') || doc.file_type?.includes('image') || doc.file_type?.includes('text')))
-    .map((doc) => doc.id);
-
-  if (ocrDocumentIds.length > 0) {
+  // The queue handles processing automatically, so we mark it as requested
+  if (results.documents.length > 0) {
     results.ocr_enqueue_requested = true;
-    const { error: enqueueError } = await supabase.functions.invoke('ocr-queue-processor', {
-      body: {
-        action: 'enqueue',
-        caseId: input.case_id,
-        documentIds: ocrDocumentIds,
-        priority: input.ocr_priority ?? 5,
-      },
-    });
-
-    if (enqueueError) {
-      console.error('Failed to enqueue OCR jobs after upload:', enqueueError);
-      results.ocr_enqueue_error = enqueueError.message;
-    }
   }
 
   return results;

@@ -461,28 +461,20 @@ async function processFile(
     }
 
     const fileBlob = await response.blob();
-
-    // Determine media type
-    let mediaType = 'document';
-    if (file.mimeType.startsWith('audio/')) {
-      mediaType = 'audio';
-    } else if (file.mimeType.startsWith('video/')) {
-      mediaType = 'video';
-    } else if (file.mimeType.startsWith('image/')) {
-      mediaType = 'image';
-    }
+    const arrayBuffer = await fileBlob.arrayBuffer();
+    const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const contentHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 
     // Generate storage path
-    const fileExtension = file.name.split('.').pop() || 'bin';
-    const timestamp = Date.now();
-    const storagePath = `${userId}/${caseId}/${timestamp}.${fileExtension}`;
+    const storagePath = `cases/${caseId}/${contentHash}/${file.name}`;
 
     // Upload to Supabase Storage
     const { error: uploadError } = await supabase.storage
       .from('case-documents')
       .upload(storagePath, fileBlob, {
         contentType: file.mimeType,
-        upsert: false,
+        upsert: true,
       });
 
     if (uploadError) {
@@ -504,50 +496,56 @@ async function processFile(
       file_url: fileUrl,
       file_type: file.mimeType,
       file_size: fileSize,
+      storage_path: storagePath,
+      content_hash: contentHash,
+      status: 'queued',
     }).select().single();
 
     if (docError) {
       throw new Error(`Failed to create document record: ${docError.message}`);
     }
 
-    console.log(`Successfully uploaded: ${file.name}, triggering OCR analysis...`);
+    // Determine processing types
+    const processingTypes = [];
+    const mime = file.mimeType.toLowerCase();
+    const ext = file.name.split('.').pop()?.toLowerCase() || '';
 
-    // Trigger OCR analysis for documents and images
-    if (mediaType === 'document' || mediaType === 'image') {
-      try {
-        const ocrUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/ocr-document`;
-        const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-        const ocrAuthorization = serviceRoleKey ? `Bearer ${serviceRoleKey}` : authHeader;
-
-        if (!ocrAuthorization) {
-          console.warn('Skipping OCR: missing authorization header.');
-          return;
-        }
-        const ocrResponse = await fetch(ocrUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': ocrAuthorization,
-          },
-          body: JSON.stringify({
-            documentId: docData.id,
-            fileUrl: fileUrl,
-          }),
-        });
-
-        if (ocrResponse.ok) {
-          const ocrResult = await ocrResponse.json();
-          console.log(`✅ OCR complete for ${file.name}: ${ocrResult.textLength} chars extracted`);
-        } else {
-          const ocrError = await ocrResponse.text();
-          console.error(`OCR failed for ${file.name}: ${ocrError}`);
-        }
-      } catch (ocrErr) {
-        console.error(`OCR request failed for ${file.name}:`, ocrErr);
-      }
+    if (mime === 'application/pdf' || ext === 'pdf') {
+      processingTypes.push('text_extraction', 'ai_analysis');
+    } else if (mime.startsWith('image/') || ['jpg', 'jpeg', 'png', 'tiff', 'tif', 'bmp', 'webp'].includes(ext)) {
+      processingTypes.push('ocr', 'ai_analysis');
+    } else if (['docx', 'doc', 'rtf', 'odt'].includes(ext) || mime.includes('word') || mime.includes('document')) {
+      processingTypes.push('text_extraction', 'ai_analysis');
+    } else if (mime.startsWith('audio/') || mime.startsWith('video/') || ['mp3', 'wav', 'm4a', 'ogg', 'flac', 'mp4', 'mov', 'avi', 'mkv', 'webm'].includes(ext)) {
+      processingTypes.push('transcription', 'ai_analysis');
+    } else if (['eml', 'msg'].includes(ext) || mime === 'message/rfc822') {
+      processingTypes.push('email_parse', 'ai_analysis');
+    } else if (['xlsx', 'xls', 'csv'].includes(ext) || mime.includes('spreadsheet') || mime.includes('excel')) {
+      processingTypes.push('text_extraction', 'ai_analysis');
+    } else if (['txt', 'md', 'json', 'xml', 'html'].includes(ext) || mime.startsWith('text/')) {
+      processingTypes.push('text_extraction', 'ai_analysis');
+    } else {
+      processingTypes.push('text_extraction', 'ai_analysis');
     }
 
-    console.log(`✅ Successfully processed: ${file.name}`);
+    // Insert into processing queue
+    for (const procType of processingTypes) {
+      await supabase.from('processing_queue').insert({
+        file_id: docData.id,
+        case_id: caseId,
+        user_id: userId,
+        processing_type: procType,
+        status: 'pending',
+        priority: 5,
+        content_hash: contentHash,
+        file_name: file.name,
+        file_type: file.mimeType,
+        file_size_bytes: fileSize,
+        storage_path: storagePath,
+      });
+    }
+
+    console.log(`✅ Successfully queued: ${file.name}`);
   } catch (error) {
     clearTimeout(timeout);
     throw error;

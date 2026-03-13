@@ -15,7 +15,8 @@ export async function uploadAndProcessFile(
   caseId: string,
   userId: string,
   organizationId?: string,
-  metadata?: Record<string, any>
+  metadata?: Record<string, any>,
+  priority?: number
 ): Promise<UploadResult> {
   const contentHash = await hashFile(file);
   
@@ -58,6 +59,7 @@ export async function uploadAndProcessFile(
     fileSize: file.size,
     storagePath,
     file,
+    priority,
   });
   
   return {
@@ -74,14 +76,15 @@ export async function uploadMultipleFiles(
   caseId: string,
   userId: string,
   organizationId?: string,
-  onProgress?: (completed: number, total: number, fileName: string) => void
+  onProgress?: (completed: number, total: number, fileName: string) => void,
+  priority?: number
 ): Promise<UploadResult[]> {
   const results: UploadResult[] = [];
   
   for (let i = 0; i < files.length; i++) {
     onProgress?.(i, files.length, files[i].name);
     try {
-      const result = await uploadAndProcessFile(files[i], caseId, userId, organizationId);
+      const result = await uploadAndProcessFile(files[i], caseId, userId, organizationId, undefined, priority);
       results.push(result);
     } catch (e) {
       console.error(`Failed to upload ${files[i].name}:`, e);
