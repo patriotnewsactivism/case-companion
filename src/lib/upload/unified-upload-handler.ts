@@ -4,7 +4,7 @@ import { hashFile } from '../hashing';
 
 export interface UploadResult {
   fileId: string;
-  document: any;
+  document: Record<string, unknown>;
   storagePath: string;
   queueJobIds: string[];
   contentHash: string;
@@ -15,39 +15,44 @@ export async function uploadAndProcessFile(
   caseId: string,
   userId: string,
   organizationId?: string,
-  metadata?: Record<string, any>,
+  metadata?: Record<string, unknown>,
   priority?: number
 ): Promise<UploadResult> {
   const contentHash = await hashFile(file);
-  
+
   // 1. Upload to Supabase Storage
   const storagePath = `cases/${caseId}/${contentHash}/${file.name}`;
   const { error: uploadError } = await supabase.storage
     .from('case-documents')
     .upload(storagePath, file, { upsert: true });
-  
+
   if (uploadError) throw new Error(`Upload failed: ${uploadError.message}`);
-  
+
+  const { data: publicData } = supabase.storage
+    .from('case-documents')
+    .getPublicUrl(storagePath);
+
   // 2. Create document record in database
+  // Use the stable schema used by the app's documents table.
+  const documentName = typeof metadata?.name === "string" ? metadata.name : file.name;
+  const batesNumber = typeof metadata?.bates_number === "string" ? metadata.bates_number : null;
+
   const { data: docRecord, error: dbError } = await supabase
     .from('documents')
     .insert({
       case_id: caseId,
       user_id: userId,
-      organization_id: organizationId,
-      file_name: file.name,
+      name: documentName,
       file_type: file.type,
       file_size: file.size,
-      storage_path: storagePath,
-      content_hash: contentHash,
-      status: 'queued',
-      ...metadata,
+      file_url: publicData.publicUrl,
+      bates_number: batesNumber,
     })
     .select('*')
     .single();
-  
+
   if (dbError) throw new Error(`DB insert failed: ${dbError.message}`);
-  
+
   // 3. Enqueue for processing
   const jobIds = await QueueManager.enqueueFile({
     fileId: docRecord.id,
@@ -61,7 +66,7 @@ export async function uploadAndProcessFile(
     file,
     priority,
   });
-  
+
   return {
     fileId: docRecord.id,
     document: docRecord,
@@ -80,7 +85,7 @@ export async function uploadMultipleFiles(
   priority?: number
 ): Promise<UploadResult[]> {
   const results: UploadResult[] = [];
-  
+
   for (let i = 0; i < files.length; i++) {
     onProgress?.(i, files.length, files[i].name);
     try {
@@ -91,7 +96,7 @@ export async function uploadMultipleFiles(
       // Continue with other files — don't let one failure stop the batch
     }
   }
-  
+
   onProgress?.(files.length, files.length, 'Complete');
   return results;
 }
