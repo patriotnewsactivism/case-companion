@@ -4,10 +4,21 @@ import { hashFile } from '../hashing';
 
 export interface UploadResult {
   fileId: string;
-  document: any;
+  document: Record<string, unknown>;
   storagePath: string;
   queueJobIds: string[];
   contentHash: string;
+}
+
+function isMissingDocumentsContentHashColumn(errorMessage: string): boolean {
+  return (
+    errorMessage.includes("Could not find the 'content_hash' column") &&
+    errorMessage.includes("'documents'")
+  );
+}
+
+export function shouldRetryDocumentInsertWithoutContentHash(errorMessage: string): boolean {
+  return isMissingDocumentsContentHashColumn(errorMessage);
 }
 
 export async function uploadAndProcessFile(
@@ -15,7 +26,7 @@ export async function uploadAndProcessFile(
   caseId: string,
   userId: string,
   organizationId?: string,
-  metadata?: Record<string, any>,
+  metadata?: Record<string, unknown>,
   priority?: number
 ): Promise<UploadResult> {
   const contentHash = await hashFile(file);
@@ -29,22 +40,40 @@ export async function uploadAndProcessFile(
   if (uploadError) throw new Error(`Upload failed: ${uploadError.message}`);
   
   // 2. Create document record in database
-  const { data: docRecord, error: dbError } = await supabase
+  const baseDocumentPayload = {
+    case_id: caseId,
+    user_id: userId,
+    organization_id: organizationId,
+    file_name: file.name,
+    file_type: file.type,
+    file_size: file.size,
+    storage_path: storagePath,
+    status: 'queued',
+    ...metadata,
+  };
+
+  const { data: docRecordWithHash, error: dbErrorWithHash } = await supabase
     .from('documents')
     .insert({
-      case_id: caseId,
-      user_id: userId,
-      organization_id: organizationId,
-      file_name: file.name,
-      file_type: file.type,
-      file_size: file.size,
-      storage_path: storagePath,
+      ...baseDocumentPayload,
       content_hash: contentHash,
-      status: 'queued',
-      ...metadata,
     })
     .select('*')
     .single();
+
+  let docRecord = docRecordWithHash;
+  let dbError = dbErrorWithHash;
+
+  if (dbError && shouldRetryDocumentInsertWithoutContentHash(dbError.message)) {
+    const { data: docRecordWithoutHash, error: dbErrorWithoutHash } = await supabase
+      .from('documents')
+      .insert(baseDocumentPayload)
+      .select('*')
+      .single();
+
+    docRecord = docRecordWithoutHash;
+    dbError = dbErrorWithoutHash;
+  }
   
   if (dbError) throw new Error(`DB insert failed: ${dbError.message}`);
   
