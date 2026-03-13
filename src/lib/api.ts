@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { uploadAndProcessFile } from "./upload/unified-upload-handler";
 
 export type CaseStatus = "active" | "discovery" | "pending" | "review" | "closed" | "archived";
 export type RepresentationType = "plaintiff" | "defendant" | "executor" | "petitioner" | "respondent" | "other";

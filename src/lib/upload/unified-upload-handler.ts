@@ -4,6 +4,7 @@ import { hashFile } from '../hashing';
 
 export interface UploadResult {
   fileId: string;
+  document: any;
   storagePath: string;
   queueJobIds: string[];
   contentHash: string;
@@ -41,7 +42,7 @@ export async function uploadAndProcessFile(
       status: 'queued',
       ...metadata,
     })
-    .select('id')
+    .select('*')
     .single();
   
   if (dbError) throw new Error(`DB insert failed: ${dbError.message}`);
@@ -61,6 +62,7 @@ export async function uploadAndProcessFile(
   
   return {
     fileId: docRecord.id,
+    document: docRecord,
     storagePath,
     queueJobIds: jobIds,
     contentHash,

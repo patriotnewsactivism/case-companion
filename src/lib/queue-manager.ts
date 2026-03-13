@@ -15,6 +15,7 @@ export class QueueManager {
     fileSize: number;
     storagePath: string;
     file: File;
+    priority?: number;
   }): Promise<string[]> {
     const contentHash = await hashFile(params.file);
     const jobIds: string[] = [];
@@ -31,6 +32,8 @@ export class QueueManager {
           user_id: params.userId,
           organization_id: params.organizationId,
           processing_type: procType,
+          status: 'pending',
+          priority: params.priority ?? 5,
           content_hash: contentHash,
           file_name: params.fileName,
           file_type: params.fileType,
