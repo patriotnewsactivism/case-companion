@@ -38,6 +38,8 @@ import { motion } from "framer-motion";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { batchAnalyzeDocuments } from "@/lib/api";
+import { uploadAndProcessFile } from "@/lib/upload/unified-upload-handler";
+import { ProcessingStatusBar } from "@/components/processing/ProcessingStatusBar";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -742,39 +744,25 @@ export default function CaseDetail() {
     setUploading(true);
 
     try {
-      let fileUrl: string | undefined;
       const batesNumber = docForm.bates_number || generateNextBatesNumber(documents, caseData?.name?.substring(0, 3).toUpperCase() || 'DOC');
 
-      if (docForm.file && user) {
-        console.log("Attempting to upload file:", docForm.file.name, "Type:", docForm.file.type, "Size:", docForm.file.size);
-        const fileExt = docForm.file.name.split('.').pop();
-        const fileName = `${user.id}/${id}/${Date.now()}.${fileExt}`;
-
-        const { data: uploadData, error: uploadError } = await supabase.storage
-          .from('case-documents')
-          .upload(fileName, docForm.file, {
-            cacheControl: '3600',
-            upsert: false
-          });
-
-        if (uploadError) {
-          throw new Error(`Failed to upload file: ${uploadError.message}`);
-        }
-
-        const { data: { publicUrl } } = supabase.storage
-          .from('case-documents')
-          .getPublicUrl(uploadData.path);
-
-        fileUrl = publicUrl;
+      if (docForm.file && user && id) {
+        await uploadAndProcessFile(
+          docForm.file,
+          id,
+          user.id,
+          undefined,
+          { 
+            bates_number: batesNumber,
+            name: docForm.name || docForm.file.name 
+          }
+        );
+        
+        toast.success("Your document has been added to the queue for processing.");
+        invalidateDocumentDerivedQueries();
+        setIsUploadOpen(false);
+        setDocForm({ name: "", bates_number: "", file: null });
       }
-
-      await createDocMutation.mutateAsync({
-        name: docForm.name || docForm.file?.name || 'Untitled Document',
-        bates_number: batesNumber,
-        file_url: fileUrl,
-        file_type: docForm.file?.type,
-        file_size: docForm.file?.size,
-      });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to upload document");
     } finally {
@@ -1658,6 +1646,8 @@ export default function CaseDetail() {
           )}
         </DialogContent>
       </Dialog>
+      
+      {id && <ProcessingStatusBar caseId={id} />}
     </Layout>
   );
 }
