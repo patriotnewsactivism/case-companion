@@ -173,6 +173,19 @@ const inferNextRequiredAction = (phase: TimelinePhase, content: string): string 
   return 'Evaluate post-trial motions, appellate deadlines, and enforcement strategy.';
 };
 
+const isTitleOcrJunk = (title: string): boolean => {
+  const t = title.trim();
+  // Titles that are just page references
+  if (/^(PAGE\s+\d+|=== PAGE)/i.test(t)) return true;
+  // Titles that start with a bare case number
+  if (/^(Case\s+)?\d+[:\-]\d+[-\w]*\s*(Document|cv|cr)/i.test(t)) return true;
+  // Titles that are just "PAGE X Case Y" patterns
+  if (/^PAGE\s+\d+\s+Case/i.test(t)) return true;
+  // Titles that are mostly digits and case formatting
+  if (t.replace(/[\d\s:\-\/cvCVPage]+/g, '').length < 5) return true;
+  return false;
+};
+
 const normalizeTimelineEvent = (
   event: TimelineEventCandidate,
   caseId: string,
@@ -182,8 +195,10 @@ const normalizeTimelineEvent = (
   const nowIso = new Date().toISOString();
   const dateOnly = toDateOnlyString(event.date);
   if (!dateOnly) return null;
-  const title = (event.event_title || '').trim();
-  const description = (event.description || '').trim();
+  let title = (event.event_title || '').trim();
+  // Clean OCR artifacts from AI-generated titles
+  title = title.replace(/={2,}\s*PAGE\s+\d+\s*={0,}/gi, '').replace(/^PAGE\s+\d+\s*/i, '').trim();
+  const description = (event.description || '').replace(/={2,}\s*PAGE\s+\d+\s*={0,}/gi, '').trim();
   const eventType = (event.event_type || '').trim();
   const content = `${title} ${description} ${eventType}`.toLowerCase();
   const entities = Array.isArray(event.entities) ? event.entities : [];
@@ -191,6 +206,8 @@ const normalizeTimelineEvent = (
   const phase = normalizePhase(event.phase, content);
   const nextRequiredAction = (event.next_required_action || '').trim() || inferNextRequiredAction(phase, content);
   if (!title && description.length < 20) return null;
+  // Reject titles that are just OCR artifacts or document metadata
+  if (isTitleOcrJunk(title)) return null;
   return {
     case_id: caseId,
     user_id: ownerUserId,
@@ -243,9 +260,34 @@ const extractDateToken = (sentence: string): string | null => {
   return null;
 };
 
+const isOcrArtifact = (sentence: string): boolean => {
+  const s = sentence.trim();
+  // Page markers: "=== PAGE 1 ===" or "PAGE 1 of 28"
+  if (/^={2,}\s*PAGE\s+\d+/i.test(s)) return true;
+  // Starts with "PAGE X" followed by case numbers
+  if (/^PAGE\s+\d+\s+(Case|of)\b/i.test(s)) return true;
+  // Pure case number headers: "Case 3:25-cv-00203 Document 1 Filed on..."
+  if (/^Case\s+\d+[:\-]\d+/i.test(s)) return true;
+  // Document header lines with no real content: "Document #: 2 Filed: 11/26/2024 Page 1 of 26"
+  if (/^Document\s+[#\d]/i.test(s) && /Page\s+\d+\s+of\s+\d+/i.test(s)) return true;
+  // Lines that are mostly page/document references
+  const cleaned = s.replace(/(?:PAGE|DOCUMENT|===|\d+\s*of\s*\d+|Case\s*\d+[:\-]\S+)/gi, '').trim();
+  if (cleaned.length < 15) return true;
+  return false;
+};
+
 const buildTimelineTitle = (sentence: string, dateToken: string | null): string => {
-  const withoutDate = dateToken ? sentence.replace(dateToken, ' ') : sentence;
-  const words = withoutDate.replace(/[^a-zA-Z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean).slice(0, 8);
+  // Strip OCR page markers and artifacts
+  let cleaned = sentence.replace(/={2,}\s*PAGE\s+\d+\s*={0,}/gi, '').trim();
+  // Strip leading "PAGE X" references
+  cleaned = cleaned.replace(/^PAGE\s+\d+\s*/i, '').trim();
+  // Remove date token
+  const withoutDate = dateToken ? cleaned.replace(dateToken, ' ') : cleaned;
+  // Remove case number patterns (e.g., "Case 3:25-cv-00203")
+  const withoutCaseNum = withoutDate.replace(/Case\s+\d+[:\-]\d+[-\w]*/gi, ' ').trim();
+  // Remove "Document X" and "Page X of Y" references
+  const withoutDocRef = withoutCaseNum.replace(/Document\s+#?\s*\d+/gi, ' ').replace(/Page\s+\d+\s+of\s+\d+/gi, ' ').trim();
+  const words = withoutDocRef.replace(/[^a-zA-Z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean).slice(0, 8);
   if (words.length === 0) return 'Document event';
   const base = words.join(' ');
   return base.charAt(0).toUpperCase() + base.slice(1);
@@ -284,13 +326,20 @@ const buildHeuristicAnalysis = (text: string): HeuristicAnalysisResult => {
   const sentences = extractSentences(text).slice(0, 100);
   const timelineEvents: TimelineEventCandidate[] = [];
   for (const sentence of sentences) {
+    // Skip OCR page markers and document header artifacts
+    if (isOcrArtifact(sentence)) continue;
     const dateToken = extractDateToken(sentence);
     if (!dateToken) continue;
     if (!/\b(filed|served|hearing|trial|deposition|meeting|conference|incident|accident|injury|deadline|notice|email|letter|call|agreement|contract|payment|settlement|judgment|order|motion|complaint)\b/i.test(sentence)) continue;
+    const title = buildTimelineTitle(sentence, dateToken);
+    // Skip events with titles that are too short or still look like artifacts
+    if (title.length < 5 || /^(Document event|Filed|Page|Case)$/i.test(title)) continue;
+    // Strip OCR artifacts from description too
+    const cleanDesc = sentence.replace(/={2,}\s*PAGE\s+\d+\s*={0,}/gi, '').replace(/^PAGE\s+\d+\s*/i, '').trim();
     timelineEvents.push({
       date: toDateOnlyString(dateToken) || undefined,
-      event_title: buildTimelineTitle(sentence, dateToken),
-      description: sentence.slice(0, 280),
+      event_title: title,
+      description: cleanDesc.slice(0, 280),
       importance: inferImportance(sentence),
       event_type: inferEventType(sentence),
       phase: normalizePhase(undefined, sentence),
@@ -695,17 +744,26 @@ serve(async (req) => {
       const analysisContext = buildAnalysisDocumentContext(extractedText);
 
       const analysisPrompt = `You are an expert legal document analyst specializing in litigation support. Analyze this document with maximum precision and extract every strategically relevant detail.
-      
+
+CRITICAL RULES FOR TIMELINE EVENTS:
+- Extract REAL legal events only: filings, hearings, depositions, incidents, deadlines, agreements, rulings, communications.
+- DO NOT create events from OCR page markers ("=== PAGE 1 ==="), document headers, case number lines, page counts, Bates stamps, or formatting artifacts.
+- DO NOT use raw document metadata as event titles. Titles must describe WHAT HAPPENED, not what page or case number it is.
+- BAD title examples: "PAGE 1 Case 3:25-cv-00203 Document", "Filed 12 54 PM Dwight D", "1 PAGE 2 Case 3 25"
+- GOOD title examples: "Motion for Summary Judgment Filed", "Deposition of Dwight Davis Scheduled", "Court Grants Temporary Restraining Order"
+- Each event_title must be a clear, human-readable description of a legal action or milestone.
+- Each description must explain the significance of the event, not just quote raw document text.
+
 ANALYSIS REQUIREMENTS:
 1. SUMMARY: 3-5 sentence executive summary covering the document's content, significance, and strategic implications
 2. KEY_FACTS: 8-15 specific factual findings (dates, events, statements, amounts, names, locations)
 3. FAVORABLE_FINDINGS: 5-8 findings supporting the case (admissions, favorable testimony, helpful evidence, compliance, corroboration)
 4. ADVERSE_FINDINGS: 5-8 findings that could hurt the case (contradictions, damaging statements, weaknesses, non-compliance)
 5. ACTION_ITEMS: 5-8 specific follow-up actions (witnesses to interview, documents to request, issues to research, deadlines to calendar)
-6. TIMELINE_EVENTS: Extract ALL chronological events (up to ${MAX_TIMELINE_EVENTS}). For each:
+6. TIMELINE_EVENTS: Extract MEANINGFUL chronological events (up to ${MAX_TIMELINE_EVENTS}). For each:
    - "date": YYYY-MM-DD (approximate if needed)
-   - "event_title": Short title (5-10 words)
-   - "description": Detailed description (1-3 sentences)
+   - "event_title": Clear action-oriented title (5-10 words) describing what happened
+   - "description": Detailed description (1-3 sentences) explaining significance
    - "importance": "high", "medium", or "low"
    - "event_type": "communication", "filing", "incident", "meeting", "deadline", "medical", "financial", "contractual"
    - "entities": Array of key people/orgs involved
@@ -713,7 +771,7 @@ ANALYSIS REQUIREMENTS:
    - "next_required_action": Practical next step for litigation planning
 7. ENTITIES: Extract ALL key entities (people, organizations, locations) with their roles and relationships
 
-Be exhaustive. Extract every date, every person mentioned, every significant fact. This analysis drives the entire case strategy.
+Be exhaustive but meaningful. Extract every real legal event, person mentioned, and significant fact. Skip document formatting artifacts. This analysis drives the entire case strategy.
 
 Respond ONLY with valid JSON:
 {
