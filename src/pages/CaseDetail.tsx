@@ -572,26 +572,26 @@ export default function CaseDetail() {
     }
   };
 
-  // Batch re-analyze all unprocessed documents
+  // Batch re-analyze all documents (including previously analyzed ones)
   const triggerBatchOcr = async () => {
-    const unanalyzedDocs = documents.filter(
-      (doc) => !doc.ai_analyzed && doc.file_url &&
+    const analyzableDocs = documents.filter(
+      (doc) => doc.file_url &&
       (doc.file_type?.includes('pdf') || doc.file_type?.includes('image') || doc.file_type?.includes('text'))
     );
 
-    if (unanalyzedDocs.length === 0) {
-      toast.info("All documents have already been analyzed.");
+    if (analyzableDocs.length === 0) {
+      toast.info("No analyzable documents found.");
       return;
     }
 
     setBatchProcessing(true);
-    setBatchProgress({ current: 0, total: unanalyzedDocs.length });
+    setBatchProgress({ current: 0, total: analyzableDocs.length });
 
-    toast.info(`Processing ${unanalyzedDocs.length} documents...`);
+    toast.info(`Re-analyzing ${analyzableDocs.length} documents...`);
 
     try {
       const result = await batchAnalyzeDocuments(
-        unanalyzedDocs.map(doc => doc.id),
+        analyzableDocs.map(doc => doc.id),
         (completed, total) => {
           setBatchProgress({ current: completed, total });
         }
@@ -612,9 +612,9 @@ export default function CaseDetail() {
     }
   };
 
-  // Count unanalyzed documents
-  const unanalyzedCount = documents.filter(
-    (doc) => !doc.ai_analyzed && doc.file_url && 
+  // Count analyzable documents
+  const analyzableCount = documents.filter(
+    (doc) => doc.file_url &&
     (doc.file_type?.includes('pdf') || doc.file_type?.includes('image') || doc.file_type?.includes('text'))
   ).length;
 
@@ -1059,7 +1059,7 @@ export default function CaseDetail() {
                 <div className="flex flex-wrap justify-end items-center gap-2">
                   <div className="flex gap-2">
                     {/* Batch Re-analyze Button */}
-                    {unanalyzedCount > 0 && (
+                    {analyzableCount > 0 && (
                       <Button
                         variant="outline"
                         className="gap-2"
@@ -1074,7 +1074,7 @@ export default function CaseDetail() {
                         ) : (
                           <>
                             <Brain className="h-4 w-4" />
-                            Analyze All ({unanalyzedCount})
+                            Analyze All ({analyzableCount})
                           </>
                         )}
                       </Button>
