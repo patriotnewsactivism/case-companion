@@ -410,6 +410,7 @@ serve(async (req) => {
     const configuredGeminiModel = (Deno.env.get('GOOGLE_AI_MODEL') || '').trim();
     const geminiModelCandidates = Array.from(new Set([
       configuredGeminiModel,
+      'gemini-2.5-flash',
       'gemini-2.0-flash',
       'gemini-1.5-flash',
     ].filter(Boolean)));
@@ -521,7 +522,9 @@ serve(async (req) => {
           /model|not found|not supported/i.test(errorText);
 
         if (response.status === 429) {
-          throw new Error(`Gemini ${purpose} rate limit exceeded (${model})`);
+          lastError = `${model}: rate limit exceeded`;
+          console.warn(`Gemini ${purpose} rate limit on ${model}, trying next model...`);
+          continue;
         }
 
         if (unavailableModel) {

@@ -14,7 +14,7 @@ export interface QueueItem {
   priority: number;
   attempts: number;
   max_attempts: number;
-  provider: 'ocr_space' | 'gemini' | null;
+  provider: 'azure_di' | 'gemini' | null;
   retry_after: string | null;
   error_message: string | null;
   created_at: string;

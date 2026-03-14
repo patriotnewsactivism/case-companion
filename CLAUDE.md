@@ -112,15 +112,14 @@ Located in `supabase/functions/`:
 1. **`create-video-room`** - Creates Jitsi Meet room with JWT token
 2. **`join-video-room`** - Joins existing video room
 3. **`import-google-drive`** - Recursively imports folders from Google Drive to Supabase Storage
-4. **`ocr-document`** - OCR processing with triple-tier fallback
-   - **Primary**: Microsoft Azure Computer Vision (5,000/month free, best quality)
-   - **Fallback**: OCR.space (25,000/month free)
-   - **Last Resort**: Google Gemini 2.0 Flash (1,500/day free)
+4. **`ocr-document`** - OCR processing with dual-tier fallback
+   - **Primary**: Microsoft Azure Document Intelligence (5,000/month free, best quality)
+   - **Fallback**: Google Gemini Flash (1,500/day free, tries 2.5→2.0→1.5 on rate limits)
    - Extracts text from PDFs (multi-page), images, and text files
    - Performs AI legal analysis: summary, key facts, favorable/adverse findings, action items
    - Auto-generates timeline events from dates found in documents
    - Handles Bates numbers, exhibits, redactions, tables, and marginalia
-   - Automatically cascades through providers on failure (Azure → OCR.space → Gemini)
+   - Automatically cascades through providers on failure (Azure → Gemini)
 5. **`transcribe-media`** - Calls OpenAI Whisper API for audio/video transcription
 6. **`trial-simulation`** - AI-powered trial simulation with coaching (cross-exam, depositions, etc.)
 
@@ -138,16 +137,14 @@ Required in `.env` (see `.env.example`):
 **Supabase Secrets** (set via `npx supabase secrets set KEY=value`):
 - `AZURE_VISION_ENDPOINT` - Primary OCR (Azure Computer Vision, 5,000/month free) ✅ CONFIGURED
 - `AZURE_VISION_API_KEY` - Azure API key ✅ CONFIGURED
-- `OCR_SPACE_API_KEY` - Fallback OCR (25,000/month free) ✅ CONFIGURED
-- `GOOGLE_AI_API_KEY` - Last resort OCR (Gemini, 1,500/day free, optional)
+- `GOOGLE_AI_API_KEY` - Fallback OCR (Gemini Flash, 1,500/day free)
 - `OPENAI_API_KEY` - For Whisper audio/video transcription (optional)
 
-**OCR Strategy**: Triple-tier fallback for maximum reliability:
-1. Azure Computer Vision (best quality, industry-leading)
-2. OCR.space (good quality, high limits)
-3. Gemini (AI-powered, last resort)
+**OCR Strategy**: Dual-tier fallback for maximum reliability:
+1. Azure Document Intelligence (best quality, handles multi-page PDFs)
+2. Gemini Flash (AI-powered fallback, tries 2.5→2.0→1.5 models on rate limits)
 
-Total: 30,000+ free OCRs/month with automatic failover!
+Total: ~50,000 free OCRs/month (5K Azure + 45K Gemini) with automatic failover!
 
 Current project ID: `plcvjadartxntnurhcua`
 
