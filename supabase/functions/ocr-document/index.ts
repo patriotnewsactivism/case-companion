@@ -12,16 +12,6 @@ import { validateUUID, validateURL } from '../_shared/validation.ts';
 
 const STORAGE_BUCKET = 'case-documents';
 
-interface OcrSpaceParsedResult {
-  ParsedText?: string;
-}
-
-interface OcrSpaceResponse {
-  OCRExitCode?: number;
-  ParsedResults?: OcrSpaceParsedResult[];
-  ErrorMessage?: string | string[];
-}
-
 interface GeminiContentPart {
   text?: string;
 }
@@ -411,13 +401,11 @@ serve(async (req) => {
   try {
     validateEnvVars(['SUPABASE_URL', 'SUPABASE_ANON_KEY']);
 
-    const ocrSpaceApiKey = Deno.env.get('OCR_SPACE_API_KEY');
     const googleApiKey = Deno.env.get('GOOGLE_AI_API_KEY');
     const azureEndpoint = Deno.env.get('AZURE_DOC_INTELLIGENCE_ENDPOINT') || Deno.env.get('AZURE_VISION_ENDPOINT');
     const azureKey = Deno.env.get('AZURE_DOC_INTELLIGENCE_KEY') || Deno.env.get('AZURE_VISION_API_KEY');
 
     const hasAzure = !!(azureEndpoint && azureKey);
-    const hasOcrSpace = !!ocrSpaceApiKey;
     const hasGemini = !!googleApiKey;
     const configuredGeminiModel = (Deno.env.get('GOOGLE_AI_MODEL') || '').trim();
     const geminiModelCandidates = Array.from(new Set([
@@ -426,7 +414,7 @@ serve(async (req) => {
       'gemini-1.5-flash',
     ].filter(Boolean)));
 
-    console.log(`OCR providers: Azure=${hasAzure}, Gemini=${hasGemini}, OCR.space=${hasOcrSpace}`);
+    console.log(`OCR providers: Azure=${hasAzure}, Gemini=${hasGemini}`);
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
@@ -570,50 +558,14 @@ serve(async (req) => {
       return text;
     };
 
-    const ocrSpaceExtract = async (fileBlob: Blob, isImage: boolean, contentType?: string): Promise<string> => {
-      if (!ocrSpaceApiKey) throw new Error('OCR.space API key not configured');
-      console.log('Using OCR.space fallback...');
-      const extension = isImage ? 'jpg' : 'pdf';
-      const fileName = `document.${extension}`;
-      const file = new File([fileBlob], fileName, { type: contentType || (isImage ? 'image/jpeg' : 'application/pdf') });
-      const formData = new FormData();
-      formData.append('file', file, fileName);
-      formData.append('apikey', ocrSpaceApiKey);
-      formData.append('language', 'eng');
-      formData.append('isOverlayRequired', 'false');
-      formData.append('detectOrientation', 'true');
-      formData.append('scale', 'true');
-      formData.append('OCREngine', '2');
-      formData.append('filetype', extension.toUpperCase());
-
-      const response = await fetch('https://api.ocr.space/parse/image', { method: 'POST', body: formData });
-      if (!response.ok) throw new Error(`OCR.space API failed: ${response.status}`);
-
-      const result = (await response.json()) as OcrSpaceResponse;
-      if (result.OCRExitCode !== 1 || !result.ParsedResults?.length) {
-        const errorMessage = Array.isArray(result.ErrorMessage) ? result.ErrorMessage.join(', ') : (result.ErrorMessage || 'Unknown error');
-        throw new Error(`OCR.space parsing failed: ${errorMessage}`);
-      }
-
-      const extracted = result.ParsedResults
-        .map((page, idx: number) => {
-          const pageText = page.ParsedText || '';
-          return result.ParsedResults!.length > 1 ? `=== PAGE ${idx + 1} ===\n${pageText}` : pageText;
-        })
-        .join('\n\n');
-
-      console.log(`OCR.space extracted ${extracted.length} characters`);
-      return extracted;
-    };
-
     const isOcrTarget =
       resolvedContentType.includes('image') ||
       resolvedContentType.includes('pdf') ||
       !!validatedFileUrl.match(/\.(jpg|jpeg|png|gif|webp|bmp|tiff|pdf)$/i);
 
     if (isOcrTarget) {
-      if (!hasAzure && !hasGemini && !hasOcrSpace) {
-        throw new Error('No OCR providers configured.');
+      if (!hasAzure && !hasGemini) {
+        throw new Error('No OCR providers configured. Set Azure Document Intelligence or Google AI API key.');
       }
 
       const isImage = resolvedContentType.includes('image') || !!validatedFileUrl.match(/\.(jpg|jpeg|png|gif|webp|bmp|tiff)$/i);
@@ -621,7 +573,7 @@ serve(async (req) => {
 
       const errors: string[] = [];
 
-      // Tier 1: Azure Document Intelligence (best quality, handles large docs)
+      // Tier 1: Azure Document Intelligence (best quality, handles large multi-page docs)
       if (hasAzure) {
         try {
           console.log('Attempting Azure Document Intelligence (primary - best quality)...');
@@ -635,10 +587,10 @@ serve(async (req) => {
         }
       }
 
-      // Tier 2: Gemini 2.5 Flash (great AI-powered OCR)
+      // Tier 2: Gemini Flash (AI-powered OCR, handles multi-page PDFs natively)
       if (!extractedText && hasGemini) {
         try {
-          console.log('Attempting Gemini 2.5 Flash OCR...');
+          console.log('Attempting Gemini Flash OCR...');
           const mimeType = resolvedContentType || (isImage ? 'image/jpeg' : 'application/pdf');
           extractedText = await geminiOcr(fileBlob, mimeType, isImage);
           ocrProvider = 'gemini';
@@ -646,17 +598,6 @@ serve(async (req) => {
         } catch (error) {
           console.error('Gemini OCR error:', error);
           errors.push(`Gemini: ${error instanceof Error ? error.message : String(error)}`);
-        }
-      }
-
-      // Tier 3: OCR.space (reliable fallback)
-      if (!extractedText && hasOcrSpace) {
-        try {
-          extractedText = await ocrSpaceExtract(fileBlob, isImage, resolvedContentType);
-          ocrProvider = 'ocr_space';
-        } catch (error) {
-          console.error('OCR.space error:', error);
-          errors.push(`OCR.space: ${error instanceof Error ? error.message : String(error)}`);
         }
       }
 

@@ -76,7 +76,6 @@ CREATE TABLE IF NOT EXISTS public.rate_limit_status (
 
 INSERT INTO public.rate_limit_status (provider, requests_used, requests_limit, reset_at) VALUES
   ('tesseract_local', 0, 999999999, now() + interval '100 years'),
-  ('ocr_space', 0, 25000, date_trunc('month', now()) + interval '1 month'),
   ('azure_vision', 0, 5000, date_trunc('month', now()) + interval '1 month'),
   ('gemini_ocr', 0, 1500, date_trunc('day', now()) + interval '1 day'),
   ('gemini_ai', 0, 1500, date_trunc('day', now()) + interval '1 day'),

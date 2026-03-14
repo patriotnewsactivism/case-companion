@@ -21,7 +21,7 @@ export async function processDocumentOCR(
 ): Promise<OCRPipelineResult> {
   const start = performance.now();
   const contentHash = await hashFile(file);
-  
+
   // STEP 1: Check cache
   if (!options?.forceReprocess) {
     const cached = await CacheManager.checkOCRCache(contentHash);
@@ -35,7 +35,7 @@ export async function processDocumentOCR(
       };
     }
   }
-  
+
   // STEP 2: For PDFs, try text layer extraction first (FREE, instant)
   if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
     try {
@@ -56,7 +56,7 @@ export async function processDocumentOCR(
       console.warn('PDF text extraction failed, falling through to OCR:', e);
     }
   }
-  
+
   // STEP 3: Tesseract.js local OCR (FREE, unlimited)
   try {
     const localResult = await ocrWithTesseract(file);
@@ -75,30 +75,8 @@ export async function processDocumentOCR(
   } catch (e) {
     console.warn('Tesseract local OCR failed, falling through:', e);
   }
-  
-  // STEP 4: OCR.space API (25,000/mo free)
-  if (await isProviderAvailable('ocr_space')) {
-    try {
-      const result = await callOCRSpaceAPI(file);
-      if (result.text && result.text.length > 20) {
-        await CacheManager.storeOCRCache(contentHash, result.text, result.confidence, 'ocr_space', file.type, file.size);
-        await logAPIUsage('ocr_space', 'ocr', 'success');
-        await incrementUsage('ocr_space');
-        return {
-          text: result.text,
-          confidence: result.confidence,
-          provider: 'ocr_space',
-          cached: false,
-          processingTimeMs: Math.round(performance.now() - start),
-        };
-      }
-    } catch (e) {
-      console.warn('OCR.space failed, falling through:', e);
-      await logAPIUsage('ocr_space', 'ocr', 'failed', (e as Error).message);
-    }
-  }
-  
-  // STEP 5: Azure Vision (5,000/mo free)
+
+  // STEP 4: Azure Vision (5,000/mo free, handles multi-page PDFs)
   if (await isProviderAvailable('azure_vision')) {
     try {
       const result = await callAzureVisionAPI(file);
@@ -119,8 +97,8 @@ export async function processDocumentOCR(
       await logAPIUsage('azure_vision', 'ocr', 'failed', (e as Error).message);
     }
   }
-  
-  // STEP 6: Google Gemini (1,500/day free)
+
+  // STEP 5: Google Gemini (1,500/day free, handles multi-page PDFs natively)
   if (await isProviderAvailable('gemini_ocr')) {
     try {
       const result = await callGeminiOCR(file);
@@ -141,7 +119,7 @@ export async function processDocumentOCR(
       await logAPIUsage('gemini_ocr', 'ocr', 'failed', (e as Error).message);
     }
   }
-  
+
   // ALL PROVIDERS EXHAUSTED — return best local result or queue for retry
   throw new Error('ALL_OCR_PROVIDERS_EXHAUSTED');
 }
@@ -153,9 +131,9 @@ async function isProviderAvailable(provider: string): Promise<boolean> {
     .select('*')
     .eq('provider', provider)
     .single();
-  
+
   if (!data) return false;
-  
+
   // Reset counter if past reset time
   if (new Date(data.reset_at) <= new Date()) {
     await supabase
@@ -164,7 +142,7 @@ async function isProviderAvailable(provider: string): Promise<boolean> {
       .eq('provider', provider);
     return true;
   }
-  
+
   return data.is_available && data.requests_used < data.requests_limit;
 }
 
@@ -193,15 +171,6 @@ function getNextReset(provider: string): string {
   // Monthly reset
   const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
   return nextMonth.toISOString();
-}
-
-async function callOCRSpaceAPI(file: File): Promise<{ text: string; confidence: number }> {
-  // Call existing Supabase edge function for OCR.space
-  const { data, error } = await supabase.functions.invoke('ocr-document', {
-    body: { provider: 'ocr_space', /* file data */ },
-  });
-  if (error) throw error;
-  return { text: data.text, confidence: data.confidence || 90 };
 }
 
 async function callAzureVisionAPI(file: File): Promise<{ text: string; confidence: number }> {

@@ -53,16 +53,6 @@ interface QueueResponse {
   jobs: QueueJobResult[];
 }
 
-interface OcrSpaceParsedResult {
-  ParsedText?: string;
-}
-
-interface OcrSpaceResponse {
-  OCRExitCode?: number;
-  ParsedResults?: OcrSpaceParsedResult[];
-  ErrorMessage?: string | string[];
-}
-
 function extractStoragePath(fileUrl: string): string | null {
   if (!fileUrl || typeof fileUrl !== 'string') {
     return null;
@@ -140,56 +130,6 @@ const extractGeminiText = (payload: { candidates?: Array<{ content?: { parts?: A
   if (!Array.isArray(parts)) return '';
   return parts.map((part) => String(part?.text || '')).join('').trim();
 };
-
-async function ocrSpaceExtract(
-  ocrSpaceApiKey: string,
-  fileBlob: Blob,
-  isImage: boolean,
-  contentType?: string
-): Promise<string> {
-  const extension = isImage ? 'jpg' : 'pdf';
-  const fileName = `document.${extension}`;
-  const file = new File([fileBlob], fileName, {
-    type: contentType || (isImage ? 'image/jpeg' : 'application/pdf')
-  });
-
-  const formData = new FormData();
-  formData.append('file', file, fileName);
-  formData.append('apikey', ocrSpaceApiKey);
-  formData.append('language', 'eng');
-  formData.append('isOverlayRequired', 'false');
-  formData.append('detectOrientation', 'true');
-  formData.append('scale', 'true');
-  formData.append('OCREngine', '2');
-  formData.append('filetype', extension.toUpperCase());
-
-  const response = await fetch('https://api.ocr.space/parse/image', {
-    method: 'POST',
-    body: formData,
-  });
-
-  if (!response.ok) {
-    throw new Error(`OCR.space API failed: ${response.status} ${response.statusText}`);
-  }
-
-  const result = (await response.json()) as OcrSpaceResponse;
-
-  if (result.OCRExitCode !== 1 || !result.ParsedResults || result.ParsedResults.length === 0) {
-    const errorMessage = Array.isArray(result.ErrorMessage)
-      ? result.ErrorMessage.join(', ')
-      : (result.ErrorMessage || 'Unknown error');
-    throw new Error(`OCR.space parsing failed: ${errorMessage}`);
-  }
-
-  const extractedText = result.ParsedResults
-    .map((page, idx: number) => {
-      const pageText = page.ParsedText || '';
-      return result.ParsedResults!.length > 1 ? `=== PAGE ${idx + 1} ===\n${pageText}` : pageText;
-    })
-    .join('\n\n');
-
-  return extractedText;
-}
 
 async function geminiOcr(
   googleApiKey: string,
@@ -431,18 +371,16 @@ ${extractedText.substring(0, 20000)}`;
 async function processOcrJob(
   supabase: SupabaseClient,
   job: OcrQueueJob,
-  ocrSpaceApiKey: string | undefined,
   googleApiKey: string | undefined,
   openaiApiKey: string | undefined,
   aiGatewayUrl: string | undefined
 ): Promise<{ success: boolean; error?: string }> {
-  const hasOcrSpace = !!ocrSpaceApiKey;
   const hasGemini = !!googleApiKey;
 
-  if (!hasGemini && !hasOcrSpace) {
+  if (!hasGemini) {
     return {
       success: false,
-      error: 'No OCR providers configured. Please set GOOGLE_AI_API_KEY or OCR_SPACE_API_KEY.',
+      error: 'No OCR providers configured. Please set GOOGLE_AI_API_KEY.',
     };
   }
 
@@ -481,17 +419,6 @@ async function processOcrJob(
           const msg = error instanceof Error ? error.message : String(error);
           errors.push(`Gemini: ${msg}`);
           console.error('Gemini OCR error:', msg);
-        }
-      }
-
-      if (!extractedText && hasOcrSpace) {
-        try {
-          extractedText = await ocrSpaceExtract(ocrSpaceApiKey!, fileBlob, !!isImage, mimeType);
-          console.log(`OCR.space extracted ${extractedText.length} characters`);
-        } catch (error) {
-          const msg = error instanceof Error ? error.message : String(error);
-          errors.push(`OCR.space: ${msg}`);
-          console.error('OCR.space OCR error:', msg);
         }
       }
 
@@ -565,7 +492,6 @@ async function processOcrJob(
 
 async function handleProcessAction(
   supabase: SupabaseClient,
-  ocrSpaceApiKey: string | undefined,
   googleApiKey: string | undefined,
   openaiApiKey: string | undefined,
   aiGatewayUrl: string | undefined
@@ -615,7 +541,6 @@ async function handleProcessAction(
     const result = await processOcrJob(
       supabase,
       job,
-      ocrSpaceApiKey,
       googleApiKey,
       openaiApiKey,
       aiGatewayUrl
@@ -908,7 +833,6 @@ serve(async (req) => {
   try {
     validateEnvVars(['SUPABASE_URL', 'SUPABASE_ANON_KEY']);
 
-    const ocrSpaceApiKey = Deno.env.get('OCR_SPACE_API_KEY');
     const googleApiKey = Deno.env.get('GOOGLE_AI_API_KEY');
     const openaiApiKey = Deno.env.get('OPENAI_API_KEY');
     const aiGatewayUrl = Deno.env.get('AI_GATEWAY_URL');
@@ -971,7 +895,6 @@ serve(async (req) => {
 
       const result = await handleProcessAction(
         supabase,
-        ocrSpaceApiKey,
         googleApiKey,
         openaiApiKey,
         aiGatewayUrl

@@ -224,7 +224,7 @@ async function processTextExtraction(
   }
 
   // PDFs, images, Word docs: delegate to ocr-document edge function
-  // which handles Azure DI -> Gemini -> OCR.space cascade + AI analysis
+  // which handles Azure DI -> Gemini cascade + AI analysis
   const fileUrl = buildFileUrl(supabaseUrl, storagePath);
   const ocrResult = await invokeEdgeFunction(supabaseUrl, serviceRoleKey, 'ocr-document', {
     documentId: fileId,
