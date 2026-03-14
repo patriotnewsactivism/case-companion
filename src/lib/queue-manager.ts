@@ -93,6 +93,77 @@ export class QueueManager {
     return ['text_extraction', 'ai_analysis'];
   }
   
+  // Enqueue processing for an existing document (already uploaded).
+  // Used when manually triggering OCR, transcription, or re-analysis.
+  static async enqueueExistingDocument(params: {
+    fileId: string;
+    caseId: string;
+    userId: string;
+    fileName: string;
+    fileType: string;
+    fileSize?: number;
+    fileUrl: string;
+    processingTypes?: string[];
+    priority?: number;
+  }): Promise<string[]> {
+    const jobIds: string[] = [];
+
+    // Extract storage path from file URL
+    const storagePath = this.extractStoragePath(params.fileUrl);
+
+    // Use provided types or auto-detect
+    const processingTypes = params.processingTypes ||
+      this.determineProcessingTypes(params.fileType, params.fileName);
+
+    for (const procType of processingTypes) {
+      const { data, error } = await supabase
+        .from('processing_queue')
+        .insert({
+          file_id: params.fileId,
+          case_id: params.caseId,
+          user_id: params.userId,
+          processing_type: procType,
+          status: 'pending',
+          priority: params.priority ?? 3,
+          file_name: params.fileName,
+          file_type: params.fileType,
+          file_size_bytes: params.fileSize ?? 0,
+          storage_path: storagePath,
+        })
+        .select('id')
+        .single();
+
+      if (data) jobIds.push(data.id);
+      if (error) console.error(`Failed to enqueue ${procType} for ${params.fileId}:`, error);
+    }
+
+    return jobIds;
+  }
+
+  // Trigger the process-queue edge function to start processing enqueued jobs
+  static async triggerProcessing(): Promise<void> {
+    try {
+      await supabase.functions.invoke('process-queue', {
+        body: {},
+      });
+    } catch (e) {
+      // Non-fatal — the queue will be picked up on next invocation or cron
+      console.warn('Failed to trigger process-queue:', e);
+    }
+  }
+
+  // Extract storage path from a Supabase public URL
+  private static extractStoragePath(fileUrl: string): string {
+    if (!fileUrl) return '';
+    const marker = '/case-documents/';
+    const idx = fileUrl.indexOf(marker);
+    if (idx !== -1) {
+      return fileUrl.slice(idx + marker.length).split('?')[0];
+    }
+    // If not a full URL, assume it's already a storage path
+    return fileUrl;
+  }
+
   static async getQueueStatus(caseId: string): Promise<{
     pending: number;
     processing: number;

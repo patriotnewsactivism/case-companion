@@ -37,9 +37,9 @@ import { Badge } from "@/components/ui/badge";
 import { motion } from "framer-motion";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { batchAnalyzeDocuments } from "@/lib/api";
 import { uploadAndProcessFile } from "@/lib/upload/unified-upload-handler";
 import { ProcessingStatusBar } from "@/components/processing/ProcessingStatusBar";
+import { QueueManager } from "@/lib/queue-manager";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -110,15 +110,6 @@ interface TimelineEvent {
   entities?: any[] | null;
   created_at: string;
   updated_at: string;
-}
-
-interface OcrFunctionResponse {
-  success: boolean;
-  hasAnalysis?: boolean;
-  analysisProvider?: "openai" | "gemini" | "none";
-  requestedTimelineEvents?: number;
-  timelineEventsInserted?: number;
-  timelineInsertWarning?: string | null;
 }
 
 interface Case {
@@ -491,54 +482,34 @@ export default function CaseDetail() {
     },
   });
 
-  // Trigger OCR processing
+  // Trigger OCR processing via the durable processing queue
   const triggerOcr = async (documentId: string, fileUrl: string) => {
+    if (!user || !id) return;
     setProcessingOcr(documentId);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error("Not authenticated");
-
-      // Use direct fetch with mode: 'cors' to handle CORS properly
-      const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ocr-document`;
-
-      const response = await fetch(functionUrl, {
-        method: 'POST',
-        mode: 'cors',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`,
-          'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-        },
-        body: JSON.stringify({ documentId, fileUrl }),
+      const doc = documents.find(d => d.id === documentId);
+      const jobIds = await QueueManager.enqueueExistingDocument({
+        fileId: documentId,
+        caseId: id,
+        userId: user.id,
+        fileName: doc?.name || 'document',
+        fileType: doc?.file_type || 'application/pdf',
+        fileSize: doc?.file_size ?? undefined,
+        fileUrl,
+        processingTypes: ['text_extraction', 'ai_analysis'],
+        priority: 2,
       });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('OCR function error:', errorText);
-        throw new Error(errorText || `HTTP ${response.status}`);
-      }
-
-      const data = (await response.json()) as OcrFunctionResponse;
-
-      invalidateDocumentDerivedQueries();
-
-      const inserted = data.timelineEventsInserted ?? 0;
-      const requested = data.requestedTimelineEvents ?? 0;
-
-      if (data.hasAnalysis) {
-        toast.success(
-          requested > 0
-            ? `OCR and AI complete. Timeline events added: ${inserted}/${requested}.`
-            : "OCR and AI analysis complete."
-        );
+      if (jobIds.length > 0) {
+        toast.success("Document queued for OCR and AI analysis. Processing will begin shortly.");
+        // Trigger the queue processor
+        QueueManager.triggerProcessing();
       } else {
-        toast.warning("OCR completed, but AI analysis returned no structured findings.");
+        toast.error("Failed to enqueue document for processing.");
       }
 
-      if (data.timelineInsertWarning) {
-        toast.warning(`Timeline warning: ${data.timelineInsertWarning}`);
-      }
+      // Refresh queries after a short delay to pick up status changes
+      setTimeout(() => invalidateDocumentDerivedQueries(), 2000);
     } catch (error) {
       console.error("OCR error:", error);
       toast.error(error instanceof Error ? error.message : "OCR processing failed");
@@ -547,23 +518,32 @@ export default function CaseDetail() {
     }
   };
 
-  // Trigger transcription for audio/video files
+  // Trigger transcription via the durable processing queue
   const triggerTranscription = async (documentId: string) => {
+    if (!user || !id) return;
     setTranscribing(documentId);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error("Not authenticated");
-
-      const response = await supabase.functions.invoke('transcribe-media', {
-        body: { documentId },
+      const doc = documents.find(d => d.id === documentId);
+      const jobIds = await QueueManager.enqueueExistingDocument({
+        fileId: documentId,
+        caseId: id,
+        userId: user.id,
+        fileName: doc?.name || 'media',
+        fileType: doc?.file_type || 'audio/mpeg',
+        fileSize: doc?.file_size ?? undefined,
+        fileUrl: doc?.file_url || '',
+        processingTypes: ['transcription', 'ai_analysis'],
+        priority: 2,
       });
 
-      if (response.error) {
-        throw new Error(response.error.message);
+      if (jobIds.length > 0) {
+        toast.success("Media queued for transcription. Processing will begin shortly.");
+        QueueManager.triggerProcessing();
+      } else {
+        toast.error("Failed to enqueue media for transcription.");
       }
 
-      invalidateDocumentDerivedQueries();
-      toast.success("Audio/video has been transcribed successfully.");
+      setTimeout(() => invalidateDocumentDerivedQueries(), 2000);
     } catch (error) {
       console.error("Transcription error:", error);
       toast.error(error instanceof Error ? error.message : "Transcription failed");
@@ -572,8 +552,10 @@ export default function CaseDetail() {
     }
   };
 
-  // Batch re-analyze all unprocessed documents
+  // Batch re-analyze all unprocessed documents via the durable processing queue
   const triggerBatchOcr = async () => {
+    if (!user || !id) return;
+
     const unanalyzedDocs = documents.filter(
       (doc) => !doc.ai_analyzed && doc.file_url &&
       (doc.file_type?.includes('pdf') || doc.file_type?.includes('image') || doc.file_type?.includes('text'))
@@ -587,22 +569,39 @@ export default function CaseDetail() {
     setBatchProcessing(true);
     setBatchProgress({ current: 0, total: unanalyzedDocs.length });
 
-    toast.info(`Processing ${unanalyzedDocs.length} documents...`);
+    toast.info(`Queuing ${unanalyzedDocs.length} documents for processing...`);
 
     try {
-      const result = await batchAnalyzeDocuments(
-        unanalyzedDocs.map(doc => doc.id),
-        (completed, total) => {
-          setBatchProgress({ current: completed, total });
+      let enqueued = 0;
+      for (let i = 0; i < unanalyzedDocs.length; i++) {
+        const doc = unanalyzedDocs[i];
+        setBatchProgress({ current: i + 1, total: unanalyzedDocs.length });
+        try {
+          const jobIds = await QueueManager.enqueueExistingDocument({
+            fileId: doc.id,
+            caseId: id,
+            userId: user.id,
+            fileName: doc.name,
+            fileType: doc.file_type || 'application/pdf',
+            fileSize: doc.file_size ?? undefined,
+            fileUrl: doc.file_url!,
+            priority: 5,
+          });
+          if (jobIds.length > 0) enqueued++;
+        } catch (e) {
+          console.error(`Failed to enqueue ${doc.name}:`, e);
         }
-      );
+      }
+
+      // Trigger the queue processor
+      QueueManager.triggerProcessing();
 
       invalidateDocumentDerivedQueries();
 
-      if (result.failed > 0) {
-        toast.error(`Successfully analyzed ${result.successful} documents, ${result.failed} failed.`);
+      if (enqueued > 0) {
+        toast.success(`${enqueued} documents queued for processing. Check the status bar for progress.`);
       } else {
-        toast.success(`Successfully analyzed ${result.successful} documents.`);
+        toast.error("Failed to enqueue any documents.");
       }
     } catch (error) {
       console.error("Batch OCR error:", error);
