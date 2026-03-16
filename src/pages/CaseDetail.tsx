@@ -37,7 +37,7 @@ import { Badge } from "@/components/ui/badge";
 import { motion } from "framer-motion";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { batchAnalyzeDocuments } from "@/lib/api";
+import { batchAnalyzeDocuments, getBriefsByCase, createBrief, updateBrief, deleteBrief, type LegalBrief, type CreateBriefInput } from "@/lib/api";
 import { uploadAndProcessFile } from "@/lib/upload/unified-upload-handler";
 import { ProcessingStatusBar } from "@/components/processing/ProcessingStatusBar";
 import { useAuth } from "@/hooks/useAuth";
@@ -71,6 +71,8 @@ import {
   Sparkles,
   Search,
   Filter,
+  Send,
+  Edit2,
 } from "lucide-react";
 // Define types locally to avoid type mismatch with auto-generated types
 interface Document {
@@ -362,6 +364,25 @@ export default function CaseDetail() {
   const [showVideoRoom, setShowVideoRoom] = useState(false);
   const [videoRoomName, setVideoRoomName] = useState("");
 
+  // Briefs state
+  const [isBriefOpen, setIsBriefOpen] = useState(false);
+  const [editingBrief, setEditingBrief] = useState<LegalBrief | null>(null);
+  const [deleteBriefId, setDeleteBriefId] = useState<string | null>(null);
+  const [briefForm, setBriefForm] = useState<CreateBriefInput>({
+    case_id: id || "",
+    title: "",
+    type: "motion",
+    status: "draft",
+    content: "",
+    court: "",
+    due_date: "",
+  });
+
+  // AI Chat state
+  const [chatMessages, setChatMessages] = useState<{ role: "user" | "assistant"; content: string }[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+
   const [docForm, setDocForm] = useState({
     name: "",
     bates_number: "",
@@ -425,6 +446,48 @@ export default function CaseDetail() {
       return data as TimelineEvent[];
     },
     enabled: !!id,
+  });
+
+  // Fetch briefs
+  const { data: briefs = [] } = useQuery({
+    queryKey: ["briefs", id],
+    queryFn: () => getBriefsByCase(id!),
+    enabled: !!id,
+  });
+
+  const createBriefMutation = useMutation({
+    mutationFn: (input: CreateBriefInput) => createBrief(input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["briefs", id] });
+      setIsBriefOpen(false);
+      setEditingBrief(null);
+      setBriefForm({ case_id: id || "", title: "", type: "motion", status: "draft", content: "", court: "", due_date: "" });
+      toast.success("Brief saved.");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const updateBriefMutation = useMutation({
+    mutationFn: ({ id: briefId, updates }: { id: string; updates: Partial<CreateBriefInput> }) =>
+      updateBrief(briefId, updates),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["briefs", id] });
+      setIsBriefOpen(false);
+      setEditingBrief(null);
+      setBriefForm({ case_id: id || "", title: "", type: "motion", status: "draft", content: "", court: "", due_date: "" });
+      toast.success("Brief updated.");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const deleteBriefMutation = useMutation({
+    mutationFn: (briefId: string) => deleteBrief(briefId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["briefs", id] });
+      setDeleteBriefId(null);
+      toast.success("Brief deleted.");
+    },
+    onError: (e: Error) => toast.error(e.message),
   });
 
   const invalidateDocumentDerivedQueries = () => {
@@ -609,6 +672,41 @@ export default function CaseDetail() {
       toast.error(error instanceof Error ? error.message : "Batch OCR processing failed");
     } finally {
       setBatchProcessing(false);
+    }
+  };
+
+  // Send AI chat message
+  const sendChatMessage = async () => {
+    if (!chatInput.trim() || chatLoading) return;
+    const userMsg = { role: "user" as const, content: chatInput.trim() };
+    const newMessages = [...chatMessages, userMsg];
+    setChatMessages(newMessages);
+    setChatInput("");
+    setChatLoading(true);
+
+    try {
+      const systemContext = caseData
+        ? `Case: ${caseData.name}\nType: ${caseData.case_type}\nTheory: ${caseData.case_theory || "N/A"}\nKey Issues: ${(caseData.key_issues || []).join(", ") || "N/A"}\nWinning Factors: ${(caseData.winning_factors || []).join(", ") || "N/A"}`
+        : "";
+
+      const { data, error } = await supabase.functions.invoke("chat", {
+        body: {
+          messages: [
+            ...(systemContext ? [{ role: "system", content: systemContext }] : []),
+            ...newMessages,
+          ],
+        },
+      });
+
+      if (error) throw new Error(error.message);
+
+      const assistantContent = data?.choices?.[0]?.message?.content || "No response received.";
+      setChatMessages([...newMessages, { role: "assistant", content: assistantContent }]);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Chat failed");
+      setChatMessages(newMessages); // keep user message
+    } finally {
+      setChatLoading(false);
     }
   };
 
@@ -1514,19 +1612,215 @@ export default function CaseDetail() {
 
               {/* Briefs Tab */}
               <TabsContent value="briefs" className="space-y-4">
-                <Card className="glass-card">
-                  <CardContent className="flex flex-col items-center justify-center py-12">
-                    <FileText className="h-12 w-12 text-muted-foreground mb-4" />
-                    <h3 className="text-lg font-medium mb-2">Legal Briefs</h3>
-                    <p className="text-sm text-muted-foreground mb-4 text-center max-w-md">
-                      Draft and manage legal briefs, motions, and court filings
-                    </p>
-                    <Button>
-                      <Plus className="h-4 w-4 mr-2" />
-                      Create Brief
-                    </Button>
-                  </CardContent>
-                </Card>
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-semibold">Legal Briefs & Filings</h3>
+                  <Button
+                    onClick={() => {
+                      setEditingBrief(null);
+                      setBriefForm({ case_id: id || "", title: "", type: "motion", status: "draft", content: "", court: "", due_date: "" });
+                      setIsBriefOpen(true);
+                    }}
+                    size="sm"
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    Create Brief
+                  </Button>
+                </div>
+
+                {briefs.length === 0 ? (
+                  <Card className="glass-card">
+                    <CardContent className="flex flex-col items-center justify-center py-12">
+                      <FileText className="h-12 w-12 text-muted-foreground mb-4" />
+                      <p className="text-sm text-muted-foreground text-center">
+                        No briefs yet. Create your first motion, brief, or court filing.
+                      </p>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <div className="space-y-3">
+                    {briefs.map((brief) => (
+                      <Card key={brief.id} className="glass-card">
+                        <CardContent className="py-4">
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1 flex-wrap">
+                                <span className="font-medium text-sm truncate">{brief.title}</span>
+                                <Badge variant="outline" className="text-xs capitalize shrink-0">{brief.type}</Badge>
+                                <Badge
+                                  className={`text-xs capitalize shrink-0 ${
+                                    brief.status === "filed" ? "bg-green-100 text-green-700" :
+                                    brief.status === "draft" ? "bg-yellow-100 text-yellow-700" :
+                                    "bg-blue-100 text-blue-700"
+                                  }`}
+                                >
+                                  {brief.status}
+                                </Badge>
+                              </div>
+                              <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                                {brief.court && <span>Court: {brief.court}</span>}
+                                {brief.due_date && <span>Due: {format(new Date(brief.due_date), "MMM d, yyyy")}</span>}
+                                <span>Created: {format(new Date(brief.created_at), "MMM d, yyyy")}</span>
+                              </div>
+                              {brief.content && (
+                                <p className="text-xs text-muted-foreground mt-2 line-clamp-2">{brief.content}</p>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                title="Edit"
+                                onClick={() => {
+                                  setEditingBrief(brief);
+                                  setBriefForm({
+                                    case_id: brief.case_id,
+                                    title: brief.title,
+                                    type: brief.type,
+                                    status: brief.status,
+                                    content: brief.content,
+                                    court: brief.court || "",
+                                    due_date: brief.due_date || "",
+                                  });
+                                  setIsBriefOpen(true);
+                                }}
+                              >
+                                <Edit2 className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                title="Delete"
+                                onClick={() => setDeleteBriefId(brief.id)}
+                              >
+                                <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                              </Button>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+
+                {/* Brief Dialog */}
+                <Dialog open={isBriefOpen} onOpenChange={(open) => { setIsBriefOpen(open); if (!open) setEditingBrief(null); }}>
+                  <DialogContent className="max-w-2xl">
+                    <DialogHeader>
+                      <DialogTitle>{editingBrief ? "Edit Brief" : "Create Brief"}</DialogTitle>
+                      <DialogDescription>
+                        Draft a motion, brief, complaint, or court filing.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 py-2">
+                      <div className="space-y-1.5">
+                        <Label>Title</Label>
+                        <Input
+                          placeholder="e.g. Motion for Summary Judgment"
+                          value={briefForm.title}
+                          onChange={(e) => setBriefForm((f) => ({ ...f, title: e.target.value }))}
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-1.5">
+                          <Label>Type</Label>
+                          <select
+                            className="w-full border rounded-md px-3 py-2 text-sm bg-background"
+                            value={briefForm.type}
+                            onChange={(e) => setBriefForm((f) => ({ ...f, type: e.target.value }))}
+                          >
+                            <option value="motion">Motion</option>
+                            <option value="brief">Brief</option>
+                            <option value="complaint">Complaint</option>
+                            <option value="response">Response</option>
+                            <option value="order">Order</option>
+                            <option value="other">Other</option>
+                          </select>
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label>Status</Label>
+                          <select
+                            className="w-full border rounded-md px-3 py-2 text-sm bg-background"
+                            value={briefForm.status}
+                            onChange={(e) => setBriefForm((f) => ({ ...f, status: e.target.value }))}
+                          >
+                            <option value="draft">Draft</option>
+                            <option value="filed">Filed</option>
+                            <option value="served">Served</option>
+                            <option value="pending">Pending</option>
+                          </select>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-1.5">
+                          <Label>Court</Label>
+                          <Input
+                            placeholder="e.g. Travis County District Court"
+                            value={briefForm.court}
+                            onChange={(e) => setBriefForm((f) => ({ ...f, court: e.target.value }))}
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label>Due Date</Label>
+                          <Input
+                            type="date"
+                            value={briefForm.due_date}
+                            onChange={(e) => setBriefForm((f) => ({ ...f, due_date: e.target.value }))}
+                          />
+                        </div>
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label>Content</Label>
+                        <Textarea
+                          placeholder="Brief content, argument, or notes..."
+                          rows={8}
+                          value={briefForm.content}
+                          onChange={(e) => setBriefForm((f) => ({ ...f, content: e.target.value }))}
+                        />
+                      </div>
+                    </div>
+                    <DialogFooter>
+                      <Button variant="outline" onClick={() => setIsBriefOpen(false)}>Cancel</Button>
+                      <Button
+                        onClick={() => {
+                          if (!briefForm.title.trim()) { toast.error("Title is required"); return; }
+                          if (editingBrief) {
+                            updateBriefMutation.mutate({ id: editingBrief.id, updates: briefForm });
+                          } else {
+                            createBriefMutation.mutate({ ...briefForm, case_id: id || "" });
+                          }
+                        }}
+                        disabled={createBriefMutation.isPending || updateBriefMutation.isPending}
+                      >
+                        {(createBriefMutation.isPending || updateBriefMutation.isPending) ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : editingBrief ? "Save Changes" : "Create Brief"}
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+
+                {/* Delete Brief Alert */}
+                <AlertDialog open={!!deleteBriefId} onOpenChange={() => setDeleteBriefId(null)}>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Delete Brief</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Are you sure you want to delete this brief? This action cannot be undone.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={() => deleteBriefId && deleteBriefMutation.mutate(deleteBriefId)}
+                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                      >
+                        {deleteBriefMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Delete"}
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
               </TabsContent>
 
               {/* AI Tab */}
@@ -1592,6 +1886,62 @@ export default function CaseDetail() {
                         </p>
                       </div>
                     )}
+                  </CardContent>
+                </Card>
+
+                {/* AI Chat */}
+                <Card className="glass-card">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <MessageSquare className="h-4 w-4 text-amber-500" />
+                      Ask the AI
+                    </CardTitle>
+                    <CardDescription>Ask questions about your case, strategy, or legal research.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {chatMessages.length > 0 && (
+                      <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
+                        {chatMessages.map((msg, i) => (
+                          <div
+                            key={i}
+                            className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                          >
+                            <div
+                              className={`max-w-[80%] rounded-lg px-4 py-2.5 text-sm ${
+                                msg.role === "user"
+                                  ? "bg-primary text-primary-foreground"
+                                  : "bg-muted text-foreground"
+                              }`}
+                            >
+                              <p className="whitespace-pre-wrap">{msg.content}</p>
+                            </div>
+                          </div>
+                        ))}
+                        {chatLoading && (
+                          <div className="flex justify-start">
+                            <div className="bg-muted rounded-lg px-4 py-2.5">
+                              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="Ask about case strategy, legal issues, document analysis..."
+                        value={chatInput}
+                        onChange={(e) => setChatInput(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendChatMessage(); } }}
+                        disabled={chatLoading}
+                      />
+                      <Button
+                        size="icon"
+                        onClick={sendChatMessage}
+                        disabled={chatLoading || !chatInput.trim()}
+                      >
+                        {chatLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                      </Button>
+                    </div>
                   </CardContent>
                 </Card>
               </TabsContent>

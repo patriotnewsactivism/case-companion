@@ -857,3 +857,76 @@ export async function joinVideoRoom(roomId: string, userName?: string): Promise<
   if (error) throw error;
   return data;
 }
+
+// Legal Briefs API
+export interface LegalBrief {
+  id: string;
+  case_id: string;
+  user_id: string;
+  title: string;
+  type: string;
+  status: string;
+  content: string;
+  court: string | null;
+  filed_date: string | null;
+  due_date: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateBriefInput {
+  case_id: string;
+  title: string;
+  type: string;
+  status?: string;
+  content?: string;
+  court?: string;
+  filed_date?: string;
+  due_date?: string;
+}
+
+export async function getBriefsByCase(caseId: string): Promise<LegalBrief[]> {
+  const { data, error } = await supabase
+    .from("legal_briefs")
+    .select("*")
+    .eq("case_id", caseId)
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
+  return (data as unknown as LegalBrief[]) || [];
+}
+
+export async function createBrief(input: CreateBriefInput): Promise<LegalBrief> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Not authenticated");
+
+  const { data, error } = await supabase
+    .from("legal_briefs")
+    .insert({ ...input, user_id: user.id })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as unknown as LegalBrief;
+}
+
+export async function updateBrief(id: string, updates: Partial<CreateBriefInput>): Promise<LegalBrief> {
+  const { data, error } = await supabase
+    .from("legal_briefs")
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as unknown as LegalBrief;
+}
+
+export async function deleteBrief(id: string): Promise<void> {
+  const { error } = await supabase
+    .from("legal_briefs")
+    .delete()
+    .eq("id", id);
+
+  if (error) throw error;
+}

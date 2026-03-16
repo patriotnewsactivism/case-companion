@@ -1,4 +1,4 @@
-project_id = "jpzkumgndqsdwimbvjku"
+project_id = "plcvjadartxntnurhcua"
 
 [db]
 port = 54323
@@ -32,4 +32,7 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.trial-simulation]
+verify_jwt = false
+
+[functions.settlement-analysis]
 verify_jwt = false
