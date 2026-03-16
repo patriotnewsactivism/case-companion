@@ -183,15 +183,29 @@ async function testRLSPolicies() {
       const { data, error } = await supabase.from(table).select('*').limit(1);
       const rowCount = Array.isArray(data) ? data.length : 0;
 
-      results.push({
-        test: `RLS Policy: ${table}`,
-        status: error || rowCount === 0 ? 'pass' : 'warn',
-        message: error
-          ? `${table} table properly protected by RLS`
-          : rowCount === 0
+      if (error) {
+        if (error.code === '42P01') {
+          results.push({
+            test: `Table Existence: ${table}`,
+            status: 'fail',
+            message: `${table} table is MISSING from the database`,
+          });
+        } else {
+          results.push({
+            test: `RLS Policy: ${table}`,
+            status: 'pass',
+            message: `${table} table properly protected by RLS (Error: ${error.message})`,
+          });
+        }
+      } else {
+        results.push({
+          test: `RLS Policy: ${table}`,
+          status: rowCount === 0 ? 'pass' : 'warn',
+          message: rowCount === 0
             ? `${table} table returned zero rows to anon user`
             : `${table} table returned ${rowCount} row(s) to anon user; verify policy`,
-      });
+        });
+      }
     }
   } catch (error) {
     results.push({
