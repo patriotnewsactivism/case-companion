@@ -325,8 +325,7 @@ export function TrialSimulator({ caseData, documents = [] }: TrialSimulatorProps
   const { toast } = useToast();
 
   const azureTTS = useAzureTTS({
-    apiKey: "3MnEMwL5iK4d4LJY2ZQK9isaW8JBljAWQr0MTBL839EKOH5qobQxJQQJ99CCACYeBjFXJ3w3AAALACOGHRYF",
-    region: "eastus"
+    apiKey: "your-azureTTS-api-key"
   });
 
   const deepgram = useDeepgram({
