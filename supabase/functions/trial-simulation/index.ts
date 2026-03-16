@@ -520,7 +520,7 @@ async function callGemini(
   temperature: number
 ): Promise<string | null> {
   try {
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${googleApiKey}`;
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${googleApiKey}`;
     const response = await fetch(geminiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -843,8 +843,8 @@ ${messages.length === 0 && mode !== 'deposition-prep'
     const googleApiKey = Deno.env.get('GOOGLE_AI_API_KEY')?.trim() || '';
     const openAiApiKey = Deno.env.get('OPENAI_API_KEY')?.trim() || '';
     const aiGatewayUrl = Deno.env.get('AI_GATEWAY_URL') || 'https://api.openai.com/v1/chat/completions';
-    const aiGatewayModel = Deno.env.get('AI_GATEWAY_MODEL') || 'google/gemini-3-flash-preview';
-    const maxOutputTokens = mode === 'deposition-prep' ? 900 : 600;
+    const aiGatewayModel = Deno.env.get('AI_GATEWAY_MODEL') || 'gpt-4o-mini';
+    const maxOutputTokens = mode === 'deposition-prep' ? 1200 : 900;
     const modelTemperature = mode === 'deposition-prep' ? 0.6 : 0.85;
     const chatPrompt = systemPrompt + '\n\n' + messages.map((m) => `${m.role}: ${m.content}`).join('\n');
 
@@ -910,7 +910,7 @@ ${messages.length === 0 && mode !== 'deposition-prep'
     // Generate coaching feedback periodically
     let coaching = null;
     const shouldProvideCoaching = mode !== 'deposition-prep' && messages.length > 0 && (
-      messages.length % 4 === 0 ||
+      messages.length % 3 === 0 ||
       mode === 'objections-practice' ||
       mode === 'opening-statement' ||
       mode === 'closing-argument'
