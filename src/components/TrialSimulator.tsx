@@ -1,12 +1,15 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useRef, useCallback, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, MessageSquare, Users, Zap, Target, Brain, AlertTriangle, CheckCircle } from "lucide-react";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  Loader2, Brain, AlertTriangle, CheckCircle, Target, RefreshCw,
+  Zap, Send, Gavel, Users, BookOpen, Scale, FileText, Eye,
+  MessageSquare, ChevronDown, ChevronUp, Lightbulb, Star,
+} from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Document } from "@/lib/api";
 import { supabase } from "@/integrations/supabase/client";
@@ -34,12 +37,13 @@ interface TrialSimulatorProps {
   documents?: Document[];
 }
 
-interface SimulationScenario {
+interface ChatMessage {
   id: string;
-  title: string;
-  description: string;
-  difficulty: "easy" | "medium" | "hard";
-  focusAreas: string[];
+  role: "user" | "assistant";
+  content: string;
+  coaching?: string;
+  hints?: string[];
+  timestamp: Date;
 }
 
 interface DepositionQuestion {
@@ -68,713 +72,803 @@ interface TrialSimulationResponse {
   questions?: TrialSimulationQuestionPayload[];
   coaching?: string;
   performanceHints?: string[];
+  objectionTypes?: string[];
+}
+
+interface SimMode {
+  id: string;
+  title: string;
+  shortTitle: string;
+  description: string;
+  persona: string;
+  icon: React.ElementType;
+  difficulty: "easy" | "medium" | "hard";
+  tips: string[];
+  color: string;
+}
+
+const SIMULATION_MODES: SimMode[] = [
+  {
+    id: "cross-examination",
+    title: "Cross-Examination",
+    shortTitle: "Cross",
+    description: "Challenge opposing witness testimony and expose inconsistencies",
+    persona: "Hostile Witness",
+    icon: Target,
+    difficulty: "hard",
+    tips: [
+      "One fact per question — never compound",
+      "Use leading questions: \"Isn't it true that...\"",
+      "Never ask a question you don't know the answer to",
+      "Control with yes/no — don't let the witness explain",
+    ],
+    color: "text-red-600",
+  },
+  {
+    id: "direct-examination",
+    title: "Direct Examination",
+    shortTitle: "Direct",
+    description: "Question your own witness to build your case narrative",
+    persona: "Friendly Witness",
+    icon: MessageSquare,
+    difficulty: "medium",
+    tips: [
+      "Open-ended questions: Who, What, When, Where, How",
+      "Build chronologically for the jury",
+      "Avoid leading questions on direct",
+      "Let the witness tell the story",
+    ],
+    color: "text-green-600",
+  },
+  {
+    id: "opening-statement",
+    title: "Opening Statement",
+    shortTitle: "Opening",
+    description: "Present your case theory and roadmap to the jury",
+    persona: "Trial Judge",
+    icon: BookOpen,
+    difficulty: "easy",
+    tips: [
+      "State your theme in the first 30 seconds",
+      "Preview evidence — don't argue facts",
+      "End with what the jury will do",
+      "Tell a story, not a list of facts",
+    ],
+    color: "text-blue-600",
+  },
+  {
+    id: "closing-argument",
+    title: "Closing Argument",
+    shortTitle: "Closing",
+    description: "Persuade the jury with evidence synthesis and a clear verdict ask",
+    persona: "Judge & Jury Panel",
+    icon: Scale,
+    difficulty: "medium",
+    tips: [
+      "Connect every fact to a legal element",
+      "Address the weaknesses head-on",
+      "Use the evidence, not your opinion",
+      "End with a specific, clear ask",
+    ],
+    color: "text-purple-600",
+  },
+  {
+    id: "deposition",
+    title: "Deposition",
+    shortTitle: "Deposition",
+    description: "Take sworn testimony in a discovery setting before trial",
+    persona: "Deponent",
+    icon: FileText,
+    difficulty: "medium",
+    tips: [
+      "Short questions — never telegraph your goal",
+      "Lock down facts early before impeachment",
+      "Ask about every document the witness reviewed",
+      "Silence is your friend — don't fill it",
+    ],
+    color: "text-orange-600",
+  },
+  {
+    id: "motion-hearing",
+    title: "Motion Hearing",
+    shortTitle: "Motion",
+    description: "Argue before a skeptical judge on a contested motion",
+    persona: "Skeptical Judge",
+    icon: Gavel,
+    difficulty: "hard",
+    tips: [
+      "Know your controlling authority cold",
+      "Answer the judge's question directly first",
+      "Anticipate the other side's best argument",
+      "Have a fallback position ready",
+    ],
+    color: "text-gray-700",
+  },
+  {
+    id: "objections-practice",
+    title: "Objections Practice",
+    shortTitle: "Objections",
+    description: "Sharpen your objection timing, grounds, and strategic judgment",
+    persona: "Opposing Counsel & Judge",
+    icon: AlertTriangle,
+    difficulty: "medium",
+    tips: [
+      "Object before the witness answers",
+      "State the ground immediately: \"Objection. Hearsay.\"",
+      "Know when NOT to object — some questions help you",
+      "Have a ready response if overruled",
+    ],
+    color: "text-yellow-600",
+  },
+  {
+    id: "voir-dire",
+    title: "Voir Dire",
+    shortTitle: "Voir Dire",
+    description: "Practice identifying juror bias and making strategic strikes",
+    persona: "Prospective Juror",
+    icon: Users,
+    difficulty: "medium",
+    tips: [
+      "Build rapport before probing for bias",
+      "Listen for what jurors don't say",
+      "Use open-ended questions to encourage sharing",
+      "Take notes on body language cues",
+    ],
+    color: "text-teal-600",
+  },
+  {
+    id: "evidence-foundation",
+    title: "Evidence Foundation",
+    shortTitle: "Evidence",
+    description: "Practice authenticating documents and admitting evidence",
+    persona: "Witness & Judge",
+    icon: Eye,
+    difficulty: "medium",
+    tips: [
+      "Establish chain of custody for physical evidence",
+      "Use the business records exception for routine docs",
+      "Lay Daubert foundation before offering expert opinion",
+      "Get the exhibit marked before showing it",
+    ],
+    color: "text-indigo-600",
+  },
+  {
+    id: "deposition-prep",
+    title: "Question Generator",
+    shortTitle: "Gen Questions",
+    description: "Generate strategic deposition questions from your case documents",
+    persona: "Senior Partner",
+    icon: Brain,
+    difficulty: "easy",
+    tips: [
+      "Start foundational, then move to attack questions",
+      "Create impeachment setup questions early",
+      "Include trap questions that expose credibility gaps",
+      "Target every key document with specific questions",
+    ],
+    color: "text-pink-600",
+  },
+];
+
+const DIFFICULTY_STYLES = {
+  easy: "bg-green-100 text-green-800 border-green-200",
+  medium: "bg-yellow-100 text-yellow-800 border-yellow-200",
+  hard: "bg-red-100 text-red-800 border-red-200",
+};
+
+const RISK_STYLES = {
+  low: "bg-green-100 text-green-800",
+  medium: "bg-yellow-100 text-yellow-800",
+  high: "bg-red-100 text-red-800",
+};
+
+const QUESTION_TYPE_ICONS: Record<string, React.ReactNode> = {
+  trap: <Target className="h-3.5 w-3.5 text-red-500" />,
+  impeachment: <AlertTriangle className="h-3.5 w-3.5 text-orange-500" />,
+  clarifying: <CheckCircle className="h-3.5 w-3.5 text-blue-500" />,
+  foundational: <MessageSquare className="h-3.5 w-3.5 text-gray-500" />,
+};
+
+function normalizeQType(v?: string): DepositionQuestion["type"] {
+  const t = (v || "").toLowerCase().trim();
+  if (t === "trap" || t === "clarifying" || t === "impeachment" || t === "foundational") return t;
+  return "foundational";
+}
+
+function normalizeRisk(v?: string): DepositionQuestion["riskLevel"] {
+  const r = (v || "").toLowerCase().trim();
+  if (r === "low" || r === "medium" || r === "high") return r;
+  return "medium";
+}
+
+function mapQPayload(p: TrialSimulationQuestionPayload, idx: number, docs: Document[]): DepositionQuestion {
+  const target = String(p.targetDocument || "").trim();
+  const matched = docs.find(
+    (d) =>
+      target &&
+      (d.name.toLowerCase().includes(target.toLowerCase()) ||
+        target.toLowerCase().includes(d.name.toLowerCase()))
+  );
+  return {
+    id: `q-${idx + 1}`,
+    question: String(p.question || "").trim(),
+    type: normalizeQType(p.type),
+    riskLevel: normalizeRisk(p.riskLevel || p.risk),
+    purpose: String(p.purpose || "Gather testimony tied to case facts."),
+    suggestedFollowUp: String(p.suggestedFollowUp || p.followUp || "").trim() || undefined,
+    targetDocument: matched?.name || target || undefined,
+  };
 }
 
 export function TrialSimulator({ caseData, documents = [] }: TrialSimulatorProps) {
-  const [activeTab, setActiveTab] = useState("scenarios");
-  const [isLoading, setIsLoading] = useState(false);
-  const [scenarios, setScenarios] = useState<SimulationScenario[]>([
-    {
-      id: "1",
-      title: "Direct Examination - Expert Witness",
-      description: "Practice questioning your own expert witness to establish credibility and expertise",
-      difficulty: "medium",
-      focusAreas: ["Expert Qualifications", "Methodology", "Opinion Foundation", "Cross Examination Prep"],
-    },
-    {
-      id: "2",
-      title: "Cross Examination - Hostile Witness",
-      description: "Challenge opposing witness testimony and expose inconsistencies",
-      difficulty: "hard",
-      focusAreas: ["Impeachment", "Prior Statements", "Bias Exposure", "Contradiction"],
-    },
-    {
-      id: "3",
-      title: "Opening Statement Practice",
-      description: "Develop and refine your case theory presentation to the jury",
-      difficulty: "easy",
-      focusAreas: ["Case Theory", "Storytelling", "Persuasion", "Theme Development"],
-    },
-    {
-      id: "4",
-      title: "Document Intensive Deposition",
-      description: "Question witness about complex document evidence and timelines",
-      difficulty: "hard",
-      focusAreas: ["Document Authentication", "Timeline Analysis", "Gap Identification", "Credibility Attack"],
-    },
-  ]);
-  const [selectedScenario, setSelectedScenario] = useState<string>("1");
-  const [questions, setQuestions] = useState<DepositionQuestion[]>([]);
+  const [selectedMode, setSelectedMode] = useState<SimMode>(SIMULATION_MODES[0]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [userInput, setUserInput] = useState("");
-  const [aiResponse, setAiResponse] = useState("");
-  const [conversationHistory, setConversationHistory] = useState<Array<{role: string; content: string}>>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [questions, setQuestions] = useState<DepositionQuestion[]>([]);
   const [isGeneratingQuestions, setIsGeneratingQuestions] = useState(false);
+  const [showQuestions, setShowQuestions] = useState(false);
+  const [showModePanel, setShowModePanel] = useState(true);
+  const [exchangeCount, setExchangeCount] = useState(0);
+  const [objectionTypes, setObjectionTypes] = useState<string[]>([]);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const { toast } = useToast();
 
-  const normalizeQuestionType = (value?: string): DepositionQuestion["type"] => {
-    const type = (value || "").toLowerCase().trim();
-    if (type === "trap" || type === "clarifying" || type === "impeachment" || type === "foundational") {
-      return type;
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-    return "foundational";
-  };
+  }, [messages, isLoading]);
 
-const normalizeRiskLevel = (value?: string): DepositionQuestion["riskLevel"] => {
-    const risk = (value || "").toLowerCase().trim();
-    if (risk === "low" || risk === "medium" || risk === "high") {
-      return risk;
-    }
-    return "medium";
-  };
+  const switchMode = useCallback((mode: SimMode) => {
+    setSelectedMode(mode);
+    setMessages([]);
+    setExchangeCount(0);
+    setObjectionTypes([]);
+    setQuestions([]);
+    setShowQuestions(false);
+    setUserInput("");
+    if (window.innerWidth < 768) setShowModePanel(false);
+  }, []);
 
-  const mapQuestionPayload = (
-    payload: TrialSimulationQuestionPayload,
-    index: number,
-    docs: Document[]
-  ): DepositionQuestion => {
-    const text = String(payload.question || "").trim();
-    const targetFromPayload = String(payload.targetDocument || "").trim();
-    const matchedDoc = docs.find((doc) =>
-      targetFromPayload &&
-      (doc.name.toLowerCase().includes(targetFromPayload.toLowerCase()) ||
-        targetFromPayload.toLowerCase().includes(doc.name.toLowerCase()))
-    );
+  const resetSession = useCallback(() => {
+    setMessages([]);
+    setExchangeCount(0);
+    setObjectionTypes([]);
+    setUserInput("");
+    inputRef.current?.focus();
+  }, []);
 
-    return {
-      id: `q-${index + 1}`,
-      question: text,
-      type: normalizeQuestionType(payload.type),
-      riskLevel: normalizeRiskLevel(payload.riskLevel || payload.risk),
-      purpose: String(payload.purpose || "Gather testimony tied to case facts."),
-      suggestedFollowUp: String(payload.suggestedFollowUp || payload.followUp || "").trim() || undefined,
-      targetDocument: matchedDoc?.name || targetFromPayload || undefined,
-    };
-  };
-
-  const parseDepositionQuestions = (aiResponse: string, docs: Document[]): DepositionQuestion[] => {
-    const questionsFromJson = (() => {
-      const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) return [] as DepositionQuestion[];
-
-      try {
-        const parsed = JSON.parse(jsonMatch[0]) as { questions?: TrialSimulationQuestionPayload[] };
-        if (!Array.isArray(parsed.questions)) return [] as DepositionQuestion[];
-        return parsed.questions
-          .map((q, i) => mapQuestionPayload(q, i, docs))
-          .filter((q) => q.question.length > 0);
-      } catch {
-        return [] as DepositionQuestion[];
-      }
-    })();
-
-    if (questionsFromJson.length > 0) {
-      return questionsFromJson.slice(0, 8);
-    }
-
-    const questions: DepositionQuestion[] = [];
-    const lines = aiResponse.split('\n');
-    let currentQuestion: Partial<DepositionQuestion> | null = null;
-    
-    for (const line of lines) {
-      const trimmed = line.trim();
-      
-      if (trimmed.match(/^(\d+[.)]|[Qq]uestion\s*\d*[:-])/)) {
-        if (currentQuestion?.question) {
-          questions.push({
-            id: `q-${questions.length + 1}`,
-            question: currentQuestion.question,
-            type: currentQuestion.type || 'foundational',
-            targetDocument: currentQuestion.targetDocument,
-            suggestedFollowUp: currentQuestion.suggestedFollowUp,
-            riskLevel: currentQuestion.riskLevel || 'medium',
-            purpose: currentQuestion.purpose || 'Gather information',
-          });
-        }
-        const questionText = trimmed
-          .replace(/^(\d+[.)]|[Qq]uestion\s*\d*[:-])\s*/, '')
-          .trim();
-        currentQuestion = questionText ? { question: questionText } : null;
-      }
-      
-      if (currentQuestion) {
-        const typeMatch = trimmed.match(/type:\s*(foundational|trap|clarifying|impeachment)/i);
-        const purposeMatch = trimmed.match(/purpose:\s*(.+)/i);
-        const riskMatch = trimmed.match(/risk:\s*(low|medium|high)/i);
-        const followUpMatch = trimmed.match(/follow[- ]?up:\s*(.+)/i);
-        
-        if (typeMatch) currentQuestion.type = typeMatch[1].toLowerCase() as DepositionQuestion['type'];
-        if (purposeMatch) currentQuestion.purpose = purposeMatch[1].trim();
-        if (riskMatch) currentQuestion.riskLevel = riskMatch[1].toLowerCase() as DepositionQuestion['riskLevel'];
-        if (followUpMatch) currentQuestion.suggestedFollowUp = followUpMatch[1].trim();
-        
-        for (const doc of docs) {
-          if (trimmed.toLowerCase().includes(doc.name.toLowerCase())) {
-            currentQuestion.targetDocument = doc.name;
-            break;
-          }
-        }
-      }
-    }
-    
-    if (currentQuestion?.question) {
-      questions.push({
-        id: `q-${questions.length + 1}`,
-        question: currentQuestion.question,
-        type: currentQuestion.type || 'foundational',
-        targetDocument: currentQuestion.targetDocument,
-        suggestedFollowUp: currentQuestion.suggestedFollowUp,
-        riskLevel: currentQuestion.riskLevel || 'medium',
-        purpose: currentQuestion.purpose || 'Gather information',
-      });
-    }
-    
-    return questions.slice(0, 8);
-  };
-
-  const generateFallbackQuestions = (docs: Document[]): DepositionQuestion[] => {
-    const templates: Array<Omit<DepositionQuestion, 'id' | 'targetDocument'>> = [
-      {
-        question: "Can you identify this document and explain how it came to be in your possession?",
-        type: "foundational",
-        riskLevel: "low",
-        purpose: "Establish document authenticity and chain of custody",
-        suggestedFollowUp: "When did you first see this document?",
-      },
-      {
-        question: "Isn't it true that the statements in this document contradict your testimony today?",
-        type: "trap",
-        riskLevel: "high",
-        purpose: "Test witness credibility through document comparison",
-        suggestedFollowUp: "How do you explain this inconsistency?",
-      },
-      {
-        question: "What specific facts in this document support your conclusion?",
-        type: "clarifying",
-        riskLevel: "medium",
-        purpose: "Pin down vague or conclusory testimony",
-        suggestedFollowUp: "Can you point to the exact language?",
-      },
-      {
-        question: "Did you review this document before giving your testimony?",
-        type: "impeachment",
-        riskLevel: "high",
-        purpose: "Establish foundation for impeachment",
-        suggestedFollowUp: "Why didn't this document change your testimony?",
-      },
-    ];
-
-    return templates.slice(0, 4).map((t, i) => ({
-      ...t,
-      id: `fallback-${i + 1}`,
-      targetDocument: docs[i]?.name,
-    }));
-  };
-
-  const generateDepositionQuestions = async () => {
+  const generateQuestions = useCallback(async () => {
     if (!caseData) {
-      toast({
-        title: "Missing information",
-        description: "Please select a case first.",
-        variant: "destructive",
-      });
+      toast({ title: "No case selected", variant: "destructive" });
       return;
     }
 
-    const analyzedDocs = documents.filter(
-      (doc) => doc.ai_analyzed || !!doc.summary || !!doc.ocr_text
-    );
+    const analyzedDocs = documents.filter((d) => d.ai_analyzed || !!d.summary || !!d.ocr_text);
     const sourceDocs = analyzedDocs.length > 0 ? analyzedDocs : documents;
-
-    if (analyzedDocs.length === 0) {
-      toast({
-        title: "Limited document context",
-        description: documents.length === 0
-          ? "No documents found. Generating baseline questions from case context."
-          : "No analyzed documents found yet. Generating baseline questions from document metadata.",
-      });
-    }
 
     setIsGeneratingQuestions(true);
     try {
-      const { data, error } = await supabase.functions.invoke('trial-simulation', {
+      const { data, error } = await supabase.functions.invoke("trial-simulation", {
         body: {
           caseId: caseData.id,
-          mode: 'deposition-prep',
-          scenario: scenarios.find((s) => s.id === selectedScenario)?.title,
-          messages: [{
-            role: 'user',
-            content: `Generate strategic deposition questions for case "${caseData.name}".
-Return JSON with this shape:
-{"questions":[{"question":"...","type":"foundational|trap|clarifying|impeachment","purpose":"...","risk":"low|medium|high","followUp":"...","targetDocument":"..."}]}
-
-Focus areas: ${scenarios.find((s) => s.id === selectedScenario)?.focusAreas.join(', ') || "deposition strategy"}.
-Documents available: ${sourceDocs.length}.
-Use case facts and strongest available documents, and prioritize contradictions, admissions, and impeachment setup.`
-          }]
-        }
+          mode: "deposition-prep",
+          messages: [
+            {
+              role: "user",
+              content: `Generate strategic deposition questions for case "${caseData.name}". Return JSON with shape: {"questions":[{"question":"...","type":"foundational|trap|clarifying|impeachment","purpose":"...","risk":"low|medium|high","followUp":"...","targetDocument":"..."}]}. Documents available: ${sourceDocs.length}. Focus on contradictions, admissions, and impeachment setup.`,
+            },
+          ],
+        },
       });
 
       if (error) throw error;
 
-      let generatedQuestions: DepositionQuestion[] = [];
       const payload = (data || {}) as TrialSimulationResponse;
+      let generated: DepositionQuestion[] = [];
 
       if (Array.isArray(payload.questions) && payload.questions.length > 0) {
-        generatedQuestions = payload.questions
-          .map((question, index) => mapQuestionPayload(question, index, sourceDocs))
-          .filter((question) => question.question.length > 0);
-      }
-      
-      if (generatedQuestions.length === 0 && payload.message) {
-        const parsedQuestions = parseDepositionQuestions(payload.message, sourceDocs);
-        generatedQuestions = parsedQuestions;
+        generated = payload.questions
+          .map((q, i) => mapQPayload(q, i, sourceDocs))
+          .filter((q) => q.question.length > 0);
+      } else if (payload.message) {
+        try {
+          const jsonMatch = payload.message.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[0]) as { questions?: TrialSimulationQuestionPayload[] };
+            if (Array.isArray(parsed.questions)) {
+              generated = parsed.questions
+                .map((q, i) => mapQPayload(q, i, sourceDocs))
+                .filter((q) => q.question.length > 0);
+            }
+          }
+        } catch {
+          // ignore
+        }
       }
 
-      if (generatedQuestions.length === 0) {
-        generatedQuestions = generateFallbackQuestions(sourceDocs);
+      if (generated.length === 0) {
+        generated = [
+          { id: "q-1", question: "Can you identify this document and explain when you first saw it?", type: "foundational", riskLevel: "low", purpose: "Establish authentication and personal knowledge", suggestedFollowUp: "Who gave you this document?" },
+          { id: "q-2", question: "Your testimony today contradicts this document — which is accurate?", type: "impeachment", riskLevel: "high", purpose: "Create a credibility conflict between testimony and record", suggestedFollowUp: "What contemporaneous evidence supports your version?" },
+          { id: "q-3", question: "What specific facts did you rely on before reaching that conclusion?", type: "clarifying", riskLevel: "medium", purpose: "Pin down vague or conclusory testimony", suggestedFollowUp: "Can you point to the exact line in the record?" },
+          { id: "q-4", question: "You didn't mention this fact in your prior statement — correct?", type: "trap", riskLevel: "high", purpose: "Set up omission-based impeachment", suggestedFollowUp: "Why should we believe it now?" },
+        ];
       }
 
-      setQuestions(generatedQuestions);
-      toast({
-        title: "Questions generated",
-        description: `Generated ${generatedQuestions.length} deposition questions based on ${sourceDocs.length} relevant documents.`,
-      });
-    } catch (error) {
-      console.error("Failed to generate questions:", error);
-      toast({
-        title: "Generation failed",
-        description: "Could not generate deposition questions. Please try again.",
-        variant: "destructive",
-      });
+      setQuestions(generated);
+      setShowQuestions(true);
+      toast({ title: `Generated ${generated.length} deposition questions` });
+    } catch (err) {
+      console.error(err);
+      toast({ title: "Failed to generate questions", variant: "destructive" });
     } finally {
       setIsGeneratingQuestions(false);
     }
-  };
+  }, [caseData, documents, toast]);
 
-  const simulateResponse = async () => {
-    if (!userInput.trim() || !caseData) return;
+  const sendMessage = useCallback(async () => {
+    const text = userInput.trim();
+    if (!text || !caseData || isLoading) return;
 
+    const userMsg: ChatMessage = {
+      id: `u-${Date.now()}`,
+      role: "user",
+      content: text,
+      timestamp: new Date(),
+    };
+
+    setMessages((prev) => [...prev, userMsg]);
+    setUserInput("");
     setIsLoading(true);
+
     try {
-      const scenario = scenarios.find(s => s.id === selectedScenario);
-      const mode = mapScenarioToMode(scenario?.title || 'deposition');
-      const recommendedQuestionContext = questions
-        .slice(0, 3)
-        .map((question, index) => `${index + 1}. ${question.question}`)
-        .join('\n');
-      
-      // Get case facts from Zustand store
       const caseEvents = useCaseFactsStore.getState().getEvents(caseData.id);
       const caseFacts = useCaseFactsStore.getState().getFacts(caseData.id);
-      const caseEntities = useCaseFactsStore.getState().getEntities(caseData.id);
-      
-      const context = `SCENARIO:
-${scenario?.title || "Deposition"}
-${scenario?.description || ""}
-Focus Areas: ${scenario?.focusAreas.join(", ") || "General trial preparation"}
 
-CASE FACTS:
-${caseFacts.map(f => `- ${f.text}`).join('\n')}
+      const contextParts: string[] = [];
+      if (caseFacts.length > 0) {
+        contextParts.push(`CASE FACTS:\n${caseFacts.slice(0, 10).map((f) => `- ${f.text}`).join("\n")}`);
+      }
+      if (caseEvents.length > 0) {
+        contextParts.push(`KEY EVENTS:\n${caseEvents.slice(0, 8).map((e) => `- ${e.date}: ${e.event_title}`).join("\n")}`);
+      }
+      if (documents.length > 0) {
+        contextParts.push(`DOCUMENTS:\n${documents.slice(0, 8).map((d) => `- ${d.name}: ${d.summary || "no summary"}`).join("\n")}`);
+      }
 
-CASE EVENTS:
-${caseEvents.map(e => `- ${e.date}: ${e.event_title} - ${e.description}`).join('\n')}
+      const historyForApi = messages
+        .filter((m) => m.role === "user" || m.role === "assistant")
+        .slice(-12)
+        .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
 
-CASE ENTITIES:
-${caseEntities.map(e => `- ${e.text} (${e.type})`).join('\n')}
-
-DOCUMENTS:
-${documents.map(d => `- ${d.name}: ${d.summary || 'No summary'}`).join('\n')}
-
-TOP RECOMMENDED QUESTIONS:
-${recommendedQuestionContext || "- None generated yet"}`;
-      
-      const { data, error } = await supabase.functions.invoke('trial-simulation', {
+      const { data, error } = await supabase.functions.invoke("trial-simulation", {
         body: {
           caseId: caseData.id,
-          mode,
-          scenario: scenario?.title,
-          context,
-          messages: [
-            ...conversationHistory,
-            { role: 'user', content: userInput }
-          ]
-        }
+          mode: selectedMode.id,
+          context: contextParts.join("\n\n"),
+          messages: [...historyForApi, { role: "user", content: text }],
+        },
       });
 
       if (error) throw error;
 
       const payload = (data || {}) as TrialSimulationResponse;
 
-      if (payload?.message) {
-        setAiResponse(payload.message);
-        setConversationHistory(prev => [
-          ...prev,
-          { role: 'user', content: userInput },
-          { role: 'assistant', content: payload.message as string }
-        ]);
-        
-        if (payload.coaching) {
-          toast({
-            title: "AI Coaching",
-            description: payload.coaching.substring(0, 150) + (payload.coaching.length > 150 ? '...' : ''),
-          });
-        }
-        
-        if (payload.performanceHints?.length) {
-          toast({
-            title: "Performance Tip",
-            description: payload.performanceHints[0],
-            variant: "default",
-          });
-        }
+      if (payload.objectionTypes?.length) {
+        setObjectionTypes(payload.objectionTypes);
       }
-    } catch (error) {
-      console.error("Simulation error:", error);
-      toast({
-        title: "Simulation error",
-        description: "Failed to generate AI response. Please try again.",
-        variant: "destructive",
-      });
+
+      const aiMsg: ChatMessage = {
+        id: `a-${Date.now()}`,
+        role: "assistant",
+        content: payload.message || "The witness pauses and waits for your next question.",
+        coaching: payload.coaching || undefined,
+        hints: payload.performanceHints?.length ? payload.performanceHints : undefined,
+        timestamp: new Date(),
+      };
+
+      setMessages((prev) => [...prev, aiMsg]);
+      setExchangeCount((n) => n + 1);
+    } catch (err) {
+      console.error(err);
+      toast({ title: "Response failed — try again", variant: "destructive" });
+      setMessages((prev) => prev.filter((m) => m.id !== userMsg.id));
+      setUserInput(text);
     } finally {
       setIsLoading(false);
+      setTimeout(() => inputRef.current?.focus(), 50);
     }
-  };
+  }, [userInput, caseData, isLoading, messages, selectedMode, documents, toast]);
 
-  const mapScenarioToMode = (scenarioTitle: string): string => {
-    const title = scenarioTitle.toLowerCase();
-    if (title.includes('cross')) return 'cross-examination';
-    if (title.includes('direct')) return 'direct-examination';
-    if (title.includes('opening')) return 'opening-statement';
-    if (title.includes('closing')) return 'closing-argument';
-    if (title.includes('deposition')) return 'deposition';
-    if (title.includes('objection')) return 'objections-practice';
-    if (title.includes('motion')) return 'motion-hearing';
-    if (title.includes('voir') || title.includes('jury selection')) return 'voir-dire';
-    if (title.includes('evidence') || title.includes('foundation')) return 'evidence-foundation';
-    return 'deposition';
-  };
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+      }
+    },
+    [sendMessage]
+  );
 
-  const getDifficultyColor = (difficulty: string) => {
-    switch (difficulty) {
-      case "easy": return "bg-green-100 text-green-800";
-      case "medium": return "bg-yellow-100 text-yellow-800";
-      case "hard": return "bg-red-100 text-red-800";
-      default: return "bg-gray-100 text-gray-800";
-    }
-  };
-
-  const getRiskColor = (risk: string) => {
-    switch (risk) {
-      case "low": return "bg-green-100 text-green-800";
-      case "medium": return "bg-yellow-100 text-yellow-800";
-      case "high": return "bg-red-100 text-red-800";
-      default: return "bg-gray-100 text-gray-800";
-    }
-  };
-
-  const getQuestionTypeIcon = (type: string) => {
-    switch (type) {
-      case "trap": return <Target className="h-4 w-4" />;
-      case "impeachment": return <AlertTriangle className="h-4 w-4" />;
-      case "clarifying": return <CheckCircle className="h-4 w-4" />;
-      default: return <MessageSquare className="h-4 w-4" />;
-    }
-  };
+  const ModeIcon = selectedMode.icon;
+  const isDepPrepMode = selectedMode.id === "deposition-prep";
 
   return (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Brain className="h-6 w-6" />
-            Trial Preparation Simulator
-          </CardTitle>
-          <CardDescription>
-            Practice deposition questions, cross-examination techniques, and trial strategies with AI assistance
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="grid w-full grid-cols-1 sm:grid-cols-3">
-              <TabsTrigger value="scenarios">Scenarios</TabsTrigger>
-              <TabsTrigger value="questions">Deposition Questions</TabsTrigger>
-              <TabsTrigger value="practice">Practice Session</TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="scenarios" className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-2">
-                {scenarios.map((scenario) => (
-                  <Card 
-                    key={scenario.id} 
-                    className={`cursor-pointer transition-all hover:shadow-md ${
-                      selectedScenario === scenario.id ? "ring-2 ring-gold-500" : ""
+    <div className="flex flex-col lg:flex-row gap-4 h-[calc(100vh-200px)] min-h-[600px]">
+      {/* Mode Panel */}
+      <div className={`${showModePanel ? "flex" : "hidden lg:flex"} flex-col w-full lg:w-64 xl:w-72 shrink-0`}>
+        <Card className="flex flex-col h-full overflow-hidden">
+          <CardHeader className="py-3 px-4 border-b shrink-0">
+            <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+              Simulation Mode
+            </CardTitle>
+          </CardHeader>
+          <ScrollArea className="flex-1">
+            <div className="p-2 space-y-1">
+              {SIMULATION_MODES.map((mode) => {
+                const Icon = mode.icon;
+                const isActive = selectedMode.id === mode.id;
+                return (
+                  <button
+                    key={mode.id}
+                    onClick={() => switchMode(mode)}
+                    className={`w-full text-left rounded-lg px-3 py-2.5 transition-all ${
+                      isActive
+                        ? "bg-gold-50 border border-gold-200 shadow-sm"
+                        : "hover:bg-muted border border-transparent"
                     }`}
-                    onClick={() => setSelectedScenario(scenario.id)}
                   >
-                    <CardContent className="pt-6">
-                      <div className="flex justify-between items-start mb-3">
-                        <h3 className="font-semibold">{scenario.title}</h3>
-                        <Badge className={getDifficultyColor(scenario.difficulty)}>
-                          {scenario.difficulty}
-                        </Badge>
-                      </div>
-                      <p className="text-sm text-muted-foreground mb-4">{scenario.description}</p>
-                      <div className="space-y-2">
-                        <p className="text-sm font-medium">Focus Areas:</p>
-                        <div className="flex flex-wrap gap-2">
-                          {scenario.focusAreas.map((area) => (
-                            <Badge key={area} variant="outline" className="text-xs">
-                              {area}
-                            </Badge>
-                          ))}
+                    <div className="flex items-center gap-2.5">
+                      <Icon className={`h-4 w-4 shrink-0 ${isActive ? mode.color : "text-muted-foreground"}`} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-1">
+                          <span className={`text-sm font-medium truncate ${isActive ? "text-foreground" : "text-foreground/80"}`}>
+                            {mode.shortTitle}
+                          </span>
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded-full border font-medium shrink-0 ${DIFFICULTY_STYLES[mode.difficulty]}`}>
+                            {mode.difficulty}
+                          </span>
                         </div>
+                        <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">{mode.description}</p>
                       </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </ScrollArea>
+        </Card>
+      </div>
 
-              <div className="flex justify-between items-center pt-4">
-                <div>
-                  <p className="text-sm font-medium">Selected Scenario</p>
-                  <p className="text-sm text-muted-foreground">
-                    {scenarios.find(s => s.id === selectedScenario)?.title}
-                  </p>
-                </div>
-                <Button onClick={() => setActiveTab("questions")}>
-                  Generate Questions
-                  <Zap className="ml-2 h-4 w-4" />
-                </Button>
-              </div>
-            </TabsContent>
-
-            <TabsContent value="questions" className="space-y-4">
-              <div className="flex justify-between items-center">
-                <div>
-                  <h3 className="text-lg font-semibold">AI-Generated Deposition Questions</h3>
-                  <p className="text-sm text-muted-foreground">
-                    Based on {documents.length} documents in case: {caseData?.name || "No case selected"}
-                  </p>
-                </div>
-                <Button 
-                  onClick={generateDepositionQuestions}
-                  disabled={isGeneratingQuestions || !caseData}
-                  variant="outline"
+      {/* Chat Panel */}
+      <div className="flex flex-col flex-1 min-w-0 gap-3">
+        {/* Header */}
+        <Card className="shrink-0">
+          <CardContent className="py-3 px-4">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-3">
+                <button
+                  className="lg:hidden text-muted-foreground hover:text-foreground"
+                  onClick={() => setShowModePanel((v) => !v)}
                 >
-                  {isGeneratingQuestions ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Generating...
-                    </>
-                  ) : (
-                    <>
-                      <Brain className="mr-2 h-4 w-4" />
-                      Generate Questions
-                    </>
-                  )}
-                </Button>
-              </div>
-
-              {questions.length > 0 ? (
-                <div className="space-y-4">
-                  {questions.map((q) => (
-                    <Card key={q.id}>
-                      <CardContent className="pt-6">
-                        <div className="flex justify-between items-start mb-3">
-                          <div className="flex items-center gap-2">
-                            {getQuestionTypeIcon(q.type)}
-                            <h4 className="font-medium">{q.question}</h4>
-                          </div>
-                          <Badge className={getRiskColor(q.riskLevel)}>
-                            {q.riskLevel} risk
-                          </Badge>
-                        </div>
-                        
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-                          <div className="space-y-2">
-                            <p className="text-sm font-medium">Question Type</p>
-                            <Badge variant="outline" className="capitalize">
-                              {q.type}
-                            </Badge>
-                          </div>
-                          
-                          {q.targetDocument && (
-                            <div className="space-y-2">
-                              <p className="text-sm font-medium">Target Document</p>
-                              <p className="text-sm text-muted-foreground">{q.targetDocument}</p>
-                            </div>
-                          )}
-                          
-                          <div className="space-y-2">
-                            <p className="text-sm font-medium">Purpose</p>
-                            <p className="text-sm">{q.purpose}</p>
-                          </div>
-                          
-                          {q.suggestedFollowUp && (
-                            <div className="space-y-2">
-                              <p className="text-sm font-medium">Suggested Follow-up</p>
-                              <p className="text-sm italic text-muted-foreground">"{q.suggestedFollowUp}"</p>
-                            </div>
-                          )}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
+                  {showModePanel ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                </button>
+                <div className="p-1.5 rounded-md bg-muted">
+                  <ModeIcon className={`h-4 w-4 ${selectedMode.color}`} />
                 </div>
-              ) : (
-                <Card>
-                  <CardContent className="pt-6 text-center">
-                    <Brain className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                    <h3 className="text-lg font-medium mb-2">No questions generated yet</h3>
-                    <p className="text-muted-foreground mb-4">
-                      Click "Generate Questions" to create AI-powered deposition questions based on your documents.
-                    </p>
-                    <Button 
-                      onClick={generateDepositionQuestions}
-                      disabled={!caseData}
-                    >
-                      <Brain className="mr-2 h-4 w-4" />
-                      Generate Questions
-                    </Button>
-                  </CardContent>
-                </Card>
-              )}
-
-              <div className="flex justify-between pt-4">
-                <Button variant="outline" onClick={() => setActiveTab("scenarios")}>
-                  Back to Scenarios
-                </Button>
-                <Button onClick={() => setActiveTab("practice")}>
-                  Start Practice Session
-                  <Users className="ml-2 h-4 w-4" />
-                </Button>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-sm">{selectedMode.title}</span>
+                    <Badge variant="outline" className="text-[10px] py-0">
+                      vs. {selectedMode.persona}
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {exchangeCount === 0
+                      ? "Session not started"
+                      : `${exchangeCount} exchange${exchangeCount !== 1 ? "s" : ""}`}
+                  </p>
+                </div>
               </div>
-            </TabsContent>
+              <div className="flex items-center gap-2">
+                {isDepPrepMode && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={generateQuestions}
+                    disabled={isGeneratingQuestions || !caseData}
+                    className="h-8 text-xs"
+                  >
+                    {isGeneratingQuestions ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+                    ) : (
+                      <Brain className="h-3.5 w-3.5 mr-1" />
+                    )}
+                    Generate Questions
+                  </Button>
+                )}
+                {messages.length > 0 && (
+                  <Button size="sm" variant="ghost" onClick={resetSession} className="h-8 text-xs text-muted-foreground">
+                    <RefreshCw className="h-3.5 w-3.5 mr-1" />
+                    Reset
+                  </Button>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
-            <TabsContent value="practice" className="space-y-4">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Practice Deposition Session</CardTitle>
-                  <CardDescription>
-                    Test your questions and get AI-powered feedback on your approach
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="question">Your Question</Label>
-                    <Textarea
-                      id="question"
-                      placeholder="Enter your deposition question here..."
-                      value={userInput}
-                      onChange={(e) => setUserInput(e.target.value)}
-                      className="min-h-[100px]"
-                    />
+        {/* Messages */}
+        <Card className="flex-1 overflow-hidden flex flex-col">
+          <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-4">
+            {messages.length === 0 && (
+              <div className="flex flex-col items-center justify-center h-full text-center space-y-4 py-8">
+                <div className="p-4 rounded-full bg-muted">
+                  <ModeIcon className={`h-8 w-8 ${selectedMode.color}`} />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-lg">{selectedMode.title}</h3>
+                  <p className="text-muted-foreground text-sm max-w-sm mt-1">{selectedMode.description}</p>
+                </div>
+                <div className="bg-muted rounded-xl p-4 max-w-sm w-full text-left">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2 flex items-center gap-1.5">
+                    <Lightbulb className="h-3.5 w-3.5" />
+                    Tips for this mode
+                  </p>
+                  <ul className="space-y-1.5">
+                    {selectedMode.tips.map((tip, i) => (
+                      <li key={i} className="text-xs text-foreground/80 flex items-start gap-2">
+                        <Star className="h-3 w-3 text-gold-500 mt-0.5 shrink-0" />
+                        {tip}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                {isDepPrepMode ? (
+                  <Button onClick={generateQuestions} disabled={isGeneratingQuestions || !caseData}>
+                    {isGeneratingQuestions ? (
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    ) : (
+                      <Brain className="h-4 w-4 mr-2" />
+                    )}
+                    Generate Deposition Questions
+                  </Button>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    {caseData ? `Case: ${caseData.name}` : "No case selected"} · Type your first question or statement below
+                  </p>
+                )}
+              </div>
+            )}
+
+            {messages.map((msg) => (
+              <div key={msg.id} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"} gap-3`}>
+                {msg.role === "assistant" && (
+                  <div className="shrink-0 w-8 h-8 rounded-full bg-muted flex items-center justify-center mt-1">
+                    <ModeIcon className={`h-4 w-4 ${selectedMode.color}`} />
+                  </div>
+                )}
+                <div className={`flex flex-col gap-2 max-w-[75%] ${msg.role === "user" ? "items-end" : "items-start"}`}>
+                  <span className="text-[10px] text-muted-foreground font-medium">
+                    {msg.role === "user" ? "You" : selectedMode.persona}
+                  </span>
+                  <div
+                    className={`rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+                      msg.role === "user"
+                        ? "bg-primary text-primary-foreground rounded-tr-sm"
+                        : "bg-muted text-foreground rounded-tl-sm"
+                    }`}
+                  >
+                    {msg.content}
                   </div>
 
-                  <div className="flex gap-2">
-                    <Button onClick={simulateResponse} disabled={isLoading || !userInput.trim()}>
-                      {isLoading ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Generating Response...
-                        </>
-                      ) : (
-                        <>
-                          <MessageSquare className="mr-2 h-4 w-4" />
-                          Simulate Witness Response
-                        </>
-                      )}
-                    </Button>
-                    <Button variant="outline" onClick={() => setUserInput("")}>
-                      Clear
-                    </Button>
-                  </div>
-
-                  {aiResponse && (
-                    <div className="space-y-2">
-                      <Label>AI Witness Response</Label>
-                      <Card className="bg-muted">
-                        <CardContent className="pt-6">
-                          <div className="flex items-start gap-3">
-                            <div className="rounded-full bg-primary/10 p-2">
-                              <Brain className="h-5 w-5 text-primary" />
-                            </div>
-                            <div className="flex-1">
-                              <p className="text-sm font-medium mb-2">Expert Witness Response</p>
-                              <p className="text-sm">{aiResponse}</p>
-                              <div className="mt-4 p-3 bg-background rounded-lg">
-                                <p className="text-xs font-medium mb-1">AI Analysis:</p>
-                                <p className="text-xs text-muted-foreground">
-                                  This response suggests the witness is being cautious. Consider following up with more specific,
-                                  document-based questions to pin down their testimony.
-                                </p>
-                              </div>
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
+                  {msg.hints && msg.hints.length > 0 && (
+                    <div className="w-full space-y-1.5">
+                      {msg.hints.map((hint, i) => (
+                        <Alert key={i} className="py-2 border-orange-200 bg-orange-50">
+                          <AlertTriangle className="h-3.5 w-3.5 text-orange-500 shrink-0" />
+                          <AlertDescription className="text-xs text-orange-800 ml-1">{hint}</AlertDescription>
+                        </Alert>
+                      ))}
                     </div>
                   )}
 
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <Card>
-                      <CardHeader>
-                        <CardTitle className="text-sm">Tips for Effective Questions</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <ul className="space-y-2 text-sm">
-                          <li className="flex items-start gap-2">
-                            <Zap className="h-4 w-4 text-gold-600 mt-0.5 flex-shrink-0" />
-                            <span>Ask open-ended questions first, then narrow down</span>
-                          </li>
-                          <li className="flex items-start gap-2">
-                            <Target className="h-4 w-4 text-gold-600 mt-0.5 flex-shrink-0" />
-                            <span>Use documents to pin down specific facts</span>
-                          </li>
-                          <li className="flex items-start gap-2">
-                            <AlertTriangle className="h-4 w-4 text-gold-600 mt-0.5 flex-shrink-0" />
-                            <span>Listen carefully to answers for follow-up opportunities</span>
-                          </li>
-                          <li className="flex items-start gap-2">
-                            <CheckCircle className="h-4 w-4 text-gold-600 mt-0.5 flex-shrink-0" />
-                            <span>Establish foundational facts before challenging testimony</span>
-                          </li>
-                        </ul>
-                      </CardContent>
-                    </Card>
+                  {msg.coaching && (
+                    <div className="w-full rounded-xl border border-yellow-200 bg-yellow-50 p-3">
+                      <div className="flex items-center gap-1.5 mb-1.5">
+                        <Lightbulb className="h-3.5 w-3.5 text-yellow-600 shrink-0" />
+                        <span className="text-[10px] font-semibold uppercase tracking-wide text-yellow-700">
+                          Coach Feedback
+                        </span>
+                      </div>
+                      <p className="text-xs text-yellow-900 leading-relaxed">{msg.coaching}</p>
+                    </div>
+                  )}
+                </div>
 
-                    <Card>
-                      <CardHeader>
-                        <CardTitle className="text-sm">Trap Question Strategies</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <ul className="space-y-2 text-sm">
-                          <li className="flex items-start gap-2">
-                            <div className="h-2 w-2 rounded-full bg-red-500 mt-1.5 flex-shrink-0" />
-                            <span>Ask questions that assume facts not yet established</span>
-                          </li>
-                          <li className="flex items-start gap-2">
-                            <div className="h-2 w-2 rounded-full bg-red-500 mt-1.5 flex-shrink-0" />
-                            <span>Present contradictory documents without immediate context</span>
-                          </li>
-                          <li className="flex items-start gap-2">
-                            <div className="h-2 w-2 rounded-full bg-red-500 mt-1.5 flex-shrink-0" />
-                            <span>Ask compound questions to confuse the witness</span>
-                          </li>
-                          <li className="flex items-start gap-2">
-                            <div className="h-2 w-2 rounded-full bg-red-500 mt-1.5 flex-shrink-0" />
-                            <span>Use leading questions to force admissions</span>
-                          </li>
-                        </ul>
-                      </CardContent>
-                    </Card>
+                {msg.role === "user" && (
+                  <div className="shrink-0 w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center mt-1">
+                    <Users className="h-4 w-4 text-primary" />
                   </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
-          </Tabs>
-        </CardContent>
-      </Card>
+                )}
+              </div>
+            ))}
+
+            {isLoading && (
+              <div className="flex items-start gap-3">
+                <div className="shrink-0 w-8 h-8 rounded-full bg-muted flex items-center justify-center">
+                  <ModeIcon className={`h-4 w-4 ${selectedMode.color}`} />
+                </div>
+                <div className="bg-muted rounded-2xl rounded-tl-sm px-4 py-3">
+                  <div className="flex gap-1 items-center h-5">
+                    <div className="w-2 h-2 rounded-full bg-muted-foreground/40 animate-bounce [animation-delay:0ms]" />
+                    <div className="w-2 h-2 rounded-full bg-muted-foreground/40 animate-bounce [animation-delay:150ms]" />
+                    <div className="w-2 h-2 rounded-full bg-muted-foreground/40 animate-bounce [animation-delay:300ms]" />
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Objection quick-reference buttons */}
+          {selectedMode.id === "objections-practice" && objectionTypes.length > 0 && (
+            <div className="px-4 pb-2 border-t pt-2 shrink-0">
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium mb-1.5">
+                Quick Objections
+              </p>
+              <div className="flex flex-wrap gap-1">
+                {objectionTypes.slice(0, 10).map((obj) => (
+                  <button
+                    key={obj}
+                    onClick={() => setUserInput(`Objection. ${obj}.`)}
+                    className="text-[11px] px-2 py-0.5 rounded-full bg-muted hover:bg-primary hover:text-primary-foreground transition-colors border"
+                  >
+                    {obj}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Input */}
+          {!isDepPrepMode && (
+            <div className="border-t p-3 shrink-0">
+              <div className="flex gap-2 items-end">
+                <Textarea
+                  ref={inputRef}
+                  value={userInput}
+                  onChange={(e) => setUserInput(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder={
+                    messages.length === 0
+                      ? `Begin your ${selectedMode.shortTitle.toLowerCase()}...`
+                      : "Continue... (Enter to send, Shift+Enter for new line)"
+                  }
+                  className="min-h-[60px] max-h-[160px] resize-none text-sm"
+                  disabled={isLoading || !caseData}
+                />
+                <Button
+                  onClick={sendMessage}
+                  disabled={isLoading || !userInput.trim() || !caseData}
+                  size="icon"
+                  className="h-10 w-10 shrink-0"
+                >
+                  {isLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Send className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
+              {!caseData && (
+                <p className="text-xs text-muted-foreground mt-1.5 text-center">Select a case to start practicing</p>
+              )}
+            </div>
+          )}
+        </Card>
+
+        {/* Deposition Questions Panel */}
+        {(isDepPrepMode || questions.length > 0) && (
+          <Card className="shrink-0">
+            <CardHeader className="py-3 px-4 border-b">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-semibold">
+                  Deposition Questions
+                  {questions.length > 0 && (
+                    <Badge variant="secondary" className="ml-2 text-xs">{questions.length}</Badge>
+                  )}
+                </CardTitle>
+                <div className="flex items-center gap-2">
+                  {questions.length > 0 && (
+                    <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setShowQuestions((v) => !v)}>
+                      {showQuestions ? <ChevronUp className="h-3.5 w-3.5 mr-1" /> : <ChevronDown className="h-3.5 w-3.5 mr-1" />}
+                      {showQuestions ? "Hide" : "Show"}
+                    </Button>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={generateQuestions}
+                    disabled={isGeneratingQuestions || !caseData}
+                    className="h-7 text-xs"
+                  >
+                    {isGeneratingQuestions ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+                    ) : (
+                      <Zap className="h-3.5 w-3.5 mr-1" />
+                    )}
+                    {questions.length > 0 ? "Regenerate" : "Generate"}
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+
+            {showQuestions && questions.length > 0 && (
+              <ScrollArea className="max-h-[320px]">
+                <div className="p-3 space-y-2">
+                  {questions.map((q) => (
+                    <div key={q.id} className="rounded-lg border bg-card p-3 hover:shadow-sm transition-shadow">
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+                          {QUESTION_TYPE_ICONS[q.type]}
+                          <Badge variant="outline" className="text-[10px] capitalize py-0 px-1.5">{q.type}</Badge>
+                          <Badge className={`text-[10px] py-0 px-1.5 ${RISK_STYLES[q.riskLevel]}`}>
+                            {q.riskLevel} risk
+                          </Badge>
+                        </div>
+                        {q.targetDocument && (
+                          <span className="text-[10px] text-muted-foreground truncate max-w-[150px]" title={q.targetDocument}>
+                            📄 {q.targetDocument}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-sm font-medium text-foreground mb-1.5">{q.question}</p>
+                      <p className="text-xs text-muted-foreground mb-2">{q.purpose}</p>
+                      {q.suggestedFollowUp && (
+                        <p className="text-xs text-muted-foreground italic">
+                          Follow-up: &ldquo;{q.suggestedFollowUp}&rdquo;
+                        </p>
+                      )}
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="mt-2 h-7 text-xs w-full border border-dashed hover:border-solid hover:bg-muted"
+                        onClick={() => {
+                          const depMode = SIMULATION_MODES.find((m) => m.id === "deposition");
+                          if (depMode) {
+                            switchMode(depMode);
+                          }
+                          setUserInput(q.question);
+                          setTimeout(() => inputRef.current?.focus(), 150);
+                        }}
+                      >
+                        <MessageSquare className="h-3 w-3 mr-1" />
+                        Practice in Deposition mode
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </ScrollArea>
+            )}
+
+            {questions.length === 0 && (
+              <CardContent className="py-4 text-center text-sm text-muted-foreground">
+                {isGeneratingQuestions ? (
+                  <div className="flex items-center justify-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Analyzing case documents and generating strategic questions...
+                  </div>
+                ) : (
+                  "Click Generate to create AI-powered deposition questions from your case documents."
+                )}
+              </CardContent>
+            )}
+          </Card>
+        )}
+      </div>
     </div>
   );
 }
