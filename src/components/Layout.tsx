@@ -21,6 +21,10 @@ import {
   DollarSign,
   Users,
   Shield,
+  History,
+  Sparkles,
+  FileText,
+  Mic,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
@@ -49,6 +53,19 @@ export function Layout({ children }: LayoutProps) {
   const navigate = useNavigate();
   const { signOut, user } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const caseMatch = location.pathname.match(/^\/cases\/([^\/]+)/);
+  const activeCaseId = caseMatch?.[1];
+
+  const missionNavItems = [
+    { path: activeCaseId ? `/cases/${activeCaseId}/timeline` : "/cases", label: "Timeline", icon: History },
+    { path: activeCaseId ? `/cases/${activeCaseId}/motions` : "/cases", label: "Motion Intelligence", icon: Sparkles },
+    { path: activeCaseId ? `/cases/${activeCaseId}/motions/generate` : "/cases", label: "Generate Motion", icon: FileText },
+    { path: activeCaseId ? `/cases/${activeCaseId}/simulator` : "/cases", label: "Trial Simulator", icon: Mic },
+    { path: activeCaseId ? `/cases/${activeCaseId}/simulator/history` : "/cases", label: "Simulator History", icon: History },
+  ];
+
+  const isActivePath = (path: string) =>
+    location.pathname === path || location.pathname.startsWith(`${path}/`);
 
   // Start offline sync listener on mount, clean up on unmount
   useEffect(() => {
@@ -146,7 +163,7 @@ export function Layout({ children }: LayoutProps) {
           <nav className="flex-1 space-y-1 px-3 py-4">
             {navItems.map((item) => {
               const Icon = item.icon;
-              const isActive = location.pathname === item.path;
+              const isActive = isActivePath(item.path);
               return (
                 <Link
                   key={item.path}
@@ -158,6 +175,33 @@ export function Layout({ children }: LayoutProps) {
                       ? "bg-sidebar-primary text-sidebar-primary-foreground"
                       : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground"
                   )}
+                >
+                  <Icon className="h-4 w-4" />
+                  {item.label}
+                </Link>
+              );
+            })}
+
+            <div className="px-3 pt-5 pb-2 text-[10px] uppercase tracking-[0.2em] text-sidebar-foreground/60">
+              Case AI
+              {!activeCaseId && <span className="ml-2 text-[9px] lowercase">(select a case)</span>}
+            </div>
+
+            {missionNavItems.map((item) => {
+              const Icon = item.icon;
+              const isActive = isActivePath(item.path);
+              return (
+                <Link
+                  key={item.path}
+                  to={item.path}
+                  onClick={() => setSidebarOpen(false)}
+                  className={cn(
+                    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                    isActive
+                      ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                      : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                  )}
+                  aria-disabled={!activeCaseId}
                 >
                   <Icon className="h-4 w-4" />
                   {item.label}

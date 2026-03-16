@@ -89,6 +89,7 @@ const CaseTimeline = lazy(() => import("./pages/CaseTimeline"));
 const CaseMotions = lazy(() => import("./pages/CaseMotions"));
 const CaseMotionGenerator = lazy(() => import("./pages/CaseMotionGenerator"));
 const CaseSimulator = lazy(() => import("./pages/CaseSimulator"));
+const CaseSimulatorHistory = lazy(() => import("./pages/CaseSimulatorHistory"));
 
 // Optimized React Query configuration for better performance
 const queryClient = new QueryClient({
@@ -254,6 +255,10 @@ const App = () => (
                 <Route
                   path="/cases/:id/simulator"
                   element={<ProtectedRoute><CaseSimulator /></ProtectedRoute>}
+                />
+                <Route
+                  path="/cases/:id/simulator/history"
+                  element={<ProtectedRoute><CaseSimulatorHistory /></ProtectedRoute>}
                 />
 
                 {/* 404 page */}
