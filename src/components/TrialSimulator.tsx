@@ -9,11 +9,14 @@ import {
   Loader2, Brain, AlertTriangle, CheckCircle, Target, RefreshCw,
   Zap, Send, Gavel, Users, BookOpen, Scale, FileText, Eye,
   MessageSquare, ChevronDown, ChevronUp, Lightbulb, Star,
+  Mic, MicOff, Volume2, VolumeX
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Document } from "@/lib/api";
 import { supabase } from "@/integrations/supabase/client";
 import { useCaseFactsStore } from "@/store/useCaseFactsStore";
+import { useDeepgram } from "@/hooks/useDeepgram";
+import { useAzureTTS } from "@/hooks/useAzureTTS";
 
 interface CaseData {
   id: string;
@@ -311,15 +314,53 @@ export function TrialSimulator({ caseData, documents = [] }: TrialSimulatorProps
   const [showModePanel, setShowModePanel] = useState(true);
   const [exchangeCount, setExchangeCount] = useState(0);
   const [objectionTypes, setObjectionTypes] = useState<string[]>([]);
+  
+  // Voice & Captioning State
+  const [isVoiceEnabled, setIsVoiceEnabled] = useState(false);
+  const [isTTSEnabled, setIsTTSEnabled] = useState(true);
+  const [currentTranscript, setCurrentTranscript] = useState("");
+  
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const { toast } = useToast();
+
+  const azureTTS = useAzureTTS({
+    apiKey: "3MnEMwL5iK4d4LJY2ZQK9isaW8JBljAWQr0MTBL839EKOH5qobQxJQQJ99CCACYeBjFXJ3w3AAALACOGHRYF",
+    region: "eastus"
+  });
+
+  const deepgram = useDeepgram({
+    onTranscript: (text, isFinal) => {
+      if (isFinal) {
+        setUserInput(prev => {
+          const newText = prev ? `${prev} ${text}` : text;
+          return newText;
+        });
+        setCurrentTranscript("");
+      } else {
+        setCurrentTranscript(text);
+      }
+    },
+    onError: (err) => {
+      toast({ title: "Voice Recognition Error", description: err, variant: "destructive" });
+      setIsVoiceEnabled(false);
+    },
+    apiKey: "your-deepgram-api-key" // User will need to provide this
+  });
+
+  useEffect(() => {
+    if (isVoiceEnabled) {
+      deepgram.startListening();
+    } else {
+      deepgram.stopListening();
+    }
+  }, [isVoiceEnabled]);
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages, isLoading]);
+  }, [messages, isLoading, currentTranscript]);
 
   const switchMode = useCallback((mode: SimMode) => {
     setSelectedMode(mode);
@@ -373,28 +414,12 @@ export function TrialSimulator({ caseData, documents = [] }: TrialSimulatorProps
         generated = payload.questions
           .map((q, i) => mapQPayload(q, i, sourceDocs))
           .filter((q) => q.question.length > 0);
-      } else if (payload.message) {
-        try {
-          const jsonMatch = payload.message.match(/\{[\s\S]*\}/);
-          if (jsonMatch) {
-            const parsed = JSON.parse(jsonMatch[0]) as { questions?: TrialSimulationQuestionPayload[] };
-            if (Array.isArray(parsed.questions)) {
-              generated = parsed.questions
-                .map((q, i) => mapQPayload(q, i, sourceDocs))
-                .filter((q) => q.question.length > 0);
-            }
-          }
-        } catch {
-          // ignore
-        }
       }
 
       if (generated.length === 0) {
         generated = [
           { id: "q-1", question: "Can you identify this document and explain when you first saw it?", type: "foundational", riskLevel: "low", purpose: "Establish authentication and personal knowledge", suggestedFollowUp: "Who gave you this document?" },
           { id: "q-2", question: "Your testimony today contradicts this document — which is accurate?", type: "impeachment", riskLevel: "high", purpose: "Create a credibility conflict between testimony and record", suggestedFollowUp: "What contemporaneous evidence supports your version?" },
-          { id: "q-3", question: "What specific facts did you rely on before reaching that conclusion?", type: "clarifying", riskLevel: "medium", purpose: "Pin down vague or conclusory testimony", suggestedFollowUp: "Can you point to the exact line in the record?" },
-          { id: "q-4", question: "You didn't mention this fact in your prior statement — correct?", type: "trap", riskLevel: "high", purpose: "Set up omission-based impeachment", suggestedFollowUp: "Why should we believe it now?" },
         ];
       }
 
@@ -472,6 +497,10 @@ export function TrialSimulator({ caseData, documents = [] }: TrialSimulatorProps
 
       setMessages((prev) => [...prev, aiMsg]);
       setExchangeCount((n) => n + 1);
+
+      if (isTTSEnabled && aiMsg.content) {
+        azureTTS.speak(aiMsg.content, selectedMode.persona);
+      }
     } catch (err) {
       console.error(err);
       toast({ title: "Response failed — try again", variant: "destructive" });
@@ -481,7 +510,7 @@ export function TrialSimulator({ caseData, documents = [] }: TrialSimulatorProps
       setIsLoading(false);
       setTimeout(() => inputRef.current?.focus(), 50);
     }
-  }, [userInput, caseData, isLoading, messages, selectedMode, documents, toast]);
+  }, [userInput, caseData, isLoading, messages, selectedMode, documents, toast, isTTSEnabled, azureTTS]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -574,6 +603,26 @@ export function TrialSimulator({ caseData, documents = [] }: TrialSimulatorProps
                 </div>
               </div>
               <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant={isTTSEnabled ? "default" : "outline"}
+                  onClick={() => setIsTTSEnabled(!isTTSEnabled)}
+                  className="h-8 px-2"
+                  title={isTTSEnabled ? "Disable Voice Output" : "Enable Voice Output"}
+                >
+                  {isTTSEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+                </Button>
+                
+                <Button
+                  size="sm"
+                  variant={isVoiceEnabled ? "destructive" : "outline"}
+                  onClick={() => setIsVoiceEnabled(!isVoiceEnabled)}
+                  className="h-8 px-2"
+                  title={isVoiceEnabled ? "Stop Voice Recognition" : "Start Voice Recognition"}
+                >
+                  {isVoiceEnabled ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4" />}
+                </Button>
+
                 {isDepPrepMode && (
                   <Button
                     size="sm"
@@ -602,7 +651,7 @@ export function TrialSimulator({ caseData, documents = [] }: TrialSimulatorProps
         </Card>
 
         {/* Messages */}
-        <Card className="flex-1 overflow-hidden flex flex-col">
+        <Card className="flex-1 overflow-hidden flex flex-col relative">
           <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-4">
             {messages.length === 0 && (
               <div className="flex flex-col items-center justify-center h-full text-center space-y-4 py-8">
@@ -711,6 +760,22 @@ export function TrialSimulator({ caseData, documents = [] }: TrialSimulatorProps
                 </div>
               </div>
             )}
+
+            {/* Live Captioning Overlay */}
+            {currentTranscript && (
+              <div className="sticky bottom-4 left-0 right-0 px-4 z-10">
+                <div className="bg-black/80 backdrop-blur-md text-white rounded-lg p-4 shadow-xl border border-white/20 animate-in fade-in slide-in-from-bottom-2">
+                  <div className="flex items-center gap-2 mb-1">
+                    <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                    <span className="text-[10px] font-bold uppercase tracking-widest opacity-70">Live Captions</span>
+                  </div>
+                  <p className="text-lg font-medium leading-tight">
+                    {currentTranscript}
+                    <span className="inline-block w-1 h-5 ml-1 bg-white/50 animate-pulse" />
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Objection quick-reference buttons */}
@@ -719,7 +784,7 @@ export function TrialSimulator({ caseData, documents = [] }: TrialSimulatorProps
               <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium mb-1.5">
                 Quick Objections
               </p>
-              <div className="flex flex-wrap gap-1">
+              <div className="flex wrap gap-1">
                 {objectionTypes.slice(0, 10).map((obj) => (
                   <button
                     key={obj}
@@ -751,8 +816,8 @@ export function TrialSimulator({ caseData, documents = [] }: TrialSimulatorProps
                   disabled={isLoading || !caseData}
                 />
                 <Button
-                  onClick={sendMessage}
-                  disabled={isLoading || !userInput.trim() || !caseData}
+                  onClick={() => sendMessage()}
+                  disabled={isLoading || (!userInput.trim() && !currentTranscript) || !caseData}
                   size="icon"
                   className="h-10 w-10 shrink-0"
                 >
@@ -852,19 +917,6 @@ export function TrialSimulator({ caseData, documents = [] }: TrialSimulatorProps
                   ))}
                 </div>
               </ScrollArea>
-            )}
-
-            {questions.length === 0 && (
-              <CardContent className="py-4 text-center text-sm text-muted-foreground">
-                {isGeneratingQuestions ? (
-                  <div className="flex items-center justify-center gap-2">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Analyzing case documents and generating strategic questions...
-                  </div>
-                ) : (
-                  "Click Generate to create AI-powered deposition questions from your case documents."
-                )}
-              </CardContent>
             )}
           </Card>
         )}

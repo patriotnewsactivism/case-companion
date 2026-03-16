@@ -821,12 +821,25 @@ ${additionalContext ? `=== ADDITIONAL ATTORNEY CONTEXT ===
 ${additionalContext}` : ''}
 
 === INSTRUCTIONS ===
-Stay in character as ${simulationConfig.role}. Be realistic, challenging, and immersive.
+Stay in character as ${simulationConfig.role}. Be realistic, challenging, and immersive. 
+
+TACTICAL INTELLIGENCE:
+- If the attorney asks a compound question, the witness should look confused and ask for clarification.
+- If the attorney is too aggressive on cross, the witness should become more guarded and terse.
+- If the attorney asks a question that assumes a fact not in evidence (based on the CASE INFORMATION provided), point it out in character: "I never said that happened, counselor."
+- The "Skeptical Judge" should interrupt if the attorney rambles or misstates the law.
+
+VOICE CADENCE:
+- Your response will be converted to speech. Write naturally. 
+- Use short sentences for witnesses.
+- Use authoritative, well-paced sentences for judges.
+- No markdown, no bullet points, no asterisks, no headers.
+
 ${mode === 'deposition-prep'
   ? `Return ONLY valid JSON using this exact shape:
 {"questions":[{"question":"...","type":"foundational|trap|clarifying|impeachment","purpose":"...","risk":"low|medium|high","followUp":"...","targetDocument":"..."}]}
 No markdown, no code fences, and no text outside the JSON object.`
-  : 'Remember: your response will be converted to speech, so write naturally with no markdown, no bullet points, no asterisks, no headers.'}
+  : 'Response must be pure text for speech synthesis.'}
 ${mode === 'objections-practice' ? `
 When presenting questions, vary between:
 - Clearly objectionable questions
