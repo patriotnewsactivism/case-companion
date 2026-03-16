@@ -19,9 +19,13 @@ import {
   Bell,
   Video,
   DollarSign,
+  Users,
+  Shield,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
+import { OfflineStatusBar } from "@/components/OfflineStatusBar";
+import { startAutoSync, stopAutoSync } from "@/lib/offline/sync-manager";
 
 const navItems = [
   { path: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -31,6 +35,8 @@ const navItems = [
   { path: "/billing", label: "Practice Mgmt", icon: DollarSign },
   { path: "/video", label: "Video Calls", icon: Video },
   { path: "/research", label: "Legal Research", icon: BookOpen },
+  { path: "/team", label: "Team", icon: Users },
+  { path: "/conflicts", label: "Conflict Check", icon: Shield },
   { path: "/settings", label: "Settings", icon: Settings },
 ];
 
@@ -43,6 +49,12 @@ export function Layout({ children }: LayoutProps) {
   const navigate = useNavigate();
   const { signOut, user } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Start offline sync listener on mount, clean up on unmount
+  useEffect(() => {
+    startAutoSync();
+    return () => stopAutoSync();
+  }, []);
 
   const handleSignOut = async () => {
     await signOut();
@@ -178,6 +190,7 @@ export function Layout({ children }: LayoutProps) {
 
       {/* Main content */}
       <main className="lg:pl-64">
+        <OfflineStatusBar />
         <div className="min-h-screen pt-16">{children}</div>
       </main>
     </div>

@@ -83,6 +83,8 @@ const Settings = lazy(() => import("./pages/Settings"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 const Analytics = lazy(() => import("./pages/Analytics"));
 const MockJury = lazy(() => import("./pages/MockJury"));
+const Team = lazy(() => import("./pages/Team"));
+const ConflictCheck = lazy(() => import("./pages/ConflictCheck"));
 
 // Optimized React Query configuration for better performance
 const queryClient = new QueryClient({
@@ -212,6 +214,22 @@ const App = () => (
                   element={
                     <ProtectedRoute>
                       <MockJury />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/team"
+                  element={
+                    <ProtectedRoute>
+                      <Team />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/conflicts"
+                  element={
+                    <ProtectedRoute>
+                      <ConflictCheck />
                     </ProtectedRoute>
                   }
                 />

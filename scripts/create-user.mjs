@@ -48,7 +48,7 @@ const { data, error } = await supabase.auth.admin.createUser({
   email: EMAIL,
   password: PASSWORD,
   email_confirm: true,
-  user_metadata: { full_name: 'Ben' },
+  user_metadata: { full_name: 'Ben Campagna' },
 });
 
 if (error) {
@@ -81,7 +81,7 @@ if (error) {
   // Upsert profile record
   const { error: profileErr } = await supabase.from('profiles').upsert({
     user_id: userId,
-    full_name: 'Ben',
+    full_name: 'Ben Campagna',
     firm_name: 'Texas Planning Law',
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),

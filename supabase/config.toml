@@ -36,3 +36,9 @@ verify_jwt = false
 
 [functions.settlement-analysis]
 verify_jwt = false
+
+[functions.export-document]
+verify_jwt = false
+
+[functions.conflict-check]
+verify_jwt = false
