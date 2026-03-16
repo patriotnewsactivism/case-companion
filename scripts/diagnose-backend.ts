@@ -167,7 +167,17 @@ async function testRLSPolicies() {
     const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
     // Try to access tables without authentication (should be blocked)
-    const tables = ['cases', 'documents', 'timeline_events', 'profiles'];
+    const tables = [
+      'cases', 
+      'documents', 
+      'timeline_events', 
+      'profiles',
+      'time_entries',
+      'research_notes',
+      'court_dates',
+      'depositions',
+      'processing_queue'
+    ];
 
     for (const table of tables) {
       const { data, error } = await supabase.from(table).select('*').limit(1);
