@@ -407,7 +407,7 @@ function parseDepositionQuestionsFromText(rawText: string): DepositionPrepQuesti
     const trimmed = line.trim();
     if (!trimmed) continue;
 
-    if (/^(QUESTION\s*\d*[:\-]|\d+[.)]\s+)/i.test(trimmed)) {
+    if (/^(QUESTION\s*\d*[:-]|\d+[.)]\s+)/i.test(trimmed)) {
       if (current?.question) {
         questions.push({
           question: current.question,
@@ -420,7 +420,7 @@ function parseDepositionQuestionsFromText(rawText: string): DepositionPrepQuesti
       }
 
       const questionText = trimmed
-        .replace(/^(QUESTION\s*\d*[:\-]|\d+[.)]\s+)/i, '')
+        .replace(/^(QUESTION\s*\d*[:-]|\d+[.)]\s+)/i, '')
         .trim();
 
       current = questionText ? { question: questionText } : null;

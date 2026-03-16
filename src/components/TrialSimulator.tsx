@@ -178,7 +178,7 @@ const normalizeRiskLevel = (value?: string): DepositionQuestion["riskLevel"] => 
     for (const line of lines) {
       const trimmed = line.trim();
       
-      if (trimmed.match(/^(\d+[.)]|[Qq]uestion\s*\d*[:\-])/)) {
+      if (trimmed.match(/^(\d+[.)]|[Qq]uestion\s*\d*[:-])/)) {
         if (currentQuestion?.question) {
           questions.push({
             id: `q-${questions.length + 1}`,
@@ -191,7 +191,7 @@ const normalizeRiskLevel = (value?: string): DepositionQuestion["riskLevel"] => 
           });
         }
         const questionText = trimmed
-          .replace(/^(\d+[.)]|[Qq]uestion\s*\d*[:\-])\s*/, '')
+          .replace(/^(\d+[.)]|[Qq]uestion\s*\d*[:-])\s*/, '')
           .trim();
         currentQuestion = questionText ? { question: questionText } : null;
       }
