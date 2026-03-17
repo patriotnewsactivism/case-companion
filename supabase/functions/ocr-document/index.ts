@@ -423,8 +423,8 @@ async function azureDocumentIntelligenceOcr(fileBlob: Blob, contentType: string)
     throw new Error('Azure Computer Vision: Timed out waiting for results');
   }
 
-  // Extract text from all pages - Computer Vision uses readResult.pages
-  const pages = result.readResult?.pages || [];
+  // Extract text from all pages - Computer Vision uses analyzeResult.pages
+  const pages = result.analyzeResult?.pages || [];
 
   if (!pages.length) {
     throw new Error('Azure Computer Vision returned no pages');
