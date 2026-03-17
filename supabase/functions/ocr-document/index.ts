@@ -424,10 +424,13 @@ async function azureDocumentIntelligenceOcr(fileBlob: Blob, contentType: string)
   }
 
   // Extract text from all pages - Computer Vision uses analyzeResult.pages
+  console.log('analyzeResult keys:', result.analyzeResult ? Object.keys(result.analyzeResult).join(',') : 'no analyzeResult');
+  console.log('analyzeResult:', JSON.stringify(result.analyzeResult).substring(0, 800));
+
   const pages = result.analyzeResult?.pages || [];
 
   if (!pages.length) {
-    throw new Error('Azure Computer Vision returned no pages');
+    throw new Error(`Azure Computer Vision returned no pages. analyzeResult structure: ${result.analyzeResult ? Object.keys(result.analyzeResult).join(',') : 'missing'}`);
   }
 
   // Build text from lines in pages
