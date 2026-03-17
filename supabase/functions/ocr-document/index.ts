@@ -423,23 +423,20 @@ async function azureDocumentIntelligenceOcr(fileBlob: Blob, contentType: string)
     throw new Error('Azure Computer Vision: Timed out waiting for results');
   }
 
-  // Extract text from all pages - Computer Vision uses analyzeResult.pages
-  console.log('analyzeResult keys:', result.analyzeResult ? Object.keys(result.analyzeResult).join(',') : 'no analyzeResult');
-  console.log('analyzeResult:', JSON.stringify(result.analyzeResult).substring(0, 800));
+  // Extract text from all pages - Computer Vision uses analyzeResult.readResults
+  const readResults = result.analyzeResult?.readResults || [];
 
-  const pages = result.analyzeResult?.pages || [];
-
-  if (!pages.length) {
-    throw new Error(`Azure Computer Vision returned no pages. analyzeResult structure: ${result.analyzeResult ? Object.keys(result.analyzeResult).join(',') : 'missing'}`);
+  if (!readResults.length) {
+    throw new Error('Azure Computer Vision returned no readResults');
   }
 
-  // Build text from lines in pages
+  // Build text from lines in readResults
   const pageTexts: string[] = [];
-  for (const page of pages) {
-    const lines = page.lines || [];
+  for (const pageResult of readResults) {
+    const lines = pageResult.lines || [];
     const pageText = lines.map((l: any) => l.text || '').join('\n');
-    if (pages.length > 1) {
-      pageTexts.push(`=== PAGE ${page.pageNumber} ===\n${pageText}`);
+    if (readResults.length > 1) {
+      pageTexts.push(`=== PAGE ${pageResult.page} ===\n${pageText}`);
     } else {
       pageTexts.push(pageText);
     }
@@ -448,7 +445,7 @@ async function azureDocumentIntelligenceOcr(fileBlob: Blob, contentType: string)
   const extracted = pageTexts.join('\n\n');
   if (!extracted.trim()) throw new Error('Azure Computer Vision returned empty text');
 
-  console.log(`Azure Computer Vision extracted ${extracted.length} chars from ${pages.length} pages`);
+  console.log(`Azure Computer Vision extracted ${extracted.length} chars from ${readResults.length} pages`);
   return extracted;
 }
 
