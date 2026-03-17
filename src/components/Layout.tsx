@@ -57,11 +57,11 @@ export function Layout({ children }: LayoutProps) {
   const activeCaseId = caseMatch?.[1];
 
   const missionNavItems = [
-    { path: activeCaseId ? `/cases/${activeCaseId}/timeline` : "/cases", label: "Timeline", icon: History },
-    { path: activeCaseId ? `/cases/${activeCaseId}/motions` : "/cases", label: "Motion Intelligence", icon: Sparkles },
-    { path: activeCaseId ? `/cases/${activeCaseId}/motions/generate` : "/cases", label: "Generate Motion", icon: FileText },
-    { path: activeCaseId ? `/cases/${activeCaseId}/simulator` : "/cases", label: "Trial Simulator", icon: Mic },
-    { path: activeCaseId ? `/cases/${activeCaseId}/simulator/history` : "/cases", label: "Simulator History", icon: History },
+    { id: "timeline", path: activeCaseId ? `/cases/${activeCaseId}/timeline` : "/cases", label: "Timeline", icon: History },
+    { id: "motions", path: activeCaseId ? `/cases/${activeCaseId}/motions` : "/cases", label: "Motion Intelligence", icon: Sparkles },
+    { id: "generate", path: activeCaseId ? `/cases/${activeCaseId}/motions/generate` : "/cases", label: "Generate Motion", icon: FileText },
+    { id: "simulator", path: activeCaseId ? `/cases/${activeCaseId}/simulator` : "/cases", label: "Trial Simulator", icon: Mic },
+    { id: "history", path: activeCaseId ? `/cases/${activeCaseId}/simulator/history` : "/cases", label: "Simulator History", icon: History },
   ];
 
   const isActivePath = (path: string) =>
@@ -192,7 +192,7 @@ export function Layout({ children }: LayoutProps) {
               const isActive = isActivePath(item.path);
               return (
                 <Link
-                  key={item.path}
+                  key={item.id}
                   to={item.path}
                   onClick={() => setSidebarOpen(false)}
                   className={cn(
