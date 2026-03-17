@@ -38,7 +38,8 @@
       "Bash(SUPABASE_ACCESS_TOKEN=sbp_cbdd9a180d95e9dfba75c981ba3a919eda508f77 npx supabase functions deploy --project-ref jpzkumgndqsdwimbvjku 2>&1)",
       "Bash(SUPABASE_ACCESS_TOKEN=sbp_cbdd9a180d95e9dfba75c981ba3a919eda508f77 npx supabase functions deploy trial-simulation trial-coach --project-ref jpzkumgndqsdwimbvjku 2>&1)",
       "Bash(cd:*)",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Bash(export SUPABASE_ACCESS_TOKEN=sbp_d7011eb262f2bc0540ebea76a1a610e5972c06c9)"
     ]
   },
   "enableAllProjectMcpServers": true,
