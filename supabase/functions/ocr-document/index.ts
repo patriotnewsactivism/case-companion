@@ -390,64 +390,62 @@ async function azureDocumentIntelligenceOcr(fileBlob: Blob, contentType: string)
     },
     body: fileBlob,
   });
-  
+
   if (!submitResponse.ok) {
     const errorText = await submitResponse.text();
-    throw new Error(`Azure DI submit failed (${submitResponse.status}): ${errorText}`);
+    throw new Error(`Azure Computer Vision submit failed (${submitResponse.status}): ${errorText}`);
   }
-  
+
   const operationLocation = submitResponse.headers.get('Operation-Location');
-  if (!operationLocation) throw new Error('Azure DI: No Operation-Location header returned');
-  
-  // Poll for results - Azure DI is fast, usually <10s
+  if (!operationLocation) throw new Error('Azure Computer Vision: No Operation-Location header returned');
+
+  // Poll for results - Computer Vision Read API is fast, usually <10s
   let result: any = null;
   for (let attempt = 0; attempt < 60; attempt++) {
     await delay(attempt < 5 ? 1000 : 2000);
-    
+
     const pollResponse = await fetch(operationLocation, {
       headers: { 'Ocp-Apim-Subscription-Key': apiKey },
     });
-    
+
     if (!pollResponse.ok) {
-      throw new Error(`Azure DI poll failed: ${pollResponse.status}`);
+      throw new Error(`Azure Computer Vision poll failed: ${pollResponse.status}`);
     }
-    
+
     result = await pollResponse.json();
-    
+
     if (result.status === 'succeeded') break;
-    if (result.status === 'failed') throw new Error(`Azure DI analysis failed: ${JSON.stringify(result.error)}`);
+    if (result.status === 'failed') throw new Error(`Azure Computer Vision analysis failed: ${JSON.stringify(result.error)}`);
     // still running, continue polling
   }
-  
+
   if (!result || result.status !== 'succeeded') {
-    throw new Error('Azure DI: Timed out waiting for results');
+    throw new Error('Azure Computer Vision: Timed out waiting for results');
   }
-  
-  // Extract text from all pages
-  const pages = result.analyzeResult?.pages || [];
-  const content = result.analyzeResult?.content || '';
-  
-  if (content && content.trim().length > 0) {
-    console.log(`Azure DI extracted ${content.length} chars from ${pages.length} pages`);
-    return content;
+
+  // Extract text from all pages - Computer Vision uses readResult.pages
+  const pages = result.readResult?.pages || [];
+
+  if (!pages.length) {
+    throw new Error('Azure Computer Vision returned no pages');
   }
-  
-  // Fallback: build from pages
+
+  // Build text from lines in pages
   const pageTexts: string[] = [];
   for (const page of pages) {
     const lines = page.lines || [];
-    const pageText = lines.map((l: any) => l.content || '').join('\n');
+    const pageText = lines.map((l: any) => l.text || '').join('\n');
     if (pages.length > 1) {
       pageTexts.push(`=== PAGE ${page.pageNumber} ===\n${pageText}`);
     } else {
       pageTexts.push(pageText);
     }
   }
-  
+
   const extracted = pageTexts.join('\n\n');
-  if (!extracted.trim()) throw new Error('Azure DI returned empty text');
-  
-  console.log(`Azure DI extracted ${extracted.length} chars from ${pages.length} pages (line-level)`);
+  if (!extracted.trim()) throw new Error('Azure Computer Vision returned empty text');
+
+  console.log(`Azure Computer Vision extracted ${extracted.length} chars from ${pages.length} pages`);
   return extracted;
 }
 
