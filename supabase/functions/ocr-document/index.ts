@@ -372,13 +372,16 @@ const buildHeuristicAnalysis = (text: string): HeuristicAnalysisResult => {
 async function azureDocumentIntelligenceOcr(fileBlob: Blob, contentType: string): Promise<string> {
   const endpoint = Deno.env.get('AZURE_DOC_INTELLIGENCE_ENDPOINT') || Deno.env.get('AZURE_VISION_ENDPOINT');
   const apiKey = Deno.env.get('AZURE_DOC_INTELLIGENCE_KEY') || Deno.env.get('AZURE_VISION_API_KEY');
-  
+
   if (!endpoint || !apiKey) throw new Error('Azure Document Intelligence not configured');
-  
+
   const baseUrl = endpoint.replace(/\/+$/, '');
   // Use the prebuilt-read model for best OCR quality
   const analyzeUrl = `${baseUrl}/documentintelligence/documentModels/prebuilt-read:analyze?api-version=2024-11-30`;
-  
+
+  console.log(`Azure Document Intelligence: Using endpoint: ${baseUrl}`);
+  console.log(`Azure Document Intelligence: URL: ${analyzeUrl}`);
+  console.log(`Azure Document Intelligence: Content-Type: ${contentType}`);
   console.log(`Azure Document Intelligence: Submitting ${(fileBlob.size / 1024 / 1024).toFixed(2)}MB document...`);
   
   const submitResponse = await fetch(analyzeUrl, {
