@@ -14,6 +14,7 @@ const BASE_ALLOWED_ORIGINS = [
   'https://casebuddy.live', // Production custom domain
   'https://casebuddypro.com', // Production domain
   'http://localhost:8080', // Development
+  'http://localhost:8082', // Development (fallback when 8080 is in use)
   'http://localhost:5173', // Vite dev server alternative port
 ];
 
