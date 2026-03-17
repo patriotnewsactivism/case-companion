@@ -373,16 +373,14 @@ async function azureDocumentIntelligenceOcr(fileBlob: Blob, contentType: string)
   const endpoint = Deno.env.get('AZURE_DOC_INTELLIGENCE_ENDPOINT') || Deno.env.get('AZURE_VISION_ENDPOINT');
   const apiKey = Deno.env.get('AZURE_DOC_INTELLIGENCE_KEY') || Deno.env.get('AZURE_VISION_API_KEY');
 
-  if (!endpoint || !apiKey) throw new Error('Azure Document Intelligence not configured');
+  if (!endpoint || !apiKey) throw new Error('Azure Computer Vision not configured');
 
   const baseUrl = endpoint.replace(/\/+$/, '');
-  // Use the prebuilt-read model for best OCR quality
-  const analyzeUrl = `${baseUrl}/documentintelligence/documentModels/prebuilt-read:analyze?api-version=2024-11-30`;
+  // Use Computer Vision Read API v3.2 for OCR
+  const analyzeUrl = `${baseUrl}/vision/v3.2/read/analyze`;
 
-  console.log(`Azure Document Intelligence: Using endpoint: ${baseUrl}`);
-  console.log(`Azure Document Intelligence: URL: ${analyzeUrl}`);
-  console.log(`Azure Document Intelligence: Content-Type: ${contentType}`);
-  console.log(`Azure Document Intelligence: Submitting ${(fileBlob.size / 1024 / 1024).toFixed(2)}MB document...`);
+  console.log(`Azure Computer Vision Read API: Using endpoint: ${baseUrl}`);
+  console.log(`Azure Computer Vision: Submitting ${(fileBlob.size / 1024 / 1024).toFixed(2)}MB document...`);
   
   const submitResponse = await fetch(analyzeUrl, {
     method: 'POST',
