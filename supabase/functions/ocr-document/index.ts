@@ -9,6 +9,13 @@ import {
 } from '../_shared/errorHandler.ts';
 import { verifyAuth, forbiddenResponse } from '../_shared/auth.ts';
 import { validateUUID, validateURL } from '../_shared/validation.ts';
+import {
+  analyzeDocument,
+  formatAnalyzeResultAsText,
+  formatTableAsMarkdown,
+  type TableResult,
+} from '../_shared/azureDocumentIntelligence.ts';
+import { callAzureOpenAI } from '../_shared/azureOpenAI.ts';
 
 const STORAGE_BUCKET = 'case-documents';
 
@@ -175,13 +182,9 @@ const inferNextRequiredAction = (phase: TimelinePhase, content: string): string 
 
 const isTitleOcrJunk = (title: string): boolean => {
   const t = title.trim();
-  // Titles that are just page references
   if (/^(PAGE\s+\d+|=== PAGE)/i.test(t)) return true;
-  // Titles that start with a bare case number
   if (/^(Case\s+)?\d+[:\-]\d+[-\w]*\s*(Document|cv|cr)/i.test(t)) return true;
-  // Titles that are just "PAGE X Case Y" patterns
   if (/^PAGE\s+\d+\s+Case/i.test(t)) return true;
-  // Titles that are mostly digits and case formatting
   if (t.replace(/[\d\s:\-\/cvCVPage]+/g, '').length < 5) return true;
   return false;
 };
@@ -196,7 +199,6 @@ const normalizeTimelineEvent = (
   const dateOnly = toDateOnlyString(event.date);
   if (!dateOnly) return null;
   let title = (event.event_title || '').trim();
-  // Clean OCR artifacts from AI-generated titles
   title = title.replace(/={2,}\s*PAGE\s+\d+\s*={0,}/gi, '').replace(/^PAGE\s+\d+\s*/i, '').trim();
   const description = (event.description || '').replace(/={2,}\s*PAGE\s+\d+\s*={0,}/gi, '').trim();
   const eventType = (event.event_type || '').trim();
@@ -206,7 +208,6 @@ const normalizeTimelineEvent = (
   const phase = normalizePhase(event.phase, content);
   const nextRequiredAction = (event.next_required_action || '').trim() || inferNextRequiredAction(phase, content);
   if (!title && description.length < 20) return null;
-  // Reject titles that are just OCR artifacts or document metadata
   if (isTitleOcrJunk(title)) return null;
   return {
     case_id: caseId,
@@ -233,11 +234,9 @@ const extractSentences = (text: string): string[] => {
   return normalized.match(sentenceSplitRegex)?.map((s) => s.trim()).filter(Boolean) || [];
 };
 
-// Send the FULL document to the AI model - Gemini 2.5 supports 1M+ tokens
 const buildAnalysisDocumentContext = (text: string, maxChars = 120000): string => {
   const normalized = normalizeExtractedText(text);
   if (normalized.length <= maxChars) return normalized;
-  // For extremely long documents, keep head + tail + key sentences
   const head = normalized.slice(0, maxChars * 0.7);
   const tail = normalized.slice(-maxChars * 0.2);
   return `${head}\n\n[... document continues ...]\n\n${tail}`;
@@ -262,30 +261,20 @@ const extractDateToken = (sentence: string): string | null => {
 
 const isOcrArtifact = (sentence: string): boolean => {
   const s = sentence.trim();
-  // Page markers: "=== PAGE 1 ===" or "PAGE 1 of 28"
   if (/^={2,}\s*PAGE\s+\d+/i.test(s)) return true;
-  // Starts with "PAGE X" followed by case numbers
   if (/^PAGE\s+\d+\s+(Case|of)\b/i.test(s)) return true;
-  // Pure case number headers: "Case 3:25-cv-00203 Document 1 Filed on..."
   if (/^Case\s+\d+[:\-]\d+/i.test(s)) return true;
-  // Document header lines with no real content: "Document #: 2 Filed: 11/26/2024 Page 1 of 26"
   if (/^Document\s+[#\d]/i.test(s) && /Page\s+\d+\s+of\s+\d+/i.test(s)) return true;
-  // Lines that are mostly page/document references
   const cleaned = s.replace(/(?:PAGE|DOCUMENT|===|\d+\s*of\s*\d+|Case\s*\d+[:\-]\S+)/gi, '').trim();
   if (cleaned.length < 15) return true;
   return false;
 };
 
 const buildTimelineTitle = (sentence: string, dateToken: string | null): string => {
-  // Strip OCR page markers and artifacts
   let cleaned = sentence.replace(/={2,}\s*PAGE\s+\d+\s*={0,}/gi, '').trim();
-  // Strip leading "PAGE X" references
   cleaned = cleaned.replace(/^PAGE\s+\d+\s*/i, '').trim();
-  // Remove date token
   const withoutDate = dateToken ? cleaned.replace(dateToken, ' ') : cleaned;
-  // Remove case number patterns (e.g., "Case 3:25-cv-00203")
   const withoutCaseNum = withoutDate.replace(/Case\s+\d+[:\-]\d+[-\w]*/gi, ' ').trim();
-  // Remove "Document X" and "Page X of Y" references
   const withoutDocRef = withoutCaseNum.replace(/Document\s+#?\s*\d+/gi, ' ').replace(/Page\s+\d+\s+of\s+\d+/gi, ' ').trim();
   const words = withoutDocRef.replace(/[^a-zA-Z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean).slice(0, 8);
   if (words.length === 0) return 'Document event';
@@ -326,15 +315,12 @@ const buildHeuristicAnalysis = (text: string): HeuristicAnalysisResult => {
   const sentences = extractSentences(text).slice(0, 100);
   const timelineEvents: TimelineEventCandidate[] = [];
   for (const sentence of sentences) {
-    // Skip OCR page markers and document header artifacts
     if (isOcrArtifact(sentence)) continue;
     const dateToken = extractDateToken(sentence);
     if (!dateToken) continue;
     if (!/\b(filed|served|hearing|trial|deposition|meeting|conference|incident|accident|injury|deadline|notice|email|letter|call|agreement|contract|payment|settlement|judgment|order|motion|complaint)\b/i.test(sentence)) continue;
     const title = buildTimelineTitle(sentence, dateToken);
-    // Skip events with titles that are too short or still look like artifacts
     if (title.length < 5 || /^(Document event|Filed|Page|Case)$/i.test(title)) continue;
-    // Strip OCR artifacts from description too
     const cleanDesc = sentence.replace(/={2,}\s*PAGE\s+\d+\s*={0,}/gi, '').replace(/^PAGE\s+\d+\s*/i, '').trim();
     timelineEvents.push({
       date: toDateOnlyString(dateToken) || undefined,
@@ -368,20 +354,44 @@ const buildHeuristicAnalysis = (text: string): HeuristicAnalysisResult => {
   };
 };
 
-// ===== Azure Document Intelligence OCR =====
-async function azureDocumentIntelligenceOcr(fileBlob: Blob, contentType: string): Promise<string> {
-  const endpoint = Deno.env.get('AZURE_DOC_INTELLIGENCE_ENDPOINT') || Deno.env.get('AZURE_VISION_ENDPOINT');
-  const apiKey = Deno.env.get('AZURE_DOC_INTELLIGENCE_KEY') || Deno.env.get('AZURE_VISION_API_KEY');
+// ===== Azure Document Intelligence OCR (primary - best quality) =====
+// Uses prebuilt-layout model: extracts text + structured tables + key-value pairs
+// Falls back to prebuilt-read if layout model is unavailable on the endpoint
+async function azureDIOcr(fileBlob: Blob): Promise<{ text: string; tables: TableResult[] }> {
+  let result;
+  try {
+    console.log('Azure DI: Submitting with prebuilt-layout (tables + full text)...');
+    result = await analyzeDocument(fileBlob, 'prebuilt-layout');
+  } catch (layoutErr) {
+    const msg = layoutErr instanceof Error ? layoutErr.message : String(layoutErr);
+    // If it's a model availability or endpoint issue, try the simpler read model
+    if (/model|resource not found|unsupported|invalid request|404/i.test(msg)) {
+      console.warn(`Azure DI prebuilt-layout unavailable (${msg}), trying prebuilt-read...`);
+      result = await analyzeDocument(fileBlob, 'prebuilt-read');
+    } else {
+      throw layoutErr;
+    }
+  }
 
+  const text = formatAnalyzeResultAsText(result);
+  if (!text.trim()) throw new Error('Azure DI returned empty content');
+
+  const tables = result.tables || [];
+  console.log(`Azure DI: ${text.length} chars, ${tables.length} tables, ${result.pages.length} pages`);
+  return { text, tables };
+}
+
+// ===== Azure Computer Vision Read API v3.2 (fallback if DI not available) =====
+async function azureCVReadOcr(fileBlob: Blob, contentType: string): Promise<string> {
+  const endpoint = Deno.env.get('AZURE_VISION_ENDPOINT');
+  const apiKey = Deno.env.get('AZURE_VISION_API_KEY');
   if (!endpoint || !apiKey) throw new Error('Azure Computer Vision not configured');
 
   const baseUrl = endpoint.replace(/\/+$/, '');
-  // Use Computer Vision Read API v3.2 for OCR
   const analyzeUrl = `${baseUrl}/vision/v3.2/read/analyze`;
 
-  console.log(`Azure Computer Vision Read API: Using endpoint: ${baseUrl}`);
-  console.log(`Azure Computer Vision: Submitting ${(fileBlob.size / 1024 / 1024).toFixed(2)}MB document...`);
-  
+  console.log(`Azure CV Read API v3.2: Submitting ${(fileBlob.size / 1024 / 1024).toFixed(2)}MB...`);
+
   const submitResponse = await fetch(analyzeUrl, {
     method: 'POST',
     headers: {
@@ -393,44 +403,29 @@ async function azureDocumentIntelligenceOcr(fileBlob: Blob, contentType: string)
 
   if (!submitResponse.ok) {
     const errorText = await submitResponse.text();
-    throw new Error(`Azure Computer Vision submit failed (${submitResponse.status}): ${errorText}`);
+    throw new Error(`Azure CV Read submit failed (${submitResponse.status}): ${errorText}`);
   }
 
   const operationLocation = submitResponse.headers.get('Operation-Location');
-  if (!operationLocation) throw new Error('Azure Computer Vision: No Operation-Location header returned');
+  if (!operationLocation) throw new Error('Azure CV Read: No Operation-Location header');
 
-  // Poll for results - Computer Vision Read API is fast, usually <10s
   let result: any = null;
   for (let attempt = 0; attempt < 60; attempt++) {
     await delay(attempt < 5 ? 1000 : 2000);
-
     const pollResponse = await fetch(operationLocation, {
       headers: { 'Ocp-Apim-Subscription-Key': apiKey },
     });
-
-    if (!pollResponse.ok) {
-      throw new Error(`Azure Computer Vision poll failed: ${pollResponse.status}`);
-    }
-
+    if (!pollResponse.ok) throw new Error(`Azure CV Read poll failed: ${pollResponse.status}`);
     result = await pollResponse.json();
-
     if (result.status === 'succeeded') break;
-    if (result.status === 'failed') throw new Error(`Azure Computer Vision analysis failed: ${JSON.stringify(result.error)}`);
-    // still running, continue polling
+    if (result.status === 'failed') throw new Error(`Azure CV Read analysis failed: ${JSON.stringify(result.error)}`);
   }
 
-  if (!result || result.status !== 'succeeded') {
-    throw new Error('Azure Computer Vision: Timed out waiting for results');
-  }
+  if (!result || result.status !== 'succeeded') throw new Error('Azure CV Read: Timed out');
 
-  // Extract text from all pages - Computer Vision uses analyzeResult.readResults
   const readResults = result.analyzeResult?.readResults || [];
+  if (!readResults.length) throw new Error('Azure CV Read returned no readResults');
 
-  if (!readResults.length) {
-    throw new Error('Azure Computer Vision returned no readResults');
-  }
-
-  // Build text from lines in readResults
   const pageTexts: string[] = [];
   for (const pageResult of readResults) {
     const lines = pageResult.lines || [];
@@ -443,10 +438,57 @@ async function azureDocumentIntelligenceOcr(fileBlob: Blob, contentType: string)
   }
 
   const extracted = pageTexts.join('\n\n');
-  if (!extracted.trim()) throw new Error('Azure Computer Vision returned empty text');
-
-  console.log(`Azure Computer Vision extracted ${extracted.length} chars from ${readResults.length} pages`);
+  if (!extracted.trim()) throw new Error('Azure CV Read returned empty text');
+  console.log(`Azure CV Read: ${extracted.length} chars from ${readResults.length} pages`);
   return extracted;
+}
+
+// ===== Build the AI analysis prompt (shared between Azure OpenAI and Gemini) =====
+function buildAnalysisPrompt(documentContext: string, tableContext: string, maxEvents: number): string {
+  const tableSection = tableContext
+    ? `\n\n=== EXTRACTED TABLES ===\n${tableContext}\n=== END TABLES ===\n`
+    : '';
+
+  return `Analyze this legal document with maximum precision. Extract every strategically relevant detail.
+
+CRITICAL RULES FOR TIMELINE EVENTS:
+- Extract REAL legal events only: filings, hearings, depositions, incidents, deadlines, agreements, rulings, communications, medical appointments, financial transactions.
+- DO NOT create events from OCR page markers, document headers, case number lines, page counts, or Bates stamps.
+- Each event_title must describe WHAT HAPPENED (e.g., "Motion for Summary Judgment Filed", "Deposition of John Smith Conducted", "Plaintiff Served with Complaint").
+- BAD titles: "PAGE 1 Case 3:25-cv", "Filed 12:54 PM", "Document 1"
+- GOOD titles: "Complaint Filed in District Court", "Defense Expert Disclosure Deadline Passed", "Settlement Conference Held"
+
+ANALYSIS REQUIREMENTS:
+1. SUMMARY: 4-6 sentence executive summary — document type, parties, key facts, strategic significance, and recommended next steps
+2. KEY_FACTS: 10-20 specific factual findings (dates, events, admissions, amounts, names, locations, Bates numbers)
+3. FAVORABLE_FINDINGS: 6-10 findings supporting the client's position (admissions, favorable testimony, corroborating evidence, compliance)
+4. ADVERSE_FINDINGS: 6-10 findings that could hurt the case (contradictions, damaging statements, weaknesses, non-compliance, liability exposure)
+5. ACTION_ITEMS: 6-10 specific follow-up tasks (witnesses to depose, documents to request, legal research needed, deadlines to calendar, issues to address)
+6. TIMELINE_EVENTS: Up to ${maxEvents} meaningful chronological events. Each must include:
+   - "date": YYYY-MM-DD format
+   - "event_title": Clear action-oriented title (5-12 words)
+   - "description": 1-3 sentences explaining what happened and its legal significance
+   - "importance": "high", "medium", or "low"
+   - "event_type": one of "communication", "filing", "incident", "meeting", "deadline", "medical", "financial", "contractual"
+   - "entities": Array of parties/people/orgs directly involved
+   - "phase": "pre-suit", "pleadings", "discovery", "dispositive", "trial", or "post-trial"
+   - "next_required_action": One concrete litigation task triggered by this event
+7. ENTITIES: All key people, organizations, and locations with their roles
+   - "name", "type" (person/organization/location), "role" (e.g., "Plaintiff", "Defense Expert", "Treating Physician")
+
+Respond ONLY with valid JSON (no markdown, no preamble):
+{
+  "summary": "string",
+  "key_facts": ["fact1", ...],
+  "favorable_findings": ["finding1", ...],
+  "adverse_findings": ["finding1", ...],
+  "action_items": ["action1", ...],
+  "timeline_events": [{ "date": "YYYY-MM-DD", "event_title": "...", "description": "...", "importance": "high", "event_type": "...", "phase": "...", "next_required_action": "...", "entities": ["..."] }],
+  "entities": [{ "name": "...", "type": "person", "role": "..." }]
+}
+
+DOCUMENT TEXT:
+${documentContext}${tableSection}`;
 }
 
 serve(async (req) => {
@@ -463,6 +505,11 @@ serve(async (req) => {
     const googleApiKey = Deno.env.get('GOOGLE_AI_API_KEY');
     const azureEndpoint = Deno.env.get('AZURE_DOC_INTELLIGENCE_ENDPOINT') || Deno.env.get('AZURE_VISION_ENDPOINT');
     const azureKey = Deno.env.get('AZURE_DOC_INTELLIGENCE_KEY') || Deno.env.get('AZURE_VISION_API_KEY');
+    const hasAzureOpenAI = !!(
+      Deno.env.get('AZURE_OPENAI_API_KEY') &&
+      Deno.env.get('AZURE_OPENAI_ENDPOINT') &&
+      Deno.env.get('AZURE_OPENAI_DEPLOYMENT_NAME')
+    );
 
     const hasAzure = !!(azureEndpoint && azureKey);
     const hasOcrSpace = !!ocrSpaceApiKey;
@@ -474,7 +521,8 @@ serve(async (req) => {
       'gemini-1.5-flash',
     ].filter(Boolean)));
 
-    console.log(`OCR providers: Azure=${hasAzure}, Gemini=${hasGemini}, OCR.space=${hasOcrSpace}`);
+    console.log(`OCR providers: AzureDI=${hasAzure}, CV_fallback=${hasAzure}, OCR.space=${hasOcrSpace}, Gemini=${hasGemini}`);
+    console.log(`Analysis providers: AzureOpenAI=${hasAzureOpenAI}, Gemini=${hasGemini}`);
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || Deno.env.get('SERVICE_ROLE_KEY');
@@ -502,7 +550,6 @@ serve(async (req) => {
       supabase = authResult.supabase;
     }
 
-    // Higher rate limit - 60 per minute to support batch processing
     if (!isServiceRole) {
       const rateLimitCheck = checkRateLimit(`ocr:${user.id}`, 60, 60000);
       if (!rateLimitCheck.allowed) {
@@ -548,10 +595,10 @@ serve(async (req) => {
     const { blob: fileBlob, contentType } = await loadFileBlob(supabase, validatedFileUrl);
     const resolvedContentType = contentType || fileBlob.type || '';
     let extractedText = '';
-    const extractedTables: unknown[] = [];
+    let extractedTables: TableResult[] = [];
     let ocrProvider = '';
 
-    // ===== OCR EXTRACTION - Triple-tier with Azure as primary =====
+    // ===== Gemini OCR helper =====
     const invokeGeminiWithFallback = async (
       body: Record<string, unknown>,
       purpose: 'OCR' | 'analysis'
@@ -586,7 +633,7 @@ serve(async (req) => {
 
         if (unavailableModel) {
           lastError = `${model}: ${errorText}`;
-          console.warn(`Gemini model unavailable for ${purpose}, trying next model: ${model}`);
+          console.warn(`Gemini model unavailable for ${purpose}, trying next: ${model}`);
           continue;
         }
 
@@ -596,8 +643,8 @@ serve(async (req) => {
       throw new Error(`Gemini ${purpose} failed for all models: ${lastError}`);
     };
 
-    const geminiOcr = async (fileBlob: Blob, mimeType: string, isImage: boolean): Promise<string> => {
-      const arrayBuffer = await fileBlob.arrayBuffer();
+    const geminiOcr = async (blob: Blob, mimeType: string, isImage: boolean): Promise<string> => {
+      const arrayBuffer = await blob.arrayBuffer();
       const base64 = arrayBufferToBase64(arrayBuffer);
 
       const prompt = isImage
@@ -618,12 +665,12 @@ serve(async (req) => {
       return text;
     };
 
-    const ocrSpaceExtract = async (fileBlob: Blob, isImage: boolean, contentType?: string): Promise<string> => {
+    const ocrSpaceExtract = async (blob: Blob, isImage: boolean, ct?: string): Promise<string> => {
       if (!ocrSpaceApiKey) throw new Error('OCR.space API key not configured');
       console.log('Using OCR.space fallback...');
       const extension = isImage ? 'jpg' : 'pdf';
       const fileName = `document.${extension}`;
-      const file = new File([fileBlob], fileName, { type: contentType || (isImage ? 'image/jpeg' : 'application/pdf') });
+      const file = new File([blob], fileName, { type: ct || (isImage ? 'image/jpeg' : 'application/pdf') });
       const formData = new FormData();
       formData.append('file', file, fileName);
       formData.append('apikey', ocrSpaceApiKey);
@@ -669,35 +716,32 @@ serve(async (req) => {
 
       const errors: string[] = [];
 
-      // Tier 1: Azure Document Intelligence (best quality, handles large docs)
+      // Tier 1: Azure Document Intelligence - prebuilt-layout (extracts tables + text, best quality)
       if (hasAzure) {
         try {
-          console.log('Attempting Azure Document Intelligence (primary - best quality)...');
-          const mimeType = resolvedContentType || (isImage ? 'image/jpeg' : 'application/pdf');
-          extractedText = await azureDocumentIntelligenceOcr(fileBlob, mimeType);
+          console.log('Attempting Azure Document Intelligence (primary - tables + text)...');
+          const diResult = await azureDIOcr(fileBlob);
+          extractedText = diResult.text;
+          extractedTables = diResult.tables;
           ocrProvider = 'azure_di';
-          console.log(`Azure DI extracted ${extractedText.length} characters`);
-        } catch (error) {
-          console.error('Azure DI error:', error);
-          errors.push(`Azure: ${error instanceof Error ? error.message : String(error)}`);
+        } catch (diError) {
+          console.error('Azure DI error:', diError);
+          errors.push(`Azure DI: ${diError instanceof Error ? diError.message : String(diError)}`);
+
+          // Tier 1b: Azure Computer Vision Read API v3.2 (fallback within Azure tier)
+          try {
+            console.log('Attempting Azure Computer Vision Read API v3.2 (CV fallback)...');
+            const mimeType = resolvedContentType || (isImage ? 'image/jpeg' : 'application/pdf');
+            extractedText = await azureCVReadOcr(fileBlob, mimeType);
+            ocrProvider = 'azure_cv';
+          } catch (cvError) {
+            console.error('Azure CV error:', cvError);
+            errors.push(`Azure CV: ${cvError instanceof Error ? cvError.message : String(cvError)}`);
+          }
         }
       }
 
-      // Tier 2: Gemini 2.5 Flash (great AI-powered OCR)
-      if (!extractedText && hasGemini) {
-        try {
-          console.log('Attempting Gemini 2.5 Flash OCR...');
-          const mimeType = resolvedContentType || (isImage ? 'image/jpeg' : 'application/pdf');
-          extractedText = await geminiOcr(fileBlob, mimeType, isImage);
-          ocrProvider = 'gemini';
-          console.log(`Gemini OCR extracted ${extractedText.length} characters`);
-        } catch (error) {
-          console.error('Gemini OCR error:', error);
-          errors.push(`Gemini: ${error instanceof Error ? error.message : String(error)}`);
-        }
-      }
-
-      // Tier 3: OCR.space (reliable fallback)
+      // Tier 2: OCR.space (reliable fallback with 25k/month free)
       if (!extractedText && hasOcrSpace) {
         try {
           extractedText = await ocrSpaceExtract(fileBlob, isImage, resolvedContentType);
@@ -705,6 +749,19 @@ serve(async (req) => {
         } catch (error) {
           console.error('OCR.space error:', error);
           errors.push(`OCR.space: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+
+      // Tier 3: Gemini Flash (AI-powered last resort)
+      if (!extractedText && hasGemini) {
+        try {
+          console.log('Attempting Gemini OCR (last resort)...');
+          const mimeType = resolvedContentType || (isImage ? 'image/jpeg' : 'application/pdf');
+          extractedText = await geminiOcr(fileBlob, mimeType, isImage);
+          ocrProvider = 'gemini';
+        } catch (error) {
+          console.error('Gemini OCR error:', error);
+          errors.push(`Gemini: ${error instanceof Error ? error.message : String(error)}`);
         }
       }
 
@@ -726,7 +783,8 @@ serve(async (req) => {
       throw new Error('OCR extraction returned too little text. The file may be corrupted or heavily redacted.');
     }
 
-    // ===== AI ANALYSIS - Use Gemini 2.5 Flash for best speed+quality =====
+    // ===== AI ANALYSIS =====
+    // Chain: Azure OpenAI (GPT-4o) → Gemini Flash → Heuristic
     let keyFacts: string[] = [];
     let favorableFindings: string[] = [];
     let adverseFindings: string[] = [];
@@ -734,102 +792,99 @@ serve(async (req) => {
     let summary = '';
     let timelineEvents: unknown[] = [];
     let extractedEntities: unknown[] = [];
-    let analysisProvider: 'gemini' | 'heuristic' | 'none' = 'none';
+    let analysisProvider: 'azure_openai' | 'gemini' | 'heuristic' | 'none' = 'none';
 
-    if (extractedText && extractedText.length > 50 && !extractedText.startsWith('[File type') && hasGemini) {
-      console.log('Analyzing extracted text with Gemini 2.5 Flash...');
+    const hasSubstantialText = extractedText && extractedText.length > 50 && !extractedText.startsWith('[File type');
 
-      // Send the FULL document text - Gemini 2.5 Flash handles 1M+ tokens
+    if (hasSubstantialText) {
+      // Build analysis context - pass full text to AI
       const analysisContext = buildAnalysisDocumentContext(extractedText);
 
-      const analysisPrompt = `You are an expert legal document analyst specializing in litigation support. Analyze this document with maximum precision and extract every strategically relevant detail.
+      // Format extracted tables for inclusion in analysis
+      const tableContext = extractedTables.length > 0
+        ? extractedTables.map((t, i) => `Table ${i + 1}:\n${formatTableAsMarkdown(t)}`).join('\n\n')
+        : '';
 
-CRITICAL RULES FOR TIMELINE EVENTS:
-- Extract REAL legal events only: filings, hearings, depositions, incidents, deadlines, agreements, rulings, communications.
-- DO NOT create events from OCR page markers ("=== PAGE 1 ==="), document headers, case number lines, page counts, Bates stamps, or formatting artifacts.
-- DO NOT use raw document metadata as event titles. Titles must describe WHAT HAPPENED, not what page or case number it is.
-- BAD title examples: "PAGE 1 Case 3:25-cv-00203 Document", "Filed 12 54 PM Dwight D", "1 PAGE 2 Case 3 25"
-- GOOD title examples: "Motion for Summary Judgment Filed", "Deposition of Dwight Davis Scheduled", "Court Grants Temporary Restraining Order"
-- Each event_title must be a clear, human-readable description of a legal action or milestone.
-- Each description must explain the significance of the event, not just quote raw document text.
-
-ANALYSIS REQUIREMENTS:
-1. SUMMARY: 3-5 sentence executive summary covering the document's content, significance, and strategic implications
-2. KEY_FACTS: 8-15 specific factual findings (dates, events, statements, amounts, names, locations)
-3. FAVORABLE_FINDINGS: 5-8 findings supporting the case (admissions, favorable testimony, helpful evidence, compliance, corroboration)
-4. ADVERSE_FINDINGS: 5-8 findings that could hurt the case (contradictions, damaging statements, weaknesses, non-compliance)
-5. ACTION_ITEMS: 5-8 specific follow-up actions (witnesses to interview, documents to request, issues to research, deadlines to calendar)
-6. TIMELINE_EVENTS: Extract MEANINGFUL chronological events (up to ${MAX_TIMELINE_EVENTS}). For each:
-   - "date": YYYY-MM-DD (approximate if needed)
-   - "event_title": Clear action-oriented title (5-10 words) describing what happened
-   - "description": Detailed description (1-3 sentences) explaining significance
-   - "importance": "high", "medium", or "low"
-   - "event_type": "communication", "filing", "incident", "meeting", "deadline", "medical", "financial", "contractual"
-   - "entities": Array of key people/orgs involved
-   - "phase": "pre-suit", "pleadings", "discovery", "dispositive", "trial", or "post-trial"
-   - "next_required_action": Practical next step for litigation planning
-7. ENTITIES: Extract ALL key entities (people, organizations, locations) with their roles and relationships
-
-Be exhaustive but meaningful. Extract every real legal event, person mentioned, and significant fact. Skip document formatting artifacts. This analysis drives the entire case strategy.
-
-Respond ONLY with valid JSON:
-{
-  "summary": "string",
-  "key_facts": ["fact1", ...],
-  "favorable_findings": ["finding1", ...],
-  "adverse_findings": ["finding1", ...],
-  "action_items": ["action1", ...],
-  "timeline_events": [{ "date": "2023-01-01", "event_title": "...", "description": "...", "importance": "high", "event_type": "...", "phase": "...", "next_required_action": "...", "entities": ["Person A"] }],
-  "entities": [{ "name": "...", "type": "person/organization/location", "role": "..." }]
-}
-
-Document text:
-${analysisContext}`;
-
-      let content = '';
-
-      try {
-        const { payload: analysisData, model } = await invokeGeminiWithFallback(
-          {
-            contents: [{ parts: [{ text: analysisPrompt }] }],
-            generationConfig: {
-              temperature: 0.15,
-              maxOutputTokens: 16384,
-              responseMimeType: 'application/json',
-            },
-          },
-          'analysis'
-        );
-
-        content = extractGeminiText(analysisData);
-        if (content) analysisProvider = 'gemini';
-        console.log(`Gemini analysis completed with model: ${model}`);
-      } catch (geminiError) {
-        console.error('Gemini analysis error:', geminiError);
+      if (tableContext) {
+        console.log(`Including ${extractedTables.length} extracted tables in analysis context`);
       }
 
-      try {
-        const jsonMatch = content.match(/{[\s\S]*}/);
-        if (jsonMatch) {
-          const analysis = JSON.parse(jsonMatch[0]);
-          summary = analysis.summary || '';
-          keyFacts = Array.isArray(analysis.key_facts) ? analysis.key_facts : [];
-          favorableFindings = Array.isArray(analysis.favorable_findings) ? analysis.favorable_findings : [];
-          adverseFindings = Array.isArray(analysis.adverse_findings) ? analysis.adverse_findings : [];
-          actionItems = Array.isArray(analysis.action_items) ? analysis.action_items : [];
-          timelineEvents = Array.isArray(analysis.timeline_events) ? analysis.timeline_events : [];
-          extractedEntities = Array.isArray(analysis.entities) ? analysis.entities : [];
-          console.log(`Analysis: ${keyFacts.length} facts, ${timelineEvents.length} events, ${extractedEntities.length} entities`);
+      const analysisPrompt = buildAnalysisPrompt(analysisContext, tableContext, MAX_TIMELINE_EVENTS);
+      let content = '';
+
+      // === Analysis Tier 1: Azure OpenAI (GPT-4o) ===
+      if (hasAzureOpenAI) {
+        try {
+          console.log('Analyzing with Azure OpenAI (GPT-4o)...');
+          content = await callAzureOpenAI(
+            [
+              {
+                role: 'system',
+                content: 'You are a senior litigation paralegal and legal document analyst with 20 years of experience in complex civil and criminal litigation. You analyze documents to drive case strategy. Be exhaustive, precise, and legally accurate. Respond ONLY with valid JSON.',
+              },
+              { role: 'user', content: analysisPrompt },
+            ],
+            { temperature: 0.1, maxTokens: 32768, jsonMode: true }
+          );
+          if (content) {
+            analysisProvider = 'azure_openai';
+            console.log('Azure OpenAI analysis completed');
+          }
+        } catch (aoaiError) {
+          console.error('Azure OpenAI analysis error:', aoaiError);
         }
-      } catch (parseError) {
-        console.error('Failed to parse analysis JSON:', parseError);
-        summary = content.substring(0, 500);
+      }
+
+      // === Analysis Tier 2: Gemini Flash ===
+      if (!content && hasGemini) {
+        try {
+          console.log('Analyzing with Gemini Flash...');
+          const { payload: analysisData, model } = await invokeGeminiWithFallback(
+            {
+              contents: [{ parts: [{ text: analysisPrompt }] }],
+              generationConfig: {
+                temperature: 0.1,
+                maxOutputTokens: 16384,
+                responseMimeType: 'application/json',
+              },
+            },
+            'analysis'
+          );
+          content = extractGeminiText(analysisData);
+          if (content) {
+            analysisProvider = 'gemini';
+            console.log(`Gemini analysis completed with model: ${model}`);
+          }
+        } catch (geminiError) {
+          console.error('Gemini analysis error:', geminiError);
+        }
+      }
+
+      // Parse JSON analysis result
+      if (content) {
+        try {
+          const jsonMatch = content.match(/{[\s\S]*}/);
+          if (jsonMatch) {
+            const analysis = JSON.parse(jsonMatch[0]);
+            summary = analysis.summary || '';
+            keyFacts = Array.isArray(analysis.key_facts) ? analysis.key_facts : [];
+            favorableFindings = Array.isArray(analysis.favorable_findings) ? analysis.favorable_findings : [];
+            adverseFindings = Array.isArray(analysis.adverse_findings) ? analysis.adverse_findings : [];
+            actionItems = Array.isArray(analysis.action_items) ? analysis.action_items : [];
+            timelineEvents = Array.isArray(analysis.timeline_events) ? analysis.timeline_events : [];
+            extractedEntities = Array.isArray(analysis.entities) ? analysis.entities : [];
+            console.log(`Analysis parsed: ${keyFacts.length} facts, ${timelineEvents.length} events, ${extractedEntities.length} entities`);
+          }
+        } catch (parseError) {
+          console.error('Failed to parse analysis JSON:', parseError);
+          summary = content.substring(0, 500);
+        }
       }
     }
 
-    // Heuristic fallback
-    if (extractedText && extractedText.length > 80 && summary.length === 0 && keyFacts.length === 0) {
-      console.log('AI analysis unavailable. Falling back to heuristic extraction...');
+    // === Analysis Tier 3: Heuristic fallback ===
+    if (hasSubstantialText && summary.length === 0 && keyFacts.length === 0) {
+      console.log('AI analysis unavailable — falling back to heuristic extraction...');
       const heuristic = buildHeuristicAnalysis(extractedText);
       analysisProvider = 'heuristic';
       summary = heuristic.summary;
@@ -855,12 +910,15 @@ ${analysisContext}`;
       entities: extractedEntities.length > 0 ? extractedEntities : null,
     };
 
-    if (extractedTables.length > 0) updateData.extracted_tables = extractedTables;
+    // Store structured tables extracted by Azure DI
+    if (extractedTables.length > 0) {
+      updateData.extracted_tables = extractedTables;
+    }
 
     const { error: updateError } = await supabase.from('documents').update(updateData).eq('id', validatedDocumentId);
 
     if (updateError) {
-      console.warn('Primary update failed, trying legacy...', updateError);
+      console.warn('Primary update failed, trying legacy fields...', updateError);
       const legacyData: Record<string, unknown> = {
         ocr_text: extractedText,
         ai_analyzed: hasAnalysis,
@@ -912,7 +970,7 @@ ${analysisContext}`;
       }
     }
 
-    console.log('Document processed successfully');
+    console.log(`Document processed: ocrProvider=${ocrProvider}, analysisProvider=${analysisProvider}, tables=${extractedTables.length}`);
 
     return new Response(
       JSON.stringify({
