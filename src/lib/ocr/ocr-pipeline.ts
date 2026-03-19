@@ -57,48 +57,7 @@ export async function processDocumentOCR(
     }
   }
   
-  // STEP 3: Tesseract.js local OCR (FREE, unlimited)
-  try {
-    const localResult = await ocrWithTesseract(file);
-    if (localResult.confidence >= LOCAL_CONFIDENCE_THRESHOLD && localResult.text.length > 20) {
-      await CacheManager.storeOCRCache(contentHash, localResult.text, localResult.confidence, 'tesseract_local', file.type, file.size);
-      await logAPIUsage('tesseract_local', 'ocr', 'success');
-      return {
-        text: localResult.text,
-        confidence: localResult.confidence,
-        provider: 'tesseract_local',
-        cached: false,
-        processingTimeMs: Math.round(performance.now() - start),
-      };
-    }
-    // Low confidence — try paid APIs for better quality
-  } catch (e) {
-    console.warn('Tesseract local OCR failed, falling through:', e);
-  }
-  
-  // STEP 4: OCR.space API (25,000/mo free)
-  if (await isProviderAvailable('ocr_space')) {
-    try {
-      const result = await callOCRSpaceAPI(file);
-      if (result.text && result.text.length > 20) {
-        await CacheManager.storeOCRCache(contentHash, result.text, result.confidence, 'ocr_space', file.type, file.size);
-        await logAPIUsage('ocr_space', 'ocr', 'success');
-        await incrementUsage('ocr_space');
-        return {
-          text: result.text,
-          confidence: result.confidence,
-          provider: 'ocr_space',
-          cached: false,
-          processingTimeMs: Math.round(performance.now() - start),
-        };
-      }
-    } catch (e) {
-      console.warn('OCR.space failed, falling through:', e);
-      await logAPIUsage('ocr_space', 'ocr', 'failed', (e as Error).message);
-    }
-  }
-  
-  // STEP 5: Azure Vision (5,000/mo free)
+  // STEP 3: Azure Vision (Primary OCR provider - best quality)
   if (await isProviderAvailable('azure_vision')) {
     try {
       const result = await callAzureVisionAPI(file);
@@ -120,7 +79,48 @@ export async function processDocumentOCR(
     }
   }
   
-  // STEP 6: Google Gemini (1,500/day free)
+  // STEP 4: Tesseract.js local OCR (FREE fallback)
+  try {
+    const localResult = await ocrWithTesseract(file);
+    if (localResult.confidence >= LOCAL_CONFIDENCE_THRESHOLD && localResult.text.length > 20) {
+      await CacheManager.storeOCRCache(contentHash, localResult.text, localResult.confidence, 'tesseract_local', file.type, file.size);
+      await logAPIUsage('tesseract_local', 'ocr', 'success');
+      return {
+        text: localResult.text,
+        confidence: localResult.confidence,
+        provider: 'tesseract_local',
+        cached: false,
+        processingTimeMs: Math.round(performance.now() - start),
+      };
+    }
+    // Low confidence — try other APIs
+  } catch (e) {
+    console.warn('Tesseract local OCR failed, falling through:', e);
+  }
+  
+  // STEP 5: OCR.space API (25,000/mo free fallback)
+  if (await isProviderAvailable('ocr_space')) {
+    try {
+      const result = await callOCRSpaceAPI(file);
+      if (result.text && result.text.length > 20) {
+        await CacheManager.storeOCRCache(contentHash, result.text, result.confidence, 'ocr_space', file.type, file.size);
+        await logAPIUsage('ocr_space', 'ocr', 'success');
+        await incrementUsage('ocr_space');
+        return {
+          text: result.text,
+          confidence: result.confidence,
+          provider: 'ocr_space',
+          cached: false,
+          processingTimeMs: Math.round(performance.now() - start),
+        };
+      }
+    } catch (e) {
+      console.warn('OCR.space failed, falling through:', e);
+      await logAPIUsage('ocr_space', 'ocr', 'failed', (e as Error).message);
+    }
+  }
+  
+  // STEP 6: Google Gemini (1,500/day free fallback)
   if (await isProviderAvailable('gemini_ocr')) {
     try {
       const result = await callGeminiOCR(file);
