@@ -91,12 +91,6 @@ const CaseMotionGenerator = lazy(() => import("./pages/CaseMotionGenerator"));
 const CaseSimulator = lazy(() => import("./pages/CaseSimulator"));
 const CaseSimulatorHistory = lazy(() => import("./pages/CaseSimulatorHistory"));
 const AzureBotChatPage = lazy(() => import("./pages/AzureBotChat"));
-const AzureBotChatPage = lazy(() => import("./pages/AzureBotChat"));
-const AzureBotChatPage = lazy(() => import("./pages/AzureBotChat"));
-const AzureBotChatPage = lazy(() => import("./pages/AzureBotChat"));
-const AzureBotChatPage = lazy(() => import("./pages/AzureBotChat"));
-const AzureBotChatPage = lazy(() => import("./pages/AzureBotChat"));
-const AzureBotChatPage = lazy(() => import("./pages/AzureBotChat"));
 
 // Optimized React Query configuration for better performance
 const queryClient = new QueryClient({
