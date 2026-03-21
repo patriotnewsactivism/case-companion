@@ -33,33 +33,6 @@ const insightTabs: InsightTab[] = [
   { id: "witness-tracker", label: "Witness Tracker" },
 ];
 
-const fallbackTimelineEvents: TimelineEvent[] = [
-  {
-    id: "event-1",
-    label: "Event",
-    date: "2023-01-10",
-    summary: "Initial interview notes collected for transcript review.",
-  },
-  {
-    id: "event-2",
-    label: "Event",
-    date: "2023-02-15",
-    summary: "Discovery packet updated with witness statement revisions.",
-  },
-  {
-    id: "event-3",
-    label: "Event",
-    date: "2023-03-01",
-    summary: "Motion strategy revised after timeline discrepancies surfaced.",
-  },
-  {
-    id: "event-4",
-    label: "Event",
-    date: "2024-05-12",
-    summary: "Exhibit preparation finalized for hearing presentation.",
-  },
-];
-
 const transcriptExcerpt = [
   {
     id: "line-1",
@@ -88,7 +61,7 @@ function formatTimelineDate(value: string): string {
 
 export default function Dashboard(): React.JSX.Element {
   const [activeTab, setActiveTab] = useState<InsightTab["id"]>("judicial-stats");
-  const [selectedEventId, setSelectedEventId] = useState<string>(fallbackTimelineEvents[0].id);
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
 
   const {
     data: cases = [],
@@ -118,11 +91,10 @@ export default function Dashboard(): React.JSX.Element {
         summary: `${caseItem.name} • ${caseItem.case_type} • ${caseItem.status}`,
       }));
 
-    return mappedEvents.length > 0 ? mappedEvents : fallbackTimelineEvents;
+    return mappedEvents;
   }, [cases]);
 
-  const selectedEvent =
-    timelineEvents.find((event) => event.id === selectedEventId) ?? timelineEvents[0] ?? fallbackTimelineEvents[0];
+  const selectedEvent = timelineEvents.find((event) => event.id === selectedEventId) ?? timelineEvents[0] ?? null;
 
   const activeCases = cases.filter((caseItem) => caseItem.status === "active").length;
   const deadlinesCount = cases.filter((caseItem) => caseItem.next_deadline).length;
@@ -131,6 +103,7 @@ export default function Dashboard(): React.JSX.Element {
 
   const loading = casesLoading || statsLoading;
   const hasError = casesError || statsError;
+  const hasCases = timelineEvents.length > 0;
 
   return (
     <Layout>
@@ -158,28 +131,36 @@ export default function Dashboard(): React.JSX.Element {
               </div>
             </div>
 
-            <div className="flex items-center space-x-4 overflow-x-auto pb-2" aria-label="Case timeline events">
-              {timelineEvents.map((event) => {
-                const isSelected = selectedEvent.id === event.id;
+            {hasCases ? (
+              <div className="flex items-center space-x-4 overflow-x-auto pb-2" aria-label="Case timeline events">
+                {timelineEvents.map((event) => {
+                  const isSelected = selectedEvent?.id === event.id;
 
-                return (
-                  <button
-                    key={event.id}
-                    type="button"
-                    onClick={() => setSelectedEventId(event.id)}
-                    className={cn(
-                      "flex-shrink-0 rounded-md border px-4 py-2 text-left text-xs transition-colors",
-                      isSelected
-                        ? "border-blue-500 bg-slate-800 text-white"
-                        : "border-slate-700 bg-slate-800/70 text-slate-300 hover:border-blue-500"
-                    )}
-                  >
-                    <span className="block font-bold uppercase tracking-wider text-blue-400">{event.label}</span>
-                    <span>{formatTimelineDate(event.date)}</span>
-                  </button>
-                );
-              })}
-            </div>
+                  return (
+                    <button
+                      key={event.id}
+                      type="button"
+                      onClick={() => setSelectedEventId(event.id)}
+                      className={cn(
+                        "flex-shrink-0 rounded-md border px-4 py-2 text-left text-xs transition-colors",
+                        isSelected
+                          ? "border-blue-500 bg-slate-800 text-white"
+                          : "border-slate-700 bg-slate-800/70 text-slate-300 hover:border-blue-500"
+                      )}
+                    >
+                      <span className="block font-bold uppercase tracking-wider text-blue-400">{event.label}</span>
+                      <span>{formatTimelineDate(event.date)}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="rounded-lg border border-dashed border-slate-700 bg-slate-900/40 p-4 text-sm text-slate-400">
+                {hasError
+                  ? "Case data is temporarily unavailable. Try again once the connection recovers."
+                  : "No matters yet. Create your first case to unlock the strategy timeline and insights workspace."}
+              </div>
+            )}
           </div>
         </header>
 
@@ -190,7 +171,9 @@ export default function Dashboard(): React.JSX.Element {
                 <h2 className="text-sm font-bold uppercase tracking-widest text-slate-500">
                   Source Document: Transcript_A1.pdf
                 </h2>
-                <p className="mt-2 text-sm text-slate-400">{selectedEvent.summary}</p>
+                <p className="mt-2 text-sm text-slate-400">
+                  {selectedEvent?.summary ?? "Select a case to review deadlines, document coverage, and strategic insights."}
+                </p>
               </div>
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <MetricCard icon={FolderOpen} label="Active matters" value={loading ? "..." : String(activeCases)} />
@@ -275,7 +258,9 @@ export default function Dashboard(): React.JSX.Element {
                       Priority insight
                     </div>
                     <p className="mt-3 text-sm text-slate-300">
-                      Lead with the timeline inconsistency before the witness can frame it as an innocent memory lapse.
+                      {hasCases
+                        ? "Lead with the timeline inconsistency before the witness can frame it as an innocent memory lapse."
+                        : "Build a case record to generate timeline-driven courtroom strategy recommendations."}
                     </p>
                   </section>
                 </>
@@ -302,8 +287,17 @@ export default function Dashboard(): React.JSX.Element {
               <section className="rounded-lg border border-red-900/50 bg-red-950/20 p-4">
                 <h3 className="text-sm font-bold text-red-400">Strategy Priority</h3>
                 <ul className="mt-2 space-y-2 text-xs text-slate-200">
-                  <li>• Cross-examine on the 03:00 timeline gap.</li>
-                  <li>• Introduce Exhibit D before lunch recess.</li>
+                  {hasCases ? (
+                    <>
+                      <li>• Cross-examine on the 03:00 timeline gap.</li>
+                      <li>• Introduce Exhibit D before lunch recess.</li>
+                    </>
+                  ) : (
+                    <>
+                      <li>• Add a case with deadlines to populate the strategy queue.</li>
+                      <li>• Import documents to unlock transcript and exhibit insights.</li>
+                    </>
+                  )}
                 </ul>
               </section>
             </div>
