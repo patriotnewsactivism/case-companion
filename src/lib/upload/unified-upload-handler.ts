@@ -20,7 +20,9 @@ export async function uploadAndProcessFile(
 ): Promise<UploadResult> {
   const contentHash = await hashFile(file);
 
-  // 1. Upload to Supabase Storage
+  // 1. Upload to Supabase Storage using the canonical contract
+  // expected by storage RLS: cases/{caseId}/{contentHash}/{file.name}.
+  // Access is authorized from the case ownership relationship, not a user-id folder prefix.
   const storagePath = `cases/${caseId}/${contentHash}/${file.name}`;
   const { error: uploadError } = await supabase.storage
     .from('case-documents')
