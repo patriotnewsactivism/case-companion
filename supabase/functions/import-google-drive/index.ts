@@ -466,7 +466,9 @@ async function processFile(
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     const contentHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 
-    // Generate storage path
+    // Generate the canonical storage path contract used across the app:
+    // cases/{caseId}/{contentHash}/{file.name}. The storage RLS policies validate
+    // access through the owning case's user_id, not through a user-id path segment.
     const storagePath = `cases/${caseId}/${contentHash}/${file.name}`;
 
     // Upload to Supabase Storage
