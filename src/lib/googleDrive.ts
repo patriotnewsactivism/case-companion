@@ -148,6 +148,19 @@ async function fetchDriveFileMetadata(fileId: string, accessToken: string): Prom
   );
 }
 
+function buildDriveFilesListUrl(query: string, fields: string, orderBy?: string): string {
+  const params = new URLSearchParams({
+    q: query,
+    fields,
+  });
+
+  if (orderBy) {
+    params.set("orderBy", orderBy);
+  }
+
+  return `https://www.googleapis.com/drive/v3/files?${params.toString()}`;
+}
+
 /**
  * Load Google Identity Services.
  */
@@ -224,9 +237,9 @@ export async function listGoogleDriveFolders(
   folderId: string,
   accessToken: string
 ): Promise<GoogleDriveFolderItem[]> {
-  const query = folderId === ROOT_FOLDER_ID ? "'root'+in+parents+and+trashed=false" : `'${folderId}'+in+parents+and+trashed=false`;
+  const query = folderId === ROOT_FOLDER_ID ? "'root' in parents and trashed=false" : `'${folderId}' in parents and trashed=false`;
   const data = await fetchDriveJson<DriveListResponse>(
-    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name,mimeType)&orderBy=name`,
+    buildDriveFilesListUrl(query, "files(id,name,mimeType)", "name"),
     accessToken
   );
 
@@ -249,7 +262,7 @@ export async function listFolderContents(
 ): Promise<Array<{ id: string; name: string; mimeType: string; isFolder: boolean }>> {
   try {
     const data = await fetchDriveJson<DriveListResponse>(
-      `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(`'${folderId}'+in+parents+and+trashed=false`)}&fields=files(id,name,mimeType)`,
+      buildDriveFilesListUrl(`'${folderId}' in parents and trashed=false`, "files(id,name,mimeType)"),
       accessToken
     );
 

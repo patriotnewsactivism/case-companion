@@ -59,8 +59,10 @@ describe("loadGoogleAPI", () => {
     });
 
     const promise = loadGoogleAPI();
+    const expectation = expect(promise).rejects.toThrow(/could not finish loading/i);
+
     await vi.advanceTimersByTimeAsync(10050);
-    await expect(promise).rejects.toThrow(/could not finish loading/i);
+    await expectation;
     vi.useRealTimers();
   });
 });
@@ -111,7 +113,10 @@ describe("Drive browsing helpers", () => {
     await expect(listGoogleDriveFolders("root", "token")).resolves.toEqual([
       { id: "folder-1", name: "Exhibits", isFolder: true },
     ]);
-    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("orderBy=name"), expect.any(Object));
+
+    const requestUrl = new URL(fetchMock.mock.calls[0][0] as string);
+    expect(requestUrl.searchParams.get("q")).toBe("'root' in parents and trashed=false");
+    expect(requestUrl.searchParams.get("orderBy")).toBe("name");
   });
 
   it("builds a full folder path from Drive metadata", async () => {
@@ -125,23 +130,24 @@ describe("Drive browsing helpers", () => {
   });
 
   it("returns files with isFolder flag set correctly", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: vi.fn().mockResolvedValue({
-          files: [
-            { id: "f1", name: "contract.pdf", mimeType: "application/pdf" },
-            { id: "f2", name: "Exhibits", mimeType: "application/vnd.google-apps.folder" },
-          ],
-        }),
-      })
-    );
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue({
+        files: [
+          { id: "f1", name: "contract.pdf", mimeType: "application/pdf" },
+          { id: "f2", name: "Exhibits", mimeType: "application/vnd.google-apps.folder" },
+        ],
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
 
     await expect(listFolderContents("folder-1", "token")).resolves.toEqual([
       { id: "f1", name: "contract.pdf", mimeType: "application/pdf", isFolder: false },
       { id: "f2", name: "Exhibits", mimeType: "application/vnd.google-apps.folder", isFolder: true },
     ]);
+
+    const requestUrl = new URL(fetchMock.mock.calls[0][0] as string);
+    expect(requestUrl.searchParams.get("q")).toBe("'folder-1' in parents and trashed=false");
   });
 
   it("counts files recursively", async () => {
