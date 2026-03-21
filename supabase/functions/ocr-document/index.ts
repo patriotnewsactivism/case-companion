@@ -612,7 +612,10 @@ serve(async (req) => {
           `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${googleApiKey}`,
           {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              'Referer': 'https://supabase.com',
+            },
             body: JSON.stringify(body),
           }
         );
