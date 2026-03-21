@@ -40,7 +40,9 @@
       "Bash(cd:*)",
       "Bash(wc:*)",
       "Bash(export SUPABASE_ACCESS_TOKEN=sbp_d7011eb262f2bc0540ebea76a1a610e5972c06c9)",
-      "Bash(supabase functions:*)"
+      "Bash(supabase functions:*)",
+      "Bash(supabase/migrations/20260321192949_rename_processing_queue_table.sql:*)",
+      "Bash(supabase/migrations/20260321192948_fix_processing_queue.sql:*)"
     ]
   },
   "enableAllProjectMcpServers": true,
