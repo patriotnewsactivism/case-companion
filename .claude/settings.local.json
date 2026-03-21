@@ -43,7 +43,8 @@
       "Bash(supabase functions:*)",
       "Bash(supabase/migrations/20260321192949_rename_processing_queue_table.sql:*)",
       "Bash(supabase/migrations/20260321192948_fix_processing_queue.sql:*)",
-      "Bash(supabase/migrations/20260329000000_fix_processing_queue_rls.sql:*)"
+      "Bash(supabase/migrations/20260329000000_fix_processing_queue_rls.sql:*)",
+      "Bash(temp_add_rls.sql:*)"
     ]
   },
   "enableAllProjectMcpServers": true,
