@@ -2,13 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   loadGoogleAPI,
   getGoogleAccessToken,
+  getGoogleDriveFolder,
+  listGoogleDriveFolders,
   listFolderContents,
   countFilesInFolder,
-  showGoogleDriveFolderPicker,
 } from "@/lib/googleDrive";
 
 afterEach(() => {
-  delete (window as Record<string, unknown>).gapi;
   delete (window as Record<string, unknown>).google;
   document.body.innerHTML = "";
   vi.unstubAllEnvs();
@@ -17,54 +17,28 @@ afterEach(() => {
 
 describe("loadGoogleAPI", () => {
   beforeEach(() => {
-    vi.stubEnv("VITE_GOOGLE_API_KEY", "api-key-123");
     vi.stubEnv("VITE_GOOGLE_CLIENT_ID", "client-id-123.apps.googleusercontent.com");
   });
 
-  it("resolves immediately when picker and oauth are already available", async () => {
-    (window as Record<string, unknown>).gapi = { load: vi.fn() };
+  it("resolves immediately when oauth is already available", async () => {
     (window as Record<string, unknown>).google = {
       accounts: { oauth2: { initTokenClient: vi.fn() } },
-      picker: {
-        PickerBuilder: vi.fn(),
-        DocsView: vi.fn(),
-        ViewId: { FOLDERS: "folders" },
-        Action: { PICKED: "picked", CANCEL: "cancel" },
-      },
     };
 
     const appendSpy = vi.spyOn(document.body, "appendChild");
-    const { loadGoogleAPI: load } = await import("@/lib/googleDrive");
 
-    await expect(load()).resolves.toBeUndefined();
+    await expect(loadGoogleAPI()).resolves.toBeUndefined();
     expect(appendSpy).not.toHaveBeenCalled();
   });
 
-  it("loads both external scripts and waits for picker readiness", async () => {
+  it("loads the identity script and waits for oauth readiness", async () => {
     vi.useFakeTimers();
-
-    const gapiLoad = vi.fn((_: string, callback: () => void) => {
-      (window as Record<string, unknown>).google = {
-        picker: {
-          PickerBuilder: vi.fn(),
-          DocsView: vi.fn(),
-          ViewId: { FOLDERS: "folders" },
-          Action: { PICKED: "picked", CANCEL: "cancel" },
-        },
-      };
-      callback();
-    });
 
     const appendSpy = vi.spyOn(document.body, "appendChild").mockImplementation((node) => {
       const script = node as HTMLScriptElement;
 
-      if (script.id === "google-api-script") {
-        (window as Record<string, unknown>).gapi = { load: gapiLoad };
-      }
-
       if (script.id === "google-identity-script") {
         (window as Record<string, unknown>).google = {
-          ...((window as Record<string, unknown>).google as object),
           accounts: { oauth2: { initTokenClient: vi.fn() } },
         };
       }
@@ -77,7 +51,7 @@ describe("loadGoogleAPI", () => {
     await vi.runAllTimersAsync();
     await expect(promise).resolves.toBeUndefined();
 
-    expect(appendSpy).toHaveBeenCalledTimes(2);
+    expect(appendSpy).toHaveBeenCalledTimes(1);
     vi.useRealTimers();
   });
 
@@ -86,36 +60,24 @@ describe("loadGoogleAPI", () => {
 
     vi.spyOn(document.body, "appendChild").mockImplementation((node) => {
       const script = node as HTMLScriptElement;
-
-      if (script.id === "google-api-script") {
-        (window as Record<string, unknown>).gapi = {
-          load: vi.fn((_: string, callback: () => void) => {
-            (window as Record<string, unknown>).google = {
-              picker: {
-                PickerBuilder: vi.fn(),
-                DocsView: vi.fn(),
-                ViewId: { FOLDERS: "folders" },
-                Action: { PICKED: "picked", CANCEL: "cancel" },
-              },
-            };
-            callback();
-          }),
-        };
-      }
-
       queueMicrotask(() => script.onload?.(new Event("load")));
       return node;
     });
 
     const promise = loadGoogleAPI();
-    await vi.advanceTimersByTimeAsync(10050);
+    const rejection = expect(promise).rejects.toThrow(/could not finish loading/i);
 
-    await expect(promise).rejects.toThrow(/could not finish loading/i);
+    await vi.advanceTimersByTimeAsync(10050);
+    await rejection;
     vi.useRealTimers();
   });
 });
 
 describe("getGoogleAccessToken", () => {
+  beforeEach(() => {
+    vi.stubEnv("VITE_GOOGLE_CLIENT_ID", "client-id-123.apps.googleusercontent.com");
+  });
+
   it("rejects when oauth2 is not loaded", async () => {
     (window as Record<string, unknown>).google = {};
 
@@ -170,9 +132,68 @@ describe("getGoogleAccessToken", () => {
   });
 });
 
-describe("showGoogleDriveFolderPicker", () => {
-  it("rejects when picker is not ready", async () => {
-    await expect(showGoogleDriveFolderPicker("token")).rejects.toThrow(/picker is not loaded/i);
+describe("listGoogleDriveFolders", () => {
+  it("lists child folders and builds their paths", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: vi.fn().mockResolvedValue({
+          files: [{ id: "folder-a", name: "Evidence", parents: ["root"] }],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ id: "root", name: "My Drive" }),
+      });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(listGoogleDriveFolders("root", "token")).resolves.toEqual([
+      {
+        id: "folder-a",
+        name: "Evidence",
+        path: "/My Drive/Evidence",
+        parentId: "root",
+      },
+    ]);
+  });
+
+  it("throws when the folder listing request fails", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 403 }));
+
+    await expect(listGoogleDriveFolders("root", "token")).rejects.toThrow(/failed to list google drive folders/i);
+  });
+});
+
+describe("getGoogleDriveFolder", () => {
+  it("returns folder metadata with the full path", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ id: "child", name: "Child", parents: ["parent"] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ id: "child", name: "Child", parents: ["parent"] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ id: "parent", name: "Parent", parents: ["root"] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ id: "root", name: "My Drive", parents: [] }),
+      });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getGoogleDriveFolder("child", "token")).resolves.toEqual({
+      id: "child",
+      name: "Child",
+      path: "/My Drive/Parent/Child",
+    });
   });
 });
 
