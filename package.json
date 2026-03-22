@@ -21,7 +21,8 @@
     "diagnose": "tsx scripts/diagnose-backend.ts",
     "fix:ocr": "supabase functions deploy ocr-document",
     "fix:video": "supabase functions deploy create-video-room && supabase functions deploy join-video-room && supabase functions deploy recording-webhook && supabase functions deploy transcribe-recording && supabase functions deploy transcribe-media",
-    "fix:all": "npm run fix:ocr && npm run fix:video"
+    "fix:discovery": "supabase functions deploy discovery-analysis",
+    "fix:all": "npm run fix:ocr && npm run fix:video && npm run fix:discovery"
   },
   "dependencies": {
     "@google-cloud/functions-framework": "^4.0.1",
