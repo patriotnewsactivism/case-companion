@@ -91,6 +91,7 @@ const CaseMotionGenerator = lazy(() => import("./pages/CaseMotionGenerator"));
 const CaseSimulator = lazy(() => import("./pages/CaseSimulator"));
 const CaseSimulatorHistory = lazy(() => import("./pages/CaseSimulatorHistory"));
 const AzureBotChatPage = lazy(() => import("./pages/AzureBotChat"));
+const DiscoveryDashboard = lazy(() => import("./pages/DiscoveryDashboard"));
 
 // Optimized React Query configuration for better performance
 const queryClient = new QueryClient({
@@ -139,7 +140,7 @@ const App = () => (
                   path="/dashboard"
                   element={
                     <ProtectedRoute>
-                      <Dashboard />
+                      <DiscoveryDashboard />
                     </ProtectedRoute>
                   }
                 />

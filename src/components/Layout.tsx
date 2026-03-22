@@ -32,7 +32,7 @@ import { OfflineStatusBar } from "@/components/OfflineStatusBar";
 import { startAutoSync, stopAutoSync } from "@/lib/offline/sync-manager";
 
 const navItems = [
-  { path: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { path: "/dashboard", label: "Discovery Hub", icon: LayoutDashboard },
   { path: "/cases", label: "My Cases", icon: FolderOpen },
   { path: "/trial-prep", label: "Trial Prep", icon: Gavel },
   { path: "/calendar", label: "Calendar", icon: Calendar },

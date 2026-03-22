@@ -426,3 +426,92 @@ export function findRelevantDiscoveryChunks(
   
   return scored.slice(0, topK).map(s => s.chunk);
 }
+
+export type DiscoveryAnalysisDocType = 
+  | 'interrogatory' 
+  | 'request_for_production' 
+  | 'request_for_admission' 
+  | 'deposition' 
+  | 'document_production' 
+  | 'subpoena' 
+  | 'expert_disclosure' 
+  | 'other';
+
+export interface DiscoveryAnalysisQuestion {
+  id: string;
+  number: string;
+  question: string;
+  response?: string;
+  objections?: string[];
+  status: 'pending' | 'responded' | 'objected' | 'partial' | 'overdue';
+  notes?: string;
+}
+
+export interface DiscoveryAnalysisResult {
+  document_type: DiscoveryAnalysisDocType;
+  questions_extracted: number;
+  questions: DiscoveryAnalysisQuestion[];
+  suggested_responses: Record<string, string>;
+  objection_analysis: Record<string, string[]>;
+  cross_references: string[];
+  key_admissions: string[];
+  potential_impeachment: string[];
+  timeline_events: Array<{
+    date: string;
+    event: string;
+    significance: string;
+  }>;
+  recommended_strategy: string[];
+  summary: string;
+}
+
+export async function analyzeDiscoveryDocument(
+  documentText: string,
+  options?: {
+    documentId?: string;
+    documentType?: DiscoveryAnalysisDocType;
+    partyName?: string;
+  }
+): Promise<DiscoveryAnalysisResult> {
+  const { data, error } = await supabase.functions.invoke('discovery-analysis', {
+    body: {
+      documentId: options?.documentId,
+      documentText,
+      documentType: options?.documentType || 'other',
+      partyName: options?.partyName,
+    },
+  });
+
+  if (error) {
+    console.error('Discovery analysis error:', error);
+    throw new Error(`Discovery analysis failed: ${error.message}`);
+  }
+
+  return data as DiscoveryAnalysisResult;
+}
+
+export async function batchAnalyzeDiscoveryDocuments(
+  documents: Array<{
+    id: string;
+    text: string;
+    type?: DiscoveryAnalysisDocType;
+    partyName?: string;
+  }>
+): Promise<DiscoveryAnalysisResult[]> {
+  const results: DiscoveryAnalysisResult[] = [];
+  
+  for (const doc of documents) {
+    try {
+      const result = await analyzeDiscoveryDocument(doc.text, {
+        documentId: doc.id,
+        documentType: doc.type,
+        partyName: doc.partyName,
+      });
+      results.push(result);
+    } catch (error) {
+      console.error(`Failed to analyze document ${doc.id}:`, error);
+    }
+  }
+  
+  return results;
+}
