@@ -1069,6 +1069,335 @@ export type Database = {
           },
         ]
       }
+      case_context: {
+        Row: {
+          id: string
+          case_id: string
+          case_type: string
+          jurisdiction: string | null
+          court_name: string | null
+          judge_name: string | null
+          opposing_counsel: string | null
+          filing_date: string | null
+          key_facts: Json | null
+          legal_theories: string[] | null
+          defendants: Json | null
+          plaintiffs: Json | null
+          case_number: string | null
+          plaintiff_name: string | null
+          defendant_name: string | null
+          defense_theory: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          case_id: string
+          case_type?: string
+          jurisdiction?: string | null
+          court_name?: string | null
+          judge_name?: string | null
+          opposing_counsel?: string | null
+          filing_date?: string | null
+          key_facts?: Json | null
+          legal_theories?: string[] | null
+          defendants?: Json | null
+          plaintiffs?: Json | null
+          case_number?: string | null
+          plaintiff_name?: string | null
+          defendant_name?: string | null
+          defense_theory?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          case_id?: string
+          case_type?: string
+          jurisdiction?: string | null
+          court_name?: string | null
+          judge_name?: string | null
+          opposing_counsel?: string | null
+          filing_date?: string | null
+          key_facts?: Json | null
+          legal_theories?: string[] | null
+          defendants?: Json | null
+          plaintiffs?: Json | null
+          case_number?: string | null
+          plaintiff_name?: string | null
+          defendant_name?: string | null
+          defense_theory?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "case_context_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: true
+            referencedRelation: "cases"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      motion_templates: {
+        Row: {
+          id: string
+          motion_type: string
+          motion_category: string
+          case_types_applicable: string[] | null
+          description: string | null
+          trigger_conditions: string[] | null
+          section_structure: Json | null
+          sample_arguments: Json | null
+          relevant_rules: string[] | null
+          bluebook_citations: Json | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          motion_type: string
+          motion_category: string
+          case_types_applicable?: string[] | null
+          description?: string | null
+          trigger_conditions?: string[] | null
+          section_structure?: Json | null
+          sample_arguments?: Json | null
+          relevant_rules?: string[] | null
+          bluebook_citations?: Json | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          motion_type?: string
+          motion_category?: string
+          case_types_applicable?: string[] | null
+          description?: string | null
+          trigger_conditions?: string[] | null
+          section_structure?: Json | null
+          sample_arguments?: Json | null
+          relevant_rules?: string[] | null
+          bluebook_citations?: Json | null
+          created_at?: string
+        }
+        Relationships: []
+      }
+      motion_suggestions: {
+        Row: {
+          id: string
+          case_id: string
+          user_id: string
+          motion_type: string
+          motion_category: string | null
+          urgency: string
+          why_applicable: string | null
+          key_argument: string | null
+          authorizing_rule: string | null
+          deadline_warning: string | null
+          estimated_strength: number | null
+          generate_ready: boolean | null
+          status: string | null
+          is_dismissed: boolean | null
+          generated_content: Json | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          case_id: string
+          user_id: string
+          motion_type: string
+          motion_category?: string | null
+          urgency?: string
+          why_applicable?: string | null
+          key_argument?: string | null
+          authorizing_rule?: string | null
+          deadline_warning?: string | null
+          estimated_strength?: number | null
+          generate_ready?: boolean | null
+          status?: string | null
+          is_dismissed?: boolean | null
+          generated_content?: Json | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          case_id?: string
+          user_id?: string
+          motion_type?: string
+          motion_category?: string | null
+          urgency?: string
+          why_applicable?: string | null
+          key_argument?: string | null
+          authorizing_rule?: string | null
+          deadline_warning?: string | null
+          estimated_strength?: number | null
+          generate_ready?: boolean | null
+          status?: string | null
+          is_dismissed?: boolean | null
+          generated_content?: Json | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "motion_suggestions_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "cases"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      generated_motions: {
+        Row: {
+          id: string
+          case_id: string
+          user_id: string
+          motion_type: string
+          title: string | null
+          caption: Json | null
+          sections: Json | null
+          verification_flags: string[] | null
+          custom_instructions: string | null
+          status: string | null
+          version: number | null
+          docx_url: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          case_id: string
+          user_id: string
+          motion_type: string
+          title?: string | null
+          caption?: Json | null
+          sections?: Json | null
+          verification_flags?: string[] | null
+          custom_instructions?: string | null
+          status?: string | null
+          version?: number | null
+          docx_url?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          case_id?: string
+          user_id?: string
+          motion_type?: string
+          title?: string | null
+          caption?: Json | null
+          sections?: Json | null
+          verification_flags?: string[] | null
+          custom_instructions?: string | null
+          status?: string | null
+          version?: number | null
+          docx_url?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "generated_motions_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "cases"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      trial_sessions: {
+        Row: {
+          id: string
+          case_id: string | null
+          user_id: string | null
+          session_name: string | null
+          simulation_mode: string
+          simulation_phase: string | null
+          characters_config: Json | null
+          session_transcript: Json | null
+          session_score: Json | null
+          coaching_notes: string[] | null
+          duration_seconds: number | null
+          completed: boolean | null
+          created_at: string
+          ended_at: string | null
+        }
+        Insert: {
+          id?: string
+          case_id?: string | null
+          user_id?: string | null
+          session_name?: string | null
+          simulation_mode: string
+          simulation_phase?: string | null
+          characters_config?: Json | null
+          session_transcript?: Json | null
+          session_score?: Json | null
+          coaching_notes?: string[] | null
+          duration_seconds?: number | null
+          completed?: boolean | null
+          created_at?: string
+          ended_at?: string | null
+        }
+        Update: {
+          id?: string
+          case_id?: string | null
+          user_id?: string | null
+          session_name?: string | null
+          simulation_mode?: string
+          simulation_phase?: string | null
+          characters_config?: Json | null
+          session_transcript?: Json | null
+          session_score?: Json | null
+          coaching_notes?: string[] | null
+          duration_seconds?: number | null
+          completed?: boolean | null
+          created_at?: string
+          ended_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trial_sessions_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "cases"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      voice_transcripts: {
+        Row: {
+          id: string
+          session_id: string
+          speaker: string
+          content: string
+          timestamp_ms: number | null
+          is_interim: boolean | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          session_id: string
+          speaker: string
+          content: string
+          timestamp_ms?: number | null
+          is_interim?: boolean | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          session_id?: string
+          speaker?: string
+          content?: string
+          timestamp_ms?: number | null
+          is_interim?: boolean | null
+          created_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

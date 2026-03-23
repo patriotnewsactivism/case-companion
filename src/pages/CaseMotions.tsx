@@ -283,7 +283,7 @@ export default function CaseMotions() {
   const handleDismiss = async (suggestionId: string) => {
     setDismissingId(suggestionId);
     try {
-      await dismissSuggestion(id!, suggestionId);
+      await dismissSuggestion(suggestionId);
       queryClient.invalidateQueries({ queryKey: ["motion_suggestions", id] });
       refetch();
       toast.success("Suggestion dismissed");
