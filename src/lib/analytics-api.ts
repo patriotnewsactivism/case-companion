@@ -36,7 +36,7 @@ export interface FillerWordStats {
 }
 
 export async function getPerformanceSummary(): Promise<PerformanceSummary> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("trial_sessions")
     .select("score, duration_seconds, metrics, created_at")
     .order("created_at", { ascending: false });
