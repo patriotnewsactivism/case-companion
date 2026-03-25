@@ -85,11 +85,11 @@ export function InviteMemberDialog({
 
         if (profileError || !profileData) {
           // Insert as a pending invitation
-          const { error: insertError } = await supabase
+          const { error: insertError } = await (supabase as any)
             .from("case_members")
             .insert({
               case_id: caseId,
-              user_id: userData.user.id, // placeholder for invited user
+              user_id: userData.user.id,
               role,
               invited_email: trimmedEmail,
               status: "pending",
