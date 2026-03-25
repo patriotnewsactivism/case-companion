@@ -131,7 +131,7 @@ export async function getPerformanceSummary(): Promise<PerformanceSummary> {
 }
 
 export async function getPhaseStats(): Promise<PhaseStats[]> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("trial_sessions")
     .select("phase, score, duration_seconds, created_at")
     .order("created_at", { ascending: true });
