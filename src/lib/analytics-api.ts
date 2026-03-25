@@ -316,7 +316,7 @@ export async function getFillerWordStats(): Promise<FillerWordStats[]> {
   const twoWeeksAgo = new Date();
   twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
 
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("trial_sessions")
     .select("metrics, created_at")
     .order("created_at", { ascending: false });

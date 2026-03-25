@@ -99,7 +99,7 @@ export function useRealtimeCase(): UseRealtimeCaseReturn {
       )
       .subscribe((status) => {
         setIsConnected(status === 'SUBSCRIBED');
-        if (status === REALTIME_SUBSCRIBE_STATUS.CHANNEL_ERROR) {
+        if (status === REALTIME_SUBSCRIBE_STATES.CHANNEL_ERROR) {
           setError(new Error('Failed to subscribe to realtime channel'));
         }
       });
