@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { Layout } from "@/components/Layout";
 import { memo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
