@@ -42,7 +42,7 @@ export interface UseOCRQueueReturn {
 }
 
 async function fetchQueue(caseId: string): Promise<QueueItem[]> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from('ocr_queue')
     .select('*')
     .eq('case_id', caseId)
