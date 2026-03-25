@@ -75,7 +75,7 @@ export function usePresence(): UsePresenceReturn {
         setPresentUsers(mapPresenceStateToPresentUsers(state as Record<string, PresenceState[]>));
       })
       .on('presence', { event: 'join' }, ({ newPresences }) => {
-        const newUsers = newPresences.map((p: PresenceState) => ({
+        const newUsers = (newPresences as any[]).map((p: any) => ({
           id: p.user_id,
           name: p.user_name,
           avatarUrl: p.avatar_url,
