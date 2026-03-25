@@ -260,14 +260,14 @@ export async function getWeeklyStats(weeks: number): Promise<WeeklyStats[]> {
 }
 
 export async function getRecentSessions(limit: number): Promise<TrialSession[]> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("trial_sessions")
     .select("*")
     .order("created_at", { ascending: false })
     .limit(limit);
 
   if (error) throw error;
-  return (data as unknown as TrialSession[]) || [];
+  return (data as TrialSession[]) || [];
 }
 
 export async function getScoreTrend(days: number): Promise<{ date: string; score: number }[]> {
