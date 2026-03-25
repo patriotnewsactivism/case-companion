@@ -210,7 +210,7 @@ export async function getUpcomingDeadlines(caseId: string): Promise<DiscoveryDea
   const now = new Date();
   now.setHours(0, 0, 0, 0);
 
-  const deadlineRows = ((data as Array<{
+  const deadlineRows = ((data as unknown as Array<{
     id: string;
     request_type: DiscoveryType;
     request_number: string | null;

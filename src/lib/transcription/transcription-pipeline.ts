@@ -97,7 +97,7 @@ async function transcribeWithLocalWhisper(file: File): Promise<TranscriptionResu
   });
   
   return {
-    text: result.text,
+    text: (result as any).text,
     segments: (result as any).chunks?.map((c: any) => ({
       start: c.timestamp[0],
       end: c.timestamp[1],
