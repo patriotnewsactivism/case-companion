@@ -393,7 +393,7 @@ export default function CaseTimeline() {
   const { data: caseData, isLoading: caseLoading } = useQuery({
     queryKey: ["case", id],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("cases")
         .select("*")
         .eq("id", id!)
@@ -411,7 +411,7 @@ export default function CaseTimeline() {
   } = useQuery({
     queryKey: ["timeline_events", id],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("timeline_events")
         .select("*")
         .eq("case_id", id!)
@@ -433,7 +433,7 @@ export default function CaseTimeline() {
   const addEventMutation = useMutation({
     mutationFn: async () => {
       if (!id || !user) throw new Error("Not authenticated");
-      const { error } = await supabase.from("timeline_events").insert({
+      const { error } = await (supabase as any).from("timeline_events").insert({
         case_id: id,
         user_id: user.id,
         title: newTitle,

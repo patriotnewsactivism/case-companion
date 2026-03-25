@@ -116,7 +116,7 @@ function Team() {
   } = useQuery({
     queryKey: ["organization"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("organizations")
         .select("*")
         .limit(1)
@@ -135,7 +135,7 @@ function Team() {
     queryKey: ["org-members", organization?.id],
     queryFn: async () => {
       if (!organization) return [];
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("organization_members")
         .select(
           `
@@ -174,7 +174,7 @@ function Team() {
           .replace(/[^a-z0-9]+/g, "-")
           .replace(/^-|-$/g, "");
 
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("organizations")
         .insert({
           name: orgName.trim(),
@@ -187,7 +187,7 @@ function Team() {
       if (error) throw error;
 
       // Add creator as owner member
-      const { error: memberError } = await supabase
+      const { error: memberError } = await (supabase as any)
         .from("organization_members")
         .insert({
           organization_id: data.id,
@@ -234,7 +234,7 @@ function Team() {
 
       if (error) {
         // Fallback: insert directly as a pending invite
-        const { error: insertError } = await supabase
+        const { error: insertError } = await (supabase as any)
           .from("organization_members")
           .insert({
             organization_id: organization.id,
@@ -276,7 +276,7 @@ function Team() {
       memberId: string;
       newRole: OrgRole;
     }) => {
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from("organization_members")
         .update({ role: newRole })
         .eq("id", memberId);
@@ -297,7 +297,7 @@ function Team() {
   // Remove member
   const removeMemberMutation = useMutation({
     mutationFn: async (memberId: string) => {
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from("organization_members")
         .delete()
         .eq("id", memberId);
