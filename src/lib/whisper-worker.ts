@@ -59,7 +59,7 @@ class IndexedDBCache {
     this.initPromise = new Promise((resolve, reject) => {
       const request = indexedDB.open(DB_NAME, DB_VERSION);
       
-      request.(onerror as any) = () => reject(request.error);
+      request.onerror = () => reject(request.error);
       
       request.onsuccess = () => {
         this.db = request.result;
@@ -84,7 +84,7 @@ class IndexedDBCache {
       const store = transaction.objectStore(STORE_NAME);
       const request = store.get(key);
       
-      request.(onerror as any) = () => reject(request.error);
+      request.onerror = () => reject(request.error);
       request.onsuccess = () => resolve(request.result || null);
     });
   }
@@ -96,7 +96,7 @@ class IndexedDBCache {
       const store = transaction.objectStore(STORE_NAME);
       const request = store.put(value, key);
       
-      request.(onerror as any) = () => reject(request.error);
+      request.onerror = () => reject(request.error);
       request.onsuccess = () => resolve();
     });
   }
@@ -108,7 +108,7 @@ class IndexedDBCache {
       const store = transaction.objectStore(STORE_NAME);
       const request = store.get(key);
       
-      request.(onerror as any) = () => reject(request.error);
+      request.onerror = () => reject(request.error);
       request.onsuccess = () => resolve(!!request.result);
     });
   }
