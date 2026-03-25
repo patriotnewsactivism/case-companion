@@ -204,7 +204,7 @@ export async function getWeeklyStats(weeks: number): Promise<WeeklyStats[]> {
   const startDate = new Date();
   startDate.setDate(startDate.getDate() - weeks * 7);
 
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("trial_sessions")
     .select("score, duration_seconds, created_at")
     .gte("created_at", startDate.toISOString())
