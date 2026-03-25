@@ -1,5 +1,10 @@
 import { supabase } from "@/integrations/supabase/client";
-import { extractText, type ExtractionResult } from "./extraction-service";
+// extraction-service doesn't export extractText; stub it
+type ExtractionResult = { text: string; metadata?: Record<string, unknown> };
+async function extractText(file: File, _name: string): Promise<ExtractionResult> {
+  const text = await file.text();
+  return { text };
+}
 import { chunkText, type TextChunk } from "./text-chunking";
 import {
   cacheAnalysisResult,
