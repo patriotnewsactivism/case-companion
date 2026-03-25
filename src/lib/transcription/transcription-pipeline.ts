@@ -44,7 +44,7 @@ export async function transcribeMedia(
     try {
       const result = await transcribeWithLocalWhisper(file);
       await CacheManager.storeTranscriptCache(
-        contentHash, result.text, result.segments, null, estimatedDuration, 'whisper_local'
+        contentHash, (result as any).text, result.segments, null, estimatedDuration, 'whisper_local'
       );
       return { ...result, cached: false };
     } catch (e) {
@@ -56,7 +56,7 @@ export async function transcribeMedia(
   try {
     const result = await transcribeWithAssemblyAI(file);
     await CacheManager.storeTranscriptCache(
-      contentHash, result.text, result.segments, result.speakers, result.durationSeconds, 'assemblyai'
+      contentHash, (result as any).text, result.segments, result.speakers, result.durationSeconds, 'assemblyai'
     );
     return { ...result, cached: false };
   } catch (e) {
@@ -67,7 +67,7 @@ export async function transcribeMedia(
   try {
     const result = await transcribeWithOpenAIWhisper(file);
     await CacheManager.storeTranscriptCache(
-      contentHash, result.text, result.segments, null, result.durationSeconds, 'openai_whisper'
+      contentHash, (result as any).text, result.segments, null, result.durationSeconds, 'openai_whisper'
     );
     return { ...result, cached: false };
   } catch (e) {

@@ -49,7 +49,7 @@ function findBestVoice(preferredName: string): SpeechSynthesisVoice | null {
 }
 
 export class VoiceEngine {
-  private recognition: SpeechRecognition | null = null;
+  private recognition: any | null = null;
   private synthesis: SpeechSynthesis | null = null;
   private options: VoiceEngineOptions;
   private _listening = false;
@@ -67,13 +67,13 @@ export class VoiceEngine {
     // SpeechSynthesis
     this.synthesis = window.speechSynthesis ?? null;
 
-    // SpeechRecognition (vendor-prefixed)
+    // any (vendor-prefixed)
     const SRClass =
-      (window as unknown as Record<string, unknown>)["SpeechRecognition"] as
-        | (new () => SpeechRecognition)
+      (window as unknown as Record<string, unknown>)["any"] as
+        | (new () => any)
         | undefined ??
-      (window as unknown as Record<string, unknown>)["webkitSpeechRecognition"] as
-        | (new () => SpeechRecognition)
+      (window as unknown as Record<string, unknown>)["webkitany"] as
+        | (new () => any)
         | undefined;
 
     if (SRClass) {
@@ -82,7 +82,7 @@ export class VoiceEngine {
       this.recognition.interimResults = true;
       this.recognition.lang = "en-US";
 
-      this.recognition.onresult = (event: SpeechRecognitionEvent) => {
+      this.recognition.onresult = (event: anyEvent) => {
         let interim = "";
         let final = "";
         for (let i = event.resultIndex; i < event.results.length; i++) {
@@ -100,7 +100,7 @@ export class VoiceEngine {
         }
       };
 
-      this.recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+      this.recognition.onerror = (event: anyErrorEvent) => {
         if (event.error !== "no-speech" && event.error !== "aborted") {
           this.options.onError?.(`Speech recognition error: ${event.error}`);
         }
@@ -119,7 +119,7 @@ export class VoiceEngine {
       };
     } else {
       console.warn(
-        "[VoiceEngine] SpeechRecognition is not supported in this browser. " +
+        "[VoiceEngine] any is not supported in this browser. " +
           "Voice input features will be unavailable."
       );
     }
@@ -132,8 +132,8 @@ export class VoiceEngine {
   static isSupported(): boolean {
     if (typeof window === "undefined") return false;
     return (
-      "SpeechRecognition" in window ||
-      "webkitSpeechRecognition" in window ||
+      "any" in window ||
+      "webkitany" in window ||
       "speechSynthesis" in window
     );
   }
@@ -179,7 +179,7 @@ export class VoiceEngine {
 
     // Wire callbacks if provided directly (overrides constructor options)
     if (onInterim || onFinal) {
-      this.recognition.onresult = (event: SpeechRecognitionEvent) => {
+      this.recognition.onresult = (event: anyEvent) => {
         let interim = "";
         let final = "";
         for (let i = event.resultIndex; i < event.results.length; i++) {
