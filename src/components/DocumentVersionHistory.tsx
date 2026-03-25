@@ -97,7 +97,7 @@ export function DocumentVersionHistory({
   } = useQuery({
     queryKey: ["document-versions", documentId],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("document_versions")
         .select("*")
         .eq("document_id", documentId)
