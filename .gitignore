@@ -33,4 +33,3 @@ nul
 /case-buddy-transcribe
 .vercel
 .env*.local
-".env.production"  

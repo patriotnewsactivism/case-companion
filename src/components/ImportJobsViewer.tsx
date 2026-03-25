@@ -57,7 +57,7 @@ export function ImportJobsViewer({ caseId }: ImportJobsViewerProps) {
   const { data: importJobs, refetch, isLoading } = useQuery({
     queryKey: ['import-jobs', caseId],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from('import_jobs')
         .select('*')
         .eq('case_id', caseId)

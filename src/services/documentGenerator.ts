@@ -105,7 +105,7 @@ export async function generateMotionDraft(
   if (authError || !user) throw new Error("Not authenticated");
 
   // Fetch case data
-  const { data: caseData, error: caseError } = await supabase
+  const { data: caseData, error: caseError } = await (supabase as any)
     .from("cases")
     .select("*")
     .eq("id", caseId)
@@ -113,14 +113,14 @@ export async function generateMotionDraft(
   if (caseError) throw new Error(`Failed to fetch case: ${caseError.message}`);
 
   // Fetch case context (extended metadata)
-  const { data: caseContext } = await supabase
+  const { data: caseContext } = await (supabase as any)
     .from("case_context")
     .select("*")
     .eq("case_id", caseId)
     .maybeSingle();
 
   // Fetch documents with AI analysis
-  const { data: documents, error: docError } = await supabase
+  const { data: documents, error: docError } = await (supabase as any)
     .from("documents")
     .select("id, name, summary, key_facts, favorable_findings, adverse_findings, ocr_text")
     .eq("case_id", caseId)
@@ -173,7 +173,7 @@ export async function generateMotionDraft(
   }
 
   // Save to generated_motions table
-  const { error: saveError } = await supabase
+  const { error: saveError } = await (supabase as any)
     .from("generated_motions")
     .insert({
       case_id: caseId,
@@ -195,7 +195,7 @@ export async function generateMotionDraft(
 }
 
 export async function getGeneratedMotions(caseId: string): Promise<any[]> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("generated_motions")
     .select("*")
     .eq("case_id", caseId)
@@ -211,7 +211,7 @@ export async function updateMotionSection(
   newContent: string
 ): Promise<void> {
   // Fetch current sections JSONB
-  const { data, error: fetchError } = await supabase
+  const { data, error: fetchError } = await (supabase as any)
     .from("generated_motions")
     .select("sections")
     .eq("id", motionId)
@@ -230,7 +230,7 @@ export async function updateMotionSection(
     content: newContent,
   };
 
-  const { error: updateError } = await supabase
+  const { error: updateError } = await (supabase as any)
     .from("generated_motions")
     .update({ sections, updated_at: new Date().toISOString() })
     .eq("id", motionId);

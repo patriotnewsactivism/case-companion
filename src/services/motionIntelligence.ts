@@ -64,7 +64,7 @@ export async function scanForMotionOpportunities(
   if (authError || !user) throw new Error("Not authenticated");
 
   // Fetch case data
-  const { data: caseData, error: caseError } = await supabase
+  const { data: caseData, error: caseError } = await (supabase as any)
     .from("cases")
     .select("*")
     .eq("id", caseId)
@@ -72,7 +72,7 @@ export async function scanForMotionOpportunities(
   if (caseError) throw new Error(`Failed to fetch case: ${caseError.message}`);
 
   // Fetch documents
-  const { data: documents, error: docError } = await supabase
+  const { data: documents, error: docError } = await (supabase as any)
     .from("documents")
     .select("id, name, ocr_text, summary, key_facts, favorable_findings, adverse_findings")
     .eq("case_id", caseId)
@@ -80,7 +80,7 @@ export async function scanForMotionOpportunities(
   if (docError) throw new Error(`Failed to fetch documents: ${docError.message}`);
 
   // Fetch timeline events
-  const { data: timelineEvents, error: timelineError } = await supabase
+  const { data: timelineEvents, error: timelineError } = await (supabase as any)
     .from("timeline_events")
     .select("title, description, event_date, event_type, importance, legal_significance")
     .eq("case_id", caseId)
@@ -170,7 +170,7 @@ Please analyze this case and identify every viable motion opportunity.`;
       is_dismissed: false,
     }));
 
-    const { error: upsertError } = await supabase
+    const { error: upsertError } = await (supabase as any)
       .from("motion_suggestions")
       .upsert(rows, { onConflict: "case_id,motion_type" });
 
@@ -186,7 +186,7 @@ Please analyze this case and identify every viable motion opportunity.`;
 export async function getMotionSuggestions(
   caseId: string
 ): Promise<MotionSuggestion[]> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("motion_suggestions")
     .select("*")
     .eq("case_id", caseId)
@@ -198,7 +198,7 @@ export async function getMotionSuggestions(
 }
 
 export async function dismissSuggestion(id: string): Promise<void> {
-  const { error } = await supabase
+  const { error } = await (supabase as any)
     .from("motion_suggestions")
     .update({ is_dismissed: true })
     .eq("id", id);
@@ -207,7 +207,7 @@ export async function dismissSuggestion(id: string): Promise<void> {
 }
 
 export async function getMotionTemplates(): Promise<any[]> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("motion_templates")
     .select("*")
     .order("motion_type", { ascending: true });

@@ -68,7 +68,7 @@ function ConflictCheck() {
   const { data: history = [], refetch: refetchHistory } = useQuery({
     queryKey: ["conflict-check-history"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("conflict_checks")
         .select("*")
         .order("created_at", { ascending: false })
@@ -85,7 +85,7 @@ function ConflictCheck() {
       if (!clientName.trim()) throw new Error("Client name is required");
 
       // Fetch all cases to check against
-      const { data: cases, error } = await supabase
+      const { data: cases, error } = await (supabase as any)
         .from("cases")
         .select("id, name, client_name, notes");
 
@@ -170,7 +170,7 @@ function ConflictCheck() {
       );
 
       // Save to history
-      const { data: saved } = await supabase
+      const { data: saved } = await (supabase as any)
         .from("conflict_checks")
         .insert({
           user_id: user?.id,

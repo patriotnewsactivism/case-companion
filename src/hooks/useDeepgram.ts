@@ -32,7 +32,7 @@ export function useDeepgram({ onTranscript, onError, apiKey }: DeepgramOptions) 
   const startListening = useCallback(async () => {
     if (isListening) return;
 
-    const dgKey = apiKey || Deno.env.get("DEEPGRAM_API_KEY");
+    const dgKey = apiKey || (typeof globalThis !== 'undefined' && (globalThis as any).Deno?.env?.get("DEEPGRAM_API_KEY"));
     if (!dgKey) {
       onError?.("Deepgram API key is missing.");
       return;

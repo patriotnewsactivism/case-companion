@@ -100,7 +100,7 @@ export function CaseMembers({ caseId, userRole }: CaseMembersProps) {
   } = useQuery({
     queryKey: ["case-members", caseId],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("case_members")
         .select(
           `
@@ -137,7 +137,7 @@ export function CaseMembers({ caseId, userRole }: CaseMembersProps) {
       memberId: string;
       newRole: MemberRole;
     }) => {
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from("case_members")
         .update({ role: newRole })
         .eq("id", memberId);
@@ -155,7 +155,7 @@ export function CaseMembers({ caseId, userRole }: CaseMembersProps) {
 
   const removeMemberMutation = useMutation({
     mutationFn: async (memberId: string) => {
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from("case_members")
         .delete()
         .eq("id", memberId);

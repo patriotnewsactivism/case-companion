@@ -190,7 +190,7 @@ Please analyze all documents and extract a complete chronological timeline with 
         is_verified: false,
       }));
 
-    const { error: upsertError, data: upsertData } = await supabase
+    const { error: upsertError, data: upsertData } = await (supabase as any)
       .from("timeline_events")
       .upsert(rows, { onConflict: "case_id,title,event_date" })
       .select();
@@ -209,7 +209,7 @@ Please analyze all documents and extract a complete chronological timeline with 
 export async function getCaseDocumentsForTimeline(
   caseId: string
 ): Promise<TimelineGenerationRequest["documents"]> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("documents")
     .select("id, name, ocr_text, created_at")
     .eq("case_id", caseId)

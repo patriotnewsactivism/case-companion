@@ -31,7 +31,6 @@ import {
   Loader2,
   PanelLeftClose,
   PanelLeft,
-  Search,
 } from "lucide-react";
 import type { Case } from "@/lib/api";
 import type { DiscoveryRequest, DiscoveryDeadline, DiscoveryType, DiscoveryStatus } from "@/lib/discovery-api";
@@ -50,7 +49,6 @@ import { DiscoveryList } from "./DiscoveryList";
 import { DiscoveryRequestCard } from "./DiscoveryRequestCard";
 import { ResponseGenerator } from "./ResponseGenerator";
 import { DeadlineAlerts } from "./DeadlineAlerts";
-import { SemanticSearch } from "./SemanticSearch";
 
 interface DiscoveryManagerProps {
   cases: Case[];
@@ -345,21 +343,6 @@ export function DiscoveryManager({
         onViewDueToday={handleViewDueToday}
         onViewThisWeek={handleViewThisWeek}
       />
-
-      <Card>
-        <CardHeader className="pb-4">
-          <div className="flex items-center gap-2">
-            <Search className="h-5 w-5" />
-            <CardTitle>Document Search</CardTitle>
-            <Badge variant="outline" className="ml-auto">
-              AI-Powered Semantic Search
-            </Badge>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <SemanticSearch caseId={activeCaseId} />
-        </CardContent>
-      </Card>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
         <div className={cn(

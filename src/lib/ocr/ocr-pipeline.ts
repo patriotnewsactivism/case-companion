@@ -57,29 +57,7 @@ export async function processDocumentOCR(
     }
   }
   
-  // STEP 3: Azure Vision (Primary OCR provider - best quality)
-  if (await isProviderAvailable('azure_vision')) {
-    try {
-      const result = await callAzureVisionAPI(file);
-      if (result.text && result.text.length > 20) {
-        await CacheManager.storeOCRCache(contentHash, result.text, result.confidence, 'azure_vision', file.type, file.size);
-        await logAPIUsage('azure_vision', 'ocr', 'success');
-        await incrementUsage('azure_vision');
-        return {
-          text: result.text,
-          confidence: result.confidence,
-          provider: 'azure_vision',
-          cached: false,
-          processingTimeMs: Math.round(performance.now() - start),
-        };
-      }
-    } catch (e) {
-      console.warn('Azure Vision failed, falling through:', e);
-      await logAPIUsage('azure_vision', 'ocr', 'failed', (e as Error).message);
-    }
-  }
-  
-  // STEP 4: Tesseract.js local OCR (FREE fallback)
+  // STEP 3: Tesseract.js local OCR (FREE, unlimited)
   try {
     const localResult = await ocrWithTesseract(file);
     if (localResult.confidence >= LOCAL_CONFIDENCE_THRESHOLD && localResult.text.length > 20) {
@@ -93,12 +71,12 @@ export async function processDocumentOCR(
         processingTimeMs: Math.round(performance.now() - start),
       };
     }
-    // Low confidence — try other APIs
+    // Low confidence — try paid APIs for better quality
   } catch (e) {
     console.warn('Tesseract local OCR failed, falling through:', e);
   }
   
-  // STEP 5: OCR.space API (25,000/mo free fallback)
+  // STEP 4: OCR.space API (25,000/mo free)
   if (await isProviderAvailable('ocr_space')) {
     try {
       const result = await callOCRSpaceAPI(file);
@@ -120,7 +98,29 @@ export async function processDocumentOCR(
     }
   }
   
-  // STEP 6: Google Gemini (1,500/day free fallback)
+  // STEP 5: Azure Vision (5,000/mo free)
+  if (await isProviderAvailable('azure_vision')) {
+    try {
+      const result = await callAzureVisionAPI(file);
+      if (result.text && result.text.length > 20) {
+        await CacheManager.storeOCRCache(contentHash, result.text, result.confidence, 'azure_vision', file.type, file.size);
+        await logAPIUsage('azure_vision', 'ocr', 'success');
+        await incrementUsage('azure_vision');
+        return {
+          text: result.text,
+          confidence: result.confidence,
+          provider: 'azure_vision',
+          cached: false,
+          processingTimeMs: Math.round(performance.now() - start),
+        };
+      }
+    } catch (e) {
+      console.warn('Azure Vision failed, falling through:', e);
+      await logAPIUsage('azure_vision', 'ocr', 'failed', (e as Error).message);
+    }
+  }
+  
+  // STEP 6: Google Gemini (1,500/day free)
   if (await isProviderAvailable('gemini_ocr')) {
     try {
       const result = await callGeminiOCR(file);
@@ -148,7 +148,7 @@ export async function processDocumentOCR(
 
 // Helper: Check if a provider has remaining quota
 async function isProviderAvailable(provider: string): Promise<boolean> {
-  const { data } = await supabase
+  const { data } = await (supabase as any)
     .from('rate_limit_status')
     .select('*')
     .eq('provider', provider)
@@ -158,7 +158,7 @@ async function isProviderAvailable(provider: string): Promise<boolean> {
   
   // Reset counter if past reset time
   if (new Date(data.reset_at) <= new Date()) {
-    await supabase
+    await (supabase as any)
       .from('rate_limit_status')
       .update({ requests_used: 0, is_available: true, reset_at: getNextReset(provider) })
       .eq('provider', provider);
@@ -169,11 +169,11 @@ async function isProviderAvailable(provider: string): Promise<boolean> {
 }
 
 async function incrementUsage(provider: string): Promise<void> {
-  await supabase.rpc('increment_rate_limit_usage', { provider_name: provider });
+  await (supabase as any).rpc('increment_rate_limit_usage', { provider_name: provider });
 }
 
 async function logAPIUsage(provider: string, endpoint: string, status: string, error?: string): Promise<void> {
-  await supabase.from('api_usage_log').insert({
+  await (supabase as any).from('api_usage_log').insert({
     provider,
     endpoint,
     status,

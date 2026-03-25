@@ -46,7 +46,7 @@ export function OfflineStatusBar() {
     }
 
     // Nothing to show
-    if (isOnline && pendingCount === 0 && syncState !== "done") {
+    if (isOnline && pendingCount === 0 && (syncState as string) !== "done") {
       setVisible(false);
       setSyncState("idle");
     }

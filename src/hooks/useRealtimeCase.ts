@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { RealtimeChannel, REALTIME_SUBSCRIBE_STATUS } from '@supabase/supabase-js';
+import { RealtimeChannel, REALTIME_SUBSCRIBE_STATES } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useAuth';
 
@@ -99,7 +99,7 @@ export function useRealtimeCase(): UseRealtimeCaseReturn {
       )
       .subscribe((status) => {
         setIsConnected(status === 'SUBSCRIBED');
-        if (status === REALTIME_SUBSCRIBE_STATUS.CHANNEL_ERROR) {
+        if (status === REALTIME_SUBSCRIBE_STATES.CHANNEL_ERROR) {
           setError(new Error('Failed to subscribe to realtime channel'));
         }
       });

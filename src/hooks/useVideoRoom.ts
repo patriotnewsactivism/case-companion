@@ -101,7 +101,7 @@ export function useVideoRoom() {
     setError(null);
 
     try {
-      const { data, error: dbError } = await supabase
+      const { data, error: dbError } = await (supabase as any)
         .from('video_rooms')
         .select('*')
         .eq('case_id', caseId)
@@ -125,7 +125,7 @@ export function useVideoRoom() {
     setError(null);
 
     try {
-      const { data, error: dbError } = await supabase
+      const { data, error: dbError } = await (supabase as any)
         .from('video_rooms')
         .select('*')
         .eq('case_id', caseId)
@@ -150,7 +150,7 @@ export function useVideoRoom() {
     setError(null);
 
     try {
-      const { error: dbError } = await supabase
+      const { error: dbError } = await (supabase as any)
         .from('video_rooms')
         .update({
           status: 'ended',
