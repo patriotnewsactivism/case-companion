@@ -22,13 +22,13 @@ export async function uploadAndProcessFile(
 
   // 1. Upload to Supabase Storage
   const storagePath = `cases/${caseId}/${contentHash}/${file.name}`;
-  const { error: uploadError } = await supabase.storage
+  const { error: uploadError } = await (supabase as any).storage
     .from('case-documents')
     .upload(storagePath, file, { upsert: true });
 
   if (uploadError) throw new Error(`Upload failed: ${uploadError.message}`);
 
-  const { data: publicData } = supabase.storage
+  const { data: publicData } = (supabase as any).storage
     .from('case-documents')
     .getPublicUrl(storagePath);
 

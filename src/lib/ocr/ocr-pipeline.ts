@@ -169,11 +169,11 @@ async function isProviderAvailable(provider: string): Promise<boolean> {
 }
 
 async function incrementUsage(provider: string): Promise<void> {
-  await supabase.rpc('increment_rate_limit_usage', { provider_name: provider });
+  await (supabase as any).rpc('increment_rate_limit_usage', { provider_name: provider });
 }
 
 async function logAPIUsage(provider: string, endpoint: string, status: string, error?: string): Promise<void> {
-  await supabase.from('api_usage_log').insert({
+  await (supabase as any).from('api_usage_log').insert({
     provider,
     endpoint,
     status,

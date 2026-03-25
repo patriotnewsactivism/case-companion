@@ -32,7 +32,7 @@ export interface CreateTimeEntryInput {
 }
 
 export async function getTimeEntries(caseId?: string): Promise<TimeEntry[]> {
-  let query = supabase.from("time_entries").select("*").order("entry_date", { ascending: false });
+  let query = (supabase as any).from("time_entries").select("*").order("entry_date", { ascending: false });
   if (caseId) query = query.eq("case_id", caseId);
   const { data, error } = await query;
   if (error) throw error;
@@ -66,7 +66,7 @@ export async function updateTimeEntry(id: string, updates: Partial<CreateTimeEnt
 }
 
 export async function deleteTimeEntry(id: string): Promise<void> {
-  const { error } = await supabase.from("time_entries").delete().eq("id", id);
+  const { error } = await (supabase as any).from("time_entries").delete().eq("id", id);
   if (error) throw error;
 }
 
@@ -111,7 +111,7 @@ export interface CreateCourtDateInput {
 }
 
 export async function getCourtDates(caseId?: string): Promise<CourtDate[]> {
-  let query = supabase.from("court_dates").select("*").order("event_date", { ascending: true });
+  let query = (supabase as any).from("court_dates").select("*").order("event_date", { ascending: true });
   if (caseId) query = query.eq("case_id", caseId);
   const { data, error } = await query;
   if (error) throw error;
@@ -161,7 +161,7 @@ export async function updateCourtDate(id: string, updates: Partial<CreateCourtDa
 }
 
 export async function deleteCourtDate(id: string): Promise<void> {
-  const { error } = await supabase.from("court_dates").delete().eq("id", id);
+  const { error } = await (supabase as any).from("court_dates").delete().eq("id", id);
   if (error) throw error;
 }
 
@@ -208,7 +208,7 @@ export interface CreateDepositionInput {
 }
 
 export async function getDepositions(caseId?: string): Promise<Deposition[]> {
-  let query = supabase.from("depositions").select("*").order("scheduled_date", { ascending: true });
+  let query = (supabase as any).from("depositions").select("*").order("scheduled_date", { ascending: true });
   if (caseId) query = query.eq("case_id", caseId);
   const { data, error } = await query;
   if (error) throw error;
@@ -242,7 +242,7 @@ export async function updateDeposition(id: string, updates: Partial<CreateDeposi
 }
 
 export async function deleteDeposition(id: string): Promise<void> {
-  const { error } = await supabase.from("depositions").delete().eq("id", id);
+  const { error } = await (supabase as any).from("depositions").delete().eq("id", id);
   if (error) throw error;
 }
 
@@ -280,7 +280,7 @@ export interface CreateCommunicationInput {
 }
 
 export async function getCommunications(caseId?: string): Promise<ClientCommunication[]> {
-  let query = supabase.from("client_communications").select("*").order("created_at", { ascending: false });
+  let query = (supabase as any).from("client_communications").select("*").order("created_at", { ascending: false });
   if (caseId) query = query.eq("case_id", caseId);
   const { data, error } = await query;
   if (error) throw error;
@@ -314,7 +314,7 @@ export async function updateCommunication(id: string, updates: Partial<CreateCom
 }
 
 export async function deleteCommunication(id: string): Promise<void> {
-  const { error } = await supabase.from("client_communications").delete().eq("id", id);
+  const { error } = await (supabase as any).from("client_communications").delete().eq("id", id);
   if (error) throw error;
 }
 
@@ -352,7 +352,7 @@ export interface CreateResearchNoteInput {
 }
 
 export async function getResearchNotes(caseId?: string): Promise<ResearchNote[]> {
-  let query = supabase.from("research_notes").select("*").order("created_at", { ascending: false });
+  let query = (supabase as any).from("research_notes").select("*").order("created_at", { ascending: false });
   if (caseId) query = query.eq("case_id", caseId);
   const { data, error } = await query;
   if (error) throw error;
@@ -386,7 +386,7 @@ export async function updateResearchNote(id: string, updates: Partial<CreateRese
 }
 
 export async function deleteResearchNote(id: string): Promise<void> {
-  const { error } = await supabase.from("research_notes").delete().eq("id", id);
+  const { error } = await (supabase as any).from("research_notes").delete().eq("id", id);
   if (error) throw error;
 }
 
@@ -428,7 +428,7 @@ export interface CreateInvoiceInput {
 }
 
 export async function getInvoices(caseId?: string): Promise<Invoice[]> {
-  let query = supabase.from("invoices").select("*").order("issue_date", { ascending: false });
+  let query = (supabase as any).from("invoices").select("*").order("issue_date", { ascending: false });
   if (caseId) query = query.eq("case_id", caseId);
   const { data, error } = await query;
   if (error) throw error;
@@ -461,7 +461,7 @@ export async function updateInvoice(id: string, updates: Partial<CreateInvoiceIn
   const updateData: Record<string, unknown> = { ...updates };
   
   if (updates.subtotal !== undefined || updates.tax_rate !== undefined) {
-    const { data: existing } = await supabase.from("invoices").select("subtotal, tax_rate").eq("id", id).single();
+    const { data: existing } = await (supabase as any).from("invoices").select("subtotal, tax_rate").eq("id", id).single();
     const subtotal = updates.subtotal ?? (existing?.subtotal as number) ?? 0;
     const taxRate = updates.tax_rate ?? (existing?.tax_rate as number) ?? 0;
     const taxAmount = (subtotal * taxRate) / 100;
@@ -481,7 +481,7 @@ export async function updateInvoice(id: string, updates: Partial<CreateInvoiceIn
 }
 
 export async function deleteInvoice(id: string): Promise<void> {
-  const { error } = await supabase.from("invoices").delete().eq("id", id);
+  const { error } = await (supabase as any).from("invoices").delete().eq("id", id);
   if (error) throw error;
 }
 
@@ -496,12 +496,12 @@ export interface BillingSummary {
 }
 
 export async function getBillingSummary(caseId?: string): Promise<BillingSummary> {
-  let query = supabase.from("time_entries").select("duration_minutes, hourly_rate, billable, status");
+  let query = (supabase as any).from("time_entries").select("duration_minutes, hourly_rate, billable, status");
   if (caseId) query = query.eq("case_id", caseId);
   const { data: entries, error: entriesError } = await query;
   if (entriesError) throw entriesError;
 
-  let invoiceQuery = supabase.from("invoices").select("total_amount, amount_paid, status");
+  let invoiceQuery = (supabase as any).from("invoices").select("total_amount, amount_paid, status");
   if (caseId) invoiceQuery = invoiceQuery.eq("case_id", caseId);
   const { data: invoices, error: invoicesError } = await invoiceQuery;
   if (invoicesError) throw invoicesError;

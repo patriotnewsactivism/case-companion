@@ -637,7 +637,7 @@ export function TrialSimulatorV2({
     if (!session || !user) return;
     setSaving(true);
     try {
-      await supabase.from('trial_simulation_sessions' as never).insert({
+      await (supabase as any).from('trial_simulation_sessions' as never).insert({
         id: session.id,
         case_id: caseId,
         user_id: user.id,

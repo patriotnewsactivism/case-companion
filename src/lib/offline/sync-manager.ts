@@ -14,7 +14,7 @@ async function executeMutation(mutation: OfflineMutation): Promise<boolean> {
 
     switch (operation) {
       case 'insert': {
-        const { error } = await supabase.from(table).insert(payload);
+        const { error } = await (supabase as any).from(table).insert(payload);
         if (error) throw error;
         return true;
       }
