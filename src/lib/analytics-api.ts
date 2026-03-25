@@ -274,7 +274,7 @@ export async function getScoreTrend(days: number): Promise<{ date: string; score
   const startDate = new Date();
   startDate.setDate(startDate.getDate() - days);
 
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("trial_sessions")
     .select("score, created_at")
     .gte("created_at", startDate.toISOString())
