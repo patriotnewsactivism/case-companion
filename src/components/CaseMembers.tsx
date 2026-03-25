@@ -100,7 +100,7 @@ export function CaseMembers({ caseId, userRole }: CaseMembersProps) {
   } = useQuery({
     queryKey: ["case-members", caseId],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("case_members")
         .select(
           `
