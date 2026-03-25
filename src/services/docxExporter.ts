@@ -45,7 +45,7 @@ function bodyParagraph(text: string, bold = false, centered = false): Paragraph 
   });
 }
 
-function headingParagraph(text: string, level: HeadingLevel = HeadingLevel.HEADING_2): Paragraph {
+function headingParagraph(text: string, level: any = HeadingLevel.HEADING_2): Paragraph {
   return new Paragraph({
     text,
     heading: level,

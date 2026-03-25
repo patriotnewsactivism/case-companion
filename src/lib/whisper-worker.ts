@@ -432,7 +432,7 @@ export async function captureAudio(durationMs: number = 5000): Promise<Float32Ar
       audioContext.close();
     }
     
-    processor.(onerror as any) = (error) => {
+    (processor as any).onerror = (error: any) => {
       cleanup();
       reject(error);
     };
