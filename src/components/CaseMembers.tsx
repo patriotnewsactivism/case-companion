@@ -137,7 +137,7 @@ export function CaseMembers({ caseId, userRole }: CaseMembersProps) {
       memberId: string;
       newRole: MemberRole;
     }) => {
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from("case_members")
         .update({ role: newRole })
         .eq("id", memberId);
