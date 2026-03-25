@@ -21,7 +21,7 @@ async function executeMutation(mutation: OfflineMutation): Promise<boolean> {
       case 'update': {
         const { id, ...updates } = payload;
         if (!id) throw new Error('Update mutation missing id in payload');
-        const { error } = await supabase
+        const { error } = await (supabase as any)
           .from(table)
           .update(updates)
           .eq('id', id as string);
