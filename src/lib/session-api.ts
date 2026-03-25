@@ -88,7 +88,7 @@ export async function createSession(input: CreateSessionInput): Promise<TrialSes
 }
 
 export async function getSessions(caseId?: string): Promise<TrialSession[]> {
-  let query = supabase
+  let query = (supabase as any)
     .from("trial_sessions")
     .select("*")
     .order("created_at", { ascending: false });
