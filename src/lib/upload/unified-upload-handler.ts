@@ -37,7 +37,7 @@ export async function uploadAndProcessFile(
   const documentName = typeof metadata?.name === "string" ? metadata.name : file.name;
   const batesNumber = typeof metadata?.bates_number === "string" ? metadata.bates_number : null;
 
-  const { data: docRecord, error: dbError } = await supabase
+  const { data: docRecord, error: dbError } = await (supabase as any)
     .from('documents')
     .insert({
       case_id: caseId,

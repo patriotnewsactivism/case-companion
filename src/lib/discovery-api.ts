@@ -143,7 +143,7 @@ export async function createDiscoveryRequest(caseId: string, data: Partial<Disco
     notes: data.notes || null,
   };
 
-  const { data: result, error } = await supabase
+  const { data: result, error } = await (supabase as any)
     .from("discovery_requests")
     .insert(payload)
     .select()
@@ -154,7 +154,7 @@ export async function createDiscoveryRequest(caseId: string, data: Partial<Disco
 }
 
 export async function getDiscoveryRequests(caseId: string): Promise<DiscoveryRequest[]> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("discovery_requests")
     .select("*")
     .eq("case_id", caseId)
@@ -165,7 +165,7 @@ export async function getDiscoveryRequests(caseId: string): Promise<DiscoveryReq
 }
 
 export async function getDiscoveryRequest(id: string): Promise<DiscoveryRequest | null> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("discovery_requests")
     .select("*")
     .eq("id", id)
@@ -177,7 +177,7 @@ export async function getDiscoveryRequest(id: string): Promise<DiscoveryRequest 
 
 export async function updateDiscoveryRequest(id: string, updates: Partial<DiscoveryRequest>): Promise<DiscoveryRequest> {
   const mappedUpdates = mapDiscoveryRequestUpdatesToRow(updates);
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("discovery_requests")
     .update(mappedUpdates)
     .eq("id", id)
@@ -189,7 +189,7 @@ export async function updateDiscoveryRequest(id: string, updates: Partial<Discov
 }
 
 export async function deleteDiscoveryRequest(id: string): Promise<void> {
-  const { error } = await supabase
+  const { error } = await (supabase as any)
     .from("discovery_requests")
     .delete()
     .eq("id", id);
@@ -198,7 +198,7 @@ export async function deleteDiscoveryRequest(id: string): Promise<void> {
 }
 
 export async function getUpcomingDeadlines(caseId: string): Promise<DiscoveryDeadline[]> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("discovery_requests")
     .select("id, request_type, request_number, served_date, response_due_date")
     .eq("case_id", caseId)
@@ -257,7 +257,7 @@ export async function generateResponse(requestId: string): Promise<string> {
 }
 
 export async function bulkUpdateStatus(ids: string[], status: DiscoveryStatus): Promise<void> {
-  const { error } = await supabase
+  const { error } = await (supabase as any)
     .from("discovery_requests")
     .update({ status })
     .in("id", ids);

@@ -77,7 +77,7 @@ export function InviteMemberDialog({
         if (!userData.user) throw new Error("Not authenticated");
 
         // Look up the user by email in profiles (best-effort)
-        const { data: profileData, error: profileError } = await supabase
+        const { data: profileData, error: profileError } = await (supabase as any)
           .from("profiles")
           .select("user_id")
           .ilike("full_name", `%${trimmedEmail}%`)

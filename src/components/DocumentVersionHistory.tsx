@@ -123,7 +123,7 @@ export function DocumentVersionHistory({
       if (version.ocr_text !== undefined) updates.ocr_text = version.ocr_text;
       if (version.file_url !== undefined) updates.file_url = version.file_url;
 
-      const { error: updateError } = await supabase
+      const { error: updateError } = await (supabase as any)
         .from("documents")
         .update(updates)
         .eq("id", documentId);
