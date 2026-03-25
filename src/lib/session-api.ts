@@ -131,7 +131,7 @@ export async function saveSession(input: SaveSessionInput): Promise<TrialSession
     if (uploadError) {
       console.error('Failed to upload audio:', uploadError);
     } else {
-      const { data: { publicUrl } } = supabase.storage
+      const { data: { publicUrl } } = (supabase as any).storage
         .from('session-recordings')
         .getPublicUrl(fileName);
       audioUrl = publicUrl;
