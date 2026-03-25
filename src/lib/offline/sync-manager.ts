@@ -31,7 +31,7 @@ async function executeMutation(mutation: OfflineMutation): Promise<boolean> {
       case 'delete': {
         const deleteId = payload.id;
         if (!deleteId) throw new Error('Delete mutation missing id in payload');
-        const { error } = await supabase
+        const { error } = await (supabase as any)
           .from(table)
           .delete()
           .eq('id', deleteId as string);

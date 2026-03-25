@@ -251,7 +251,7 @@ export async function bulkUploadDocuments(input: BulkDocumentUploadInput): Promi
       );
 
       results.successful++;
-      results.documents.push(uploadResult.document);
+      results.documents.push(uploadResult.document as Document);
     } catch (error) {
       results.failed++;
       results.errors.push(`File ${file.name}: ${error instanceof Error ? error.message : 'Unknown error'}`);
