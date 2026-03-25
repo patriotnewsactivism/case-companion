@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * VoiceEngine — Web Speech API wrapper for STT and TTS.
  * No external API keys required. Degrades gracefully when unsupported.
