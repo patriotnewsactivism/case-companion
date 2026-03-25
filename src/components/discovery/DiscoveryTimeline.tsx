@@ -62,7 +62,7 @@ export function DiscoveryTimeline({
           ? "Address overdue discovery item and prepare response strategy immediately."
           : "Track discovery due date and prepare response package.",
       servedDate: deadline.servedDate,
-      requestType: deadline.requestType,
+      requestType: deadline.requestType as DiscoveryType,
     })),
     ...caseEvents.map((event) => ({
       id: crypto.randomUUID(),

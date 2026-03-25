@@ -93,7 +93,7 @@ export function useOCRQueue(caseId: string): UseOCRQueueReturn {
 
   const clearCompletedMutation = useMutation({
     mutationFn: async () => {
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from('ocr_queue')
         .delete()
         .eq('status', 'completed');

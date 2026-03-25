@@ -100,7 +100,7 @@ export function InviteMemberDialog({
         }
 
         // User found, add them directly
-        const { error: insertError } = await supabase
+        const { error: insertError } = await (supabase as any)
           .from("case_members")
           .insert({
             case_id: caseId,

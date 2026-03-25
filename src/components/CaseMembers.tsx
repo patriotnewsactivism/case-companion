@@ -155,7 +155,7 @@ export function CaseMembers({ caseId, userRole }: CaseMembersProps) {
 
   const removeMemberMutation = useMutation({
     mutationFn: async (memberId: string) => {
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from("case_members")
         .delete()
         .eq("id", memberId);

@@ -89,7 +89,7 @@ export function usePresence(): UsePresenceReturn {
         });
       })
       .on('presence', { event: 'leave' }, ({ leftPresences }) => {
-        const leftIds = new Set(leftPresences.map((p: PresenceState) => p.user_id));
+        const leftIds = new Set((leftPresences as any[]).map((p: any) => p.user_id));
         setPresentUsers((prev) => prev.filter((u) => !leftIds.has(u.id)));
       })
       .subscribe(async (status) => {

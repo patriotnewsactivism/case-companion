@@ -132,7 +132,7 @@ export function DocumentVersionHistory({
 
       const { data: userData } = await supabase.auth.getUser();
 
-      const { error: versionError } = await supabase
+      const { error: versionError } = await (supabase as any)
         .from("document_versions")
         .insert({
           document_id: documentId,
