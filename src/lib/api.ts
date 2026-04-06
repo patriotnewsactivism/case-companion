@@ -1230,3 +1230,143 @@ export async function resolveConflict(checkId: string, notes: string): Promise<v
 
   if (error) throw error;
 }
+
+// ──────────────────────────────────────────────────
+// Judicial Intelligence API
+// ──────────────────────────────────────────────────
+
+export interface JudicialProfileResult {
+  success: boolean;
+  profile: Record<string, unknown>;
+  cached: boolean;
+}
+
+export async function searchJudge(
+  judgeName: string,
+  court?: string,
+  caseType?: string
+): Promise<JudicialProfileResult> {
+  const { data, error } = await supabase.functions.invoke("judicial-research", {
+    body: { judgeName, court, caseType },
+  });
+  if (error) throw error;
+  return data as JudicialProfileResult;
+}
+
+export async function getJudicialProfiles(): Promise<unknown[]> {
+  const { data, error } = await supabase
+    .from("judicial_profiles")
+    .select("*")
+    .order("last_updated", { ascending: false });
+  if (error) throw error;
+  return data || [];
+}
+
+// ──────────────────────────────────────────────────
+// Cross-Document Intelligence API
+// ──────────────────────────────────────────────────
+
+export async function runCrossDocumentAnalysis(caseId: string): Promise<{ success: boolean; analysis: Record<string, unknown> }> {
+  const { data, error } = await supabase.functions.invoke("cross-document-analysis", {
+    body: { caseId },
+  });
+  if (error) throw error;
+  return data;
+}
+
+export async function getCrossDocumentAnalysis(caseId: string): Promise<Record<string, unknown> | null> {
+  const { data, error } = await supabase
+    .from("case_strategies")
+    .select("key_factors, updated_at")
+    .eq("case_id", caseId)
+    .eq("analysis_type", "cross_document")
+    .maybeSingle();
+  if (error) throw error;
+  return data ? (data.key_factors as Record<string, unknown>) : null;
+}
+
+// ──────────────────────────────────────────────────
+// Argument Strength Analyzer API
+// ──────────────────────────────────────────────────
+
+export async function analyzeBriefArguments(
+  briefId: string,
+  caseId: string
+): Promise<{ success: boolean; analysis: Record<string, unknown> }> {
+  const { data, error } = await supabase.functions.invoke("argument-analyzer", {
+    body: { briefId, caseId },
+  });
+  if (error) throw error;
+  return data;
+}
+
+// ──────────────────────────────────────────────────
+// Witness Preparation API
+// ──────────────────────────────────────────────────
+
+export async function generateWitnessPrepPack(
+  caseId: string,
+  witnessName: string,
+  witnessRole: string,
+  additionalContext?: string
+): Promise<{ success: boolean; prepPack: Record<string, unknown>; witnessDocumentCount: number }> {
+  const { data, error } = await supabase.functions.invoke("witness-prep", {
+    body: { caseId, witnessName, witnessRole, additionalContext },
+  });
+  if (error) throw error;
+  return data;
+}
+
+// ──────────────────────────────────────────────────
+// Privilege Log API
+// ──────────────────────────────────────────────────
+
+export interface PrivilegeLogEntry {
+  id?: string;
+  case_id?: string;
+  document_id?: string | null;
+  bates_number?: string;
+  date_of_document?: string;
+  author?: string;
+  recipients?: string[];
+  description: string;
+  privilege_type: string;
+  work_product_type?: string | null;
+  basis_for_privilege?: string;
+  confidence_score?: number;
+  flags_for_review?: string[];
+  reviewed_by_attorney?: boolean;
+  final_determination?: string;
+}
+
+export async function generatePrivilegeLog(
+  caseId: string,
+  documentIds?: string[]
+): Promise<{ success: boolean; entries: PrivilegeLogEntry[]; totalDocumentsReviewed: number; privilegedCount: number }> {
+  const { data, error } = await supabase.functions.invoke("privilege-log", {
+    body: { caseId, documentIds },
+  });
+  if (error) throw error;
+  return data;
+}
+
+export async function getPrivilegeLogEntries(caseId: string): Promise<PrivilegeLogEntry[]> {
+  const { data, error } = await supabase
+    .from("privilege_log_entries")
+    .select("*")
+    .eq("case_id", caseId)
+    .order("bates_number", { ascending: true });
+  if (error) throw error;
+  return (data as unknown as PrivilegeLogEntry[]) || [];
+}
+
+export async function updatePrivilegeLogEntry(
+  id: string,
+  updates: Partial<PrivilegeLogEntry>
+): Promise<void> {
+  const { error } = await supabase
+    .from("privilege_log_entries")
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) throw error;
+}

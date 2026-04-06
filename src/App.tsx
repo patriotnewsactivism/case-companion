@@ -90,6 +90,8 @@ const CaseMotions = lazy(() => import("./pages/CaseMotions"));
 const CaseMotionGenerator = lazy(() => import("./pages/CaseMotionGenerator"));
 const CaseSimulator = lazy(() => import("./pages/CaseSimulator"));
 const CaseSimulatorHistory = lazy(() => import("./pages/CaseSimulatorHistory"));
+const AzureBotChatPage = lazy(() => import("./pages/AzureBotChat"));
+const JudicialIntelligence = lazy(() => import("./pages/JudicialIntelligence"));
 
 // Optimized React Query configuration for better performance
 const queryClient = new QueryClient({
@@ -259,6 +261,14 @@ const App = () => (
                 <Route
                   path="/cases/:id/simulator/history"
                   element={<ProtectedRoute><CaseSimulatorHistory /></ProtectedRoute>}
+                />
+                <Route
+                  path="/cases/:id/ai-assistant"
+                  element={<ProtectedRoute><AzureBotChatPage /></ProtectedRoute>}
+                />
+                <Route
+                  path="/judicial-intelligence"
+                  element={<ProtectedRoute><JudicialIntelligence /></ProtectedRoute>}
                 />
 
                 {/* 404 page */}

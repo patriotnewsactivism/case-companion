@@ -39,6 +39,7 @@ import { motion } from "framer-motion";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { batchAnalyzeDocuments, getBriefsByCase, createBrief, updateBrief, deleteBrief, type LegalBrief, type CreateBriefInput } from "@/lib/api";
+import { generateMotionDraft } from "@/services/documentGenerator";
 import { uploadAndProcessFile } from "@/lib/upload/unified-upload-handler";
 import { ProcessingStatusBar } from "@/components/processing/ProcessingStatusBar";
 import { useAuth } from "@/hooks/useAuth";
@@ -74,6 +75,14 @@ import {
   Filter,
   Send,
   Edit2,
+  Users,
+  Shield,
+  Zap,
+  BookOpen,
+  ChevronDown,
+  ChevronUp,
+  Lock,
+  Star,
 } from "lucide-react";
 // Define types locally to avoid type mismatch with auto-generated types
 interface Document {
@@ -383,6 +392,30 @@ export default function CaseDetail() {
   const [chatMessages, setChatMessages] = useState<{ role: "user" | "assistant"; content: string }[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
+  const [chatDocumentCount, setChatDocumentCount] = useState<number>(0);
+
+  // AI Brief Drafter state
+  const [isDraftingBrief, setIsDraftingBrief] = useState(false);
+  const [draftProgress, setDraftProgress] = useState("");
+
+  // Argument Analyzer state
+  const [analyzingBriefId, setAnalyzingBriefId] = useState<string | null>(null);
+  const [briefAnalysis, setBriefAnalysis] = useState<Record<string, unknown> | null>(null);
+  const [showAnalysisFor, setShowAnalysisFor] = useState<string | null>(null);
+
+  // Cross-Document Intelligence state
+  const [runningIntelligence, setRunningIntelligence] = useState(false);
+  const [crossDocIntelligence, setCrossDocIntelligence] = useState<Record<string, unknown> | null>(null);
+
+  // Witness Prep state
+  const [witnessName, setWitnessName] = useState("");
+  const [witnessRole, setWitnessRole] = useState("fact_witness");
+  const [generatingWitnessPrep, setGeneratingWitnessPrep] = useState(false);
+  const [witnessPrepResult, setWitnessPrepResult] = useState<Record<string, unknown> | null>(null);
+
+  // Privilege Log state
+  const [generatingPrivilegeLog, setGeneratingPrivilegeLog] = useState(false);
+  const [privilegeLogEntries, setPrivilegeLogEntries] = useState<unknown[]>([]);
 
   const [docForm, setDocForm] = useState({
     name: "",
@@ -676,7 +709,7 @@ export default function CaseDetail() {
     }
   };
 
-  // Send AI chat message
+  // Send AI chat message — uses document-aware-chat for full document context
   const sendChatMessage = async () => {
     if (!chatInput.trim() || chatLoading) return;
     const userMsg = { role: "user" as const, content: chatInput.trim() };
@@ -686,28 +719,137 @@ export default function CaseDetail() {
     setChatLoading(true);
 
     try {
-      const systemContext = caseData
-        ? `Case: ${caseData.name}\nType: ${caseData.case_type}\nTheory: ${caseData.case_theory || "N/A"}\nKey Issues: ${(caseData.key_issues || []).join(", ") || "N/A"}\nWinning Factors: ${(caseData.winning_factors || []).join(", ") || "N/A"}`
-        : "";
-
-      const { data, error } = await supabase.functions.invoke("chat", {
-        body: {
-          messages: [
-            ...(systemContext ? [{ role: "system", content: systemContext }] : []),
-            ...newMessages,
-          ],
-        },
+      const { data, error } = await supabase.functions.invoke("document-aware-chat", {
+        body: { messages: newMessages, caseId: id },
       });
 
       if (error) throw new Error(error.message);
 
       const assistantContent = data?.choices?.[0]?.message?.content || "No response received.";
+      if (data?._documentCount !== undefined) setChatDocumentCount(data._documentCount);
       setChatMessages([...newMessages, { role: "assistant", content: assistantContent }]);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Chat failed");
       setChatMessages(newMessages); // keep user message
     } finally {
       setChatLoading(false);
+    }
+  };
+
+  // Draft brief with AI
+  const draftBriefWithAI = async () => {
+    if (!id || !briefForm.title.trim()) {
+      toast.error("Enter a brief title first so the AI knows what to draft");
+      return;
+    }
+    setIsDraftingBrief(true);
+    setDraftProgress("Gathering case documents...");
+    try {
+      const motionType = `${briefForm.type}: ${briefForm.title}`;
+      setDraftProgress("Generating draft with AI...");
+      const generated = await generateMotionDraft(id, motionType, briefForm.court ? `Court: ${briefForm.court}` : undefined);
+      // Flatten sections into content
+      const content = [
+        generated.caption ? `${generated.caption.document_title}\n\n` : "",
+        ...generated.sections.map((s) => {
+          let text = `## ${s.title}\n\n${s.content}`;
+          if (s.subsections?.length) {
+            text += "\n\n" + s.subsections.map((sub) => `### ${sub.heading}\n\n${sub.content}`).join("\n\n");
+          }
+          return text;
+        }),
+        generated.verification_flags?.length
+          ? `\n\n---\n**VERIFICATION FLAGS (requires attorney review):**\n${generated.verification_flags.map((f) => `• ${f}`).join("\n")}`
+          : "",
+      ].join("\n\n").trim();
+
+      setBriefForm((f) => ({ ...f, content }));
+      toast.success("AI draft complete — review and edit before filing");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "AI drafting failed");
+    } finally {
+      setIsDraftingBrief(false);
+      setDraftProgress("");
+    }
+  };
+
+  // Analyze argument strength
+  const analyzeArgumentStrength = async (brief: LegalBrief) => {
+    if (!brief.content) { toast.error("Brief has no content to analyze"); return; }
+    setAnalyzingBriefId(brief.id);
+    setBriefAnalysis(null);
+    setShowAnalysisFor(brief.id);
+    try {
+      const { data, error } = await supabase.functions.invoke("argument-analyzer", {
+        body: { briefId: brief.id, caseId: id },
+      });
+      if (error) throw new Error(error.message);
+      if (!data?.success) throw new Error(data?.error || "Analysis failed");
+      setBriefAnalysis(data.analysis);
+      toast.success("Argument analysis complete");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Analysis failed");
+      setShowAnalysisFor(null);
+    } finally {
+      setAnalyzingBriefId(null);
+    }
+  };
+
+  // Run cross-document intelligence
+  const runCrossDocIntelligence = async () => {
+    setRunningIntelligence(true);
+    setCrossDocIntelligence(null);
+    try {
+      const { data, error } = await supabase.functions.invoke("cross-document-analysis", {
+        body: { caseId: id },
+      });
+      if (error) throw new Error(error.message);
+      if (!data?.success) throw new Error(data?.error || "Analysis failed");
+      setCrossDocIntelligence(data.analysis);
+      toast.success("Cross-document analysis complete");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Intelligence analysis failed");
+    } finally {
+      setRunningIntelligence(false);
+    }
+  };
+
+  // Generate witness prep pack
+  const generateWitnessPrep = async () => {
+    if (!witnessName.trim()) { toast.error("Enter a witness name"); return; }
+    setGeneratingWitnessPrep(true);
+    setWitnessPrepResult(null);
+    try {
+      const { data, error } = await supabase.functions.invoke("witness-prep", {
+        body: { caseId: id, witnessName: witnessName.trim(), witnessRole },
+      });
+      if (error) throw new Error(error.message);
+      if (!data?.success) throw new Error(data?.error || "Generation failed");
+      setWitnessPrepResult(data.prepPack);
+      toast.success(`Witness prep pack generated — ${data.witnessDocumentCount} documents reference this witness`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Witness prep generation failed");
+    } finally {
+      setGeneratingWitnessPrep(false);
+    }
+  };
+
+  // Generate privilege log
+  const generatePrivilegeLog = async () => {
+    setGeneratingPrivilegeLog(true);
+    setPrivilegeLogEntries([]);
+    try {
+      const { data, error } = await supabase.functions.invoke("privilege-log", {
+        body: { caseId: id },
+      });
+      if (error) throw new Error(error.message);
+      if (!data?.success) throw new Error(data?.error || "Generation failed");
+      setPrivilegeLogEntries(data.entries || []);
+      toast.success(`Privilege log complete — ${data.privilegedCount} privileged documents identified out of ${data.totalDocumentsReviewed} reviewed`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Privilege log generation failed");
+    } finally {
+      setGeneratingPrivilegeLog(false);
     }
   };
 
@@ -1052,9 +1194,17 @@ export default function CaseDetail() {
                   <FileText className="h-4 w-4" />
                   Briefs
                 </TabsTrigger>
+                <TabsTrigger value="witnesses" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none px-4 pb-3 gap-2">
+                  <Users className="h-4 w-4" />
+                  Witnesses
+                </TabsTrigger>
+                <TabsTrigger value="intelligence" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none px-4 pb-3 gap-2">
+                  <Brain className="h-4 w-4" />
+                  Intelligence
+                </TabsTrigger>
                 <TabsTrigger value="ai" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none px-4 pb-3 gap-2">
                   <Sparkles className="h-4 w-4" />
-                  AI
+                  AI Chat
                 </TabsTrigger>
               </TabsList>
 
@@ -1437,6 +1587,65 @@ export default function CaseDetail() {
                     </List>
                   </Card>
                 )}
+
+                {/* Privilege Log Generator */}
+                <Card className="glass-card">
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-sm flex items-center gap-2">
+                        <Lock className="h-4 w-4 text-purple-500" />
+                        Privilege Log Generator
+                      </CardTitle>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={generatePrivilegeLog}
+                        disabled={generatingPrivilegeLog || documents.length === 0}
+                        className="gap-1.5 text-xs h-7"
+                      >
+                        {generatingPrivilegeLog ? (
+                          <><Loader2 className="h-3 w-3 animate-spin" />Reviewing documents...</>
+                        ) : (
+                          <><Shield className="h-3 w-3" />Generate Privilege Log</>
+                        )}
+                      </Button>
+                    </div>
+                    <CardDescription className="text-xs">
+                      AI reviews all documents and generates an FRCP 26(b)(5)-compliant privilege log
+                    </CardDescription>
+                  </CardHeader>
+                  {privilegeLogEntries.length > 0 && (
+                    <CardContent>
+                      <div className="space-y-2">
+                        <p className="text-xs text-muted-foreground mb-3">
+                          {privilegeLogEntries.length} privileged document{privilegeLogEntries.length !== 1 ? 's' : ''} identified
+                        </p>
+                        {privilegeLogEntries.map((entry: unknown, i) => {
+                          const e = entry as Record<string, unknown>;
+                          return (
+                            <div key={i} className="text-xs border rounded-md p-3 space-y-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-medium">{e.batesNumber as string || e.documentName as string}</span>
+                                <Badge variant="outline" className="text-xs capitalize">
+                                  {(e.privilegeType as string || '').replace('_', '-')}
+                                </Badge>
+                                {e.flagForReview && (
+                                  <Badge className="text-xs bg-yellow-100 text-yellow-700">Needs review</Badge>
+                                )}
+                                <span className="text-muted-foreground">Confidence: {e.confidenceScore as number}%</span>
+                              </div>
+                              <p className="text-muted-foreground">{e.dateOfDocument as string} · {e.author as string}</p>
+                              <p>{e.description as string}</p>
+                              {e.basisForPrivilege && (
+                                <p className="text-muted-foreground italic">{e.basisForPrivilege as string}</p>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </CardContent>
+                  )}
+                </Card>
               </TabsContent>
 
               {/* Timeline Tab */}
@@ -1671,6 +1880,20 @@ export default function CaseDetail() {
                                 variant="ghost"
                                 size="icon"
                                 className="h-8 w-8"
+                                title="Analyze argument strength"
+                                disabled={analyzingBriefId === brief.id}
+                                onClick={() => analyzeArgumentStrength(brief)}
+                              >
+                                {analyzingBriefId === brief.id ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <Zap className="h-3.5 w-3.5 text-amber-500" />
+                                )}
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
                                 title="Edit"
                                 onClick={() => {
                                   setEditingBrief(brief);
@@ -1699,6 +1922,52 @@ export default function CaseDetail() {
                               </Button>
                             </div>
                           </div>
+                          {/* Argument Analysis Panel */}
+                          {showAnalysisFor === brief.id && briefAnalysis && (
+                            <div className="mt-4 pt-4 border-t space-y-3">
+                              <div className="flex items-center justify-between">
+                                <h4 className="text-sm font-semibold flex items-center gap-2">
+                                  <Zap className="h-4 w-4 text-amber-500" />
+                                  Argument Strength Analysis
+                                </h4>
+                                <div className="flex items-center gap-2">
+                                  <span className={`text-lg font-bold ${
+                                    (briefAnalysis.overallScore as number) >= 70 ? "text-green-600" :
+                                    (briefAnalysis.overallScore as number) >= 40 ? "text-yellow-600" : "text-red-600"
+                                  }`}>{briefAnalysis.overallScore as number}/100</span>
+                                  <Badge variant="outline" className="text-xs capitalize">{briefAnalysis.predictedReception as string}</Badge>
+                                  <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setShowAnalysisFor(null)}>
+                                    <ChevronUp className="h-3.5 w-3.5" />
+                                  </Button>
+                                </div>
+                              </div>
+                              {briefAnalysis.judgeFirstImpression && (
+                                <p className="text-xs text-muted-foreground italic">"{briefAnalysis.judgeFirstImpression as string}"</p>
+                              )}
+                              {briefAnalysis.overallAssessment && (
+                                <p className="text-sm">{briefAnalysis.overallAssessment as string}</p>
+                              )}
+                              {Array.isArray(briefAnalysis.topThreeImprovements) && (briefAnalysis.topThreeImprovements as string[]).length > 0 && (
+                                <div>
+                                  <p className="text-xs font-semibold mb-1 text-amber-600">Top improvements:</p>
+                                  <ul className="space-y-1">
+                                    {(briefAnalysis.topThreeImprovements as string[]).map((imp, i) => (
+                                      <li key={i} className="text-xs flex items-start gap-1.5">
+                                        <span className="text-amber-500 font-bold shrink-0">{i + 1}.</span>
+                                        {imp}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+                              {briefAnalysis.weakestArgument && (
+                                <div className="flex items-start gap-2 p-2 bg-red-50 rounded-md">
+                                  <AlertTriangle className="h-3.5 w-3.5 text-red-500 mt-0.5 shrink-0" />
+                                  <p className="text-xs text-red-700"><span className="font-medium">Weakest argument: </span>{briefAnalysis.weakestArgument as string}</p>
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </CardContent>
                       </Card>
                     ))}
@@ -1772,13 +2041,32 @@ export default function CaseDetail() {
                         </div>
                       </div>
                       <div className="space-y-1.5">
-                        <Label>Content</Label>
+                        <div className="flex items-center justify-between">
+                          <Label>Content</Label>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={isDraftingBrief || !briefForm.title.trim()}
+                            onClick={draftBriefWithAI}
+                            className="gap-1.5 text-xs h-7"
+                          >
+                            {isDraftingBrief ? (
+                              <><Loader2 className="h-3 w-3 animate-spin" />{draftProgress || "Drafting..."}</>
+                            ) : (
+                              <><Sparkles className="h-3 w-3 text-amber-500" />Draft with AI</>
+                            )}
+                          </Button>
+                        </div>
                         <Textarea
-                          placeholder="Brief content, argument, or notes..."
+                          placeholder="Brief content, argument, or notes — or click 'Draft with AI' to generate..."
                           rows={8}
                           value={briefForm.content}
                           onChange={(e) => setBriefForm((f) => ({ ...f, content: e.target.value }))}
                         />
+                        {isDraftingBrief && (
+                          <p className="text-xs text-muted-foreground">{draftProgress}</p>
+                        )}
                       </div>
                     </div>
                     <DialogFooter>
@@ -1822,6 +2110,353 @@ export default function CaseDetail() {
                     </AlertDialogFooter>
                   </AlertDialogContent>
                 </AlertDialog>
+              </TabsContent>
+
+              {/* Witnesses Tab */}
+              <TabsContent value="witnesses" className="space-y-4">
+                <Card className="glass-card">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Users className="h-5 w-5" />
+                      Witness Preparation Hub
+                    </CardTitle>
+                    <CardDescription>
+                      Generate AI-powered prep packs for any witness — deposition questions, impeachment material, and risk assessment
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid md:grid-cols-3 gap-4">
+                      <div className="space-y-1.5">
+                        <Label>Witness Name</Label>
+                        <Input
+                          placeholder="e.g. John Smith"
+                          value={witnessName}
+                          onChange={(e) => setWitnessName(e.target.value)}
+                          onKeyDown={(e) => e.key === "Enter" && generateWitnessPrep()}
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label>Role</Label>
+                        <select
+                          className="w-full border rounded-md px-3 py-2 text-sm bg-background"
+                          value={witnessRole}
+                          onChange={(e) => setWitnessRole(e.target.value)}
+                        >
+                          <option value="fact_witness">Fact Witness</option>
+                          <option value="plaintiff">Plaintiff</option>
+                          <option value="defendant">Defendant</option>
+                          <option value="expert">Expert Witness</option>
+                          <option value="adverse">Adverse Witness</option>
+                        </select>
+                      </div>
+                      <div className="flex items-end">
+                        <Button
+                          className="w-full gap-2"
+                          onClick={generateWitnessPrep}
+                          disabled={generatingWitnessPrep || !witnessName.trim()}
+                        >
+                          {generatingWitnessPrep ? (
+                            <><Loader2 className="h-4 w-4 animate-spin" />Generating...</>
+                          ) : (
+                            <><Brain className="h-4 w-4" />Generate Prep Pack</>
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+
+                    {/* Witness Prep Results */}
+                    {witnessPrepResult && (
+                      <div className="space-y-4 pt-4 border-t">
+                        <h4 className="font-semibold text-sm">Prep Pack: {witnessName}</h4>
+
+                        {/* Strategic Notes */}
+                        {witnessPrepResult.strategicNotes && (
+                          <div className="p-3 bg-blue-50 rounded-lg">
+                            <p className="text-xs font-semibold text-blue-700 mb-1">Strategic Approach</p>
+                            <p className="text-sm text-blue-900">{witnessPrepResult.strategicNotes as string}</p>
+                          </div>
+                        )}
+
+                        {/* Risk Assessment */}
+                        {witnessPrepResult.riskAssessment && (() => {
+                          const risk = witnessPrepResult.riskAssessment as Record<string, unknown>;
+                          return (
+                            <div className="flex items-start gap-3 p-3 border rounded-lg">
+                              <div className={`rounded-full w-12 h-12 flex items-center justify-center text-lg font-bold shrink-0 ${
+                                (risk.score as number) >= 7 ? "bg-red-100 text-red-700" :
+                                (risk.score as number) >= 4 ? "bg-yellow-100 text-yellow-700" : "bg-green-100 text-green-700"
+                              }`}>
+                                {risk.score as number}/10
+                              </div>
+                              <div>
+                                <p className="text-sm font-medium">Risk Level</p>
+                                <p className="text-xs text-muted-foreground">{risk.rationale as string}</p>
+                                {Array.isArray(risk.primaryRisks) && (risk.primaryRisks as string[]).length > 0 && (
+                                  <ul className="mt-2 space-y-0.5">
+                                    {(risk.primaryRisks as string[]).slice(0, 3).map((r, i) => (
+                                      <li key={i} className="text-xs flex items-start gap-1">
+                                        <AlertTriangle className="h-3 w-3 text-amber-500 mt-0.5 shrink-0" />
+                                        {r}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })()}
+
+                        {/* Preparation Questions */}
+                        {Array.isArray(witnessPrepResult.prepQuestions) && (witnessPrepResult.prepQuestions as unknown[]).length > 0 && (
+                          <div>
+                            <h5 className="text-sm font-semibold mb-2 flex items-center gap-2">
+                              <Target className="h-4 w-4 text-primary" />
+                              Examination Questions ({(witnessPrepResult.prepQuestions as unknown[]).length})
+                            </h5>
+                            <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                              {(witnessPrepResult.prepQuestions as Record<string, unknown>[]).map((q, i) => (
+                                <div key={i} className="text-xs border rounded-md p-3 space-y-1">
+                                  <div className="flex items-center gap-2">
+                                    <Badge variant="outline" className="text-xs capitalize">{q.type as string}</Badge>
+                                    <Badge className={`text-xs ${
+                                      q.riskLevel === "high" ? "bg-red-100 text-red-700" :
+                                      q.riskLevel === "medium" ? "bg-yellow-100 text-yellow-700" : "bg-green-100 text-green-700"
+                                    }`}>
+                                      {q.riskLevel as string} risk
+                                    </Badge>
+                                    {q.sourceDocument && <span className="text-muted-foreground">[{q.sourceDocument as string}]</span>}
+                                  </div>
+                                  <p className="font-medium">{q.question as string}</p>
+                                  <p className="text-muted-foreground">{q.purpose as string}</p>
+                                  {q.trapVariant && <p className="text-amber-600 italic">Trap: {q.trapVariant as string}</p>}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Impeachment Material */}
+                        {Array.isArray(witnessPrepResult.impeachmentMaterial) && (witnessPrepResult.impeachmentMaterial as unknown[]).length > 0 && (
+                          <div>
+                            <h5 className="text-sm font-semibold mb-2 flex items-center gap-2">
+                              <AlertTriangle className="h-4 w-4 text-red-500" />
+                              Impeachment Material
+                            </h5>
+                            <div className="space-y-2">
+                              {(witnessPrepResult.impeachmentMaterial as Record<string, unknown>[]).map((item, i) => (
+                                <div key={i} className="text-xs border border-red-200 rounded-md p-3 bg-red-50 space-y-1">
+                                  <p className="font-medium text-red-800">{item.statement as string}</p>
+                                  <p className="text-red-600">Source: {item.source as string}</p>
+                                  <p className="text-muted-foreground">Contradicts: {item.contradiction as string}</p>
+                                  <p className="text-blue-600 italic">{item.impeachmentTechnique as string}</p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Key Exhibits */}
+                        {Array.isArray(witnessPrepResult.keyExhibits) && (witnessPrepResult.keyExhibits as unknown[]).length > 0 && (
+                          <div>
+                            <h5 className="text-sm font-semibold mb-2 flex items-center gap-2">
+                              <FileText className="h-4 w-4 text-blue-500" />
+                              Key Exhibits to Mark
+                            </h5>
+                            <div className="space-y-1">
+                              {(witnessPrepResult.keyExhibits as Record<string, unknown>[]).map((ex, i) => (
+                                <div key={i} className="text-xs flex items-start gap-2 p-2 border rounded-md">
+                                  <Badge variant="outline" className="text-xs shrink-0">{ex.document as string}</Badge>
+                                  <div>
+                                    <p>{ex.purpose as string}</p>
+                                    <p className="text-muted-foreground">Foundation: {ex.foundation as string}</p>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {documents.filter((d) => d.ai_analyzed).length === 0 && (
+                      <div className="text-center py-8 text-muted-foreground">
+                        <Brain className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                        <p className="text-sm">Analyze documents first — the AI will find all references to the witness across your case record</p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </TabsContent>
+
+              {/* Intelligence Tab */}
+              <TabsContent value="intelligence" className="space-y-4">
+                <Card className="glass-card">
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <CardTitle className="flex items-center gap-2">
+                          <Brain className="h-5 w-5 text-blue-500" />
+                          Cross-Document Intelligence
+                        </CardTitle>
+                        <CardDescription>
+                          AI analyzes all case documents together to find contradictions, key admissions, and record gaps
+                        </CardDescription>
+                      </div>
+                      <Button
+                        onClick={runCrossDocIntelligence}
+                        disabled={runningIntelligence || documents.filter((d) => d.ai_analyzed).length < 2}
+                      >
+                        {runningIntelligence ? (
+                          <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Analyzing...</>
+                        ) : (
+                          <><Sparkles className="h-4 w-4 mr-2" />Run Intelligence Analysis</>
+                        )}
+                      </Button>
+                    </div>
+                  </CardHeader>
+
+                  {runningIntelligence && (
+                    <CardContent>
+                      <div className="flex items-center justify-center py-12">
+                        <div className="text-center space-y-3">
+                          <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto" />
+                          <p className="text-sm text-muted-foreground">Analyzing {documents.filter((d) => d.ai_analyzed).length} documents for contradictions, admissions, and gaps...</p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  )}
+
+                  {!crossDocIntelligence && !runningIntelligence && (
+                    <CardContent>
+                      <div className="flex flex-col items-center justify-center py-12 text-center">
+                        <Brain className="h-12 w-12 text-muted-foreground/30 mb-4" />
+                        <h3 className="font-medium mb-2">Run Cross-Document Analysis</h3>
+                        <p className="text-sm text-muted-foreground max-w-sm">
+                          {documents.filter((d) => d.ai_analyzed).length < 2
+                            ? `Need at least 2 analyzed documents (currently ${documents.filter((d) => d.ai_analyzed).length}). Analyze your documents first.`
+                            : `Analyzes all ${documents.filter((d) => d.ai_analyzed).length} analyzed documents to surface contradictions, admissions, and strategic intelligence.`
+                          }
+                        </p>
+                      </div>
+                    </CardContent>
+                  )}
+
+                  {crossDocIntelligence && !runningIntelligence && (() => {
+                    const intel = crossDocIntelligence as Record<string, unknown>;
+                    return (
+                      <CardContent className="space-y-6">
+                        {intel.executiveSummary && (
+                          <div className="p-4 bg-blue-50 rounded-lg">
+                            <p className="text-sm font-semibold text-blue-700 mb-1">Executive Summary</p>
+                            <p className="text-sm text-blue-900">{intel.executiveSummary as string}</p>
+                            <p className="text-xs text-blue-600 mt-2">Documents analyzed: {intel.documentsAnalyzed as number}</p>
+                          </div>
+                        )}
+
+                        {/* Contradictions */}
+                        {Array.isArray(intel.contradictions) && (intel.contradictions as unknown[]).length > 0 && (
+                          <div>
+                            <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                              <AlertTriangle className="h-4 w-4 text-red-500" />
+                              Factual Contradictions ({(intel.contradictions as unknown[]).length})
+                            </h4>
+                            <div className="space-y-3">
+                              {(intel.contradictions as Record<string, unknown>[]).map((c, i) => (
+                                <div key={i} className="border rounded-lg p-4 space-y-2">
+                                  <div className="flex items-center gap-2">
+                                    <Badge className={`text-xs ${c.significance === 'high' ? 'bg-red-100 text-red-700' : c.significance === 'medium' ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-700'}`}>
+                                      {c.significance as string} significance
+                                    </Badge>
+                                    <span className="text-sm font-medium">{c.topic as string}</span>
+                                  </div>
+                                  <div className="grid md:grid-cols-2 gap-3 text-xs">
+                                    <div className="p-2 bg-muted rounded">
+                                      <p className="font-medium text-muted-foreground mb-1">[{c.docA as string}] says:</p>
+                                      <p>"{c.stateA as string}"</p>
+                                    </div>
+                                    <div className="p-2 bg-muted rounded">
+                                      <p className="font-medium text-muted-foreground mb-1">[{c.docB as string}] says:</p>
+                                      <p>"{c.stateB as string}"</p>
+                                    </div>
+                                  </div>
+                                  {c.exploitStrategy && (
+                                    <div className="flex items-start gap-2 p-2 bg-green-50 rounded text-xs">
+                                      <Lightbulb className="h-3.5 w-3.5 text-green-600 mt-0.5 shrink-0" />
+                                      <p className="text-green-800">{c.exploitStrategy as string}</p>
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Key Admissions */}
+                        {Array.isArray(intel.admissions) && (intel.admissions as unknown[]).length > 0 && (
+                          <div>
+                            <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                              <CheckCircle className="h-4 w-4 text-green-500" />
+                              Key Admissions ({(intel.admissions as unknown[]).length})
+                            </h4>
+                            <div className="space-y-2">
+                              {(intel.admissions as Record<string, unknown>[]).map((a, i) => (
+                                <div key={i} className="border border-green-200 rounded-lg p-3 bg-green-50 space-y-1">
+                                  <div className="flex items-center gap-2">
+                                    <Badge variant="outline" className="text-xs">[{a.doc as string}]</Badge>
+                                    <Badge className="text-xs bg-blue-100 text-blue-700 capitalize">{(a.bestUsedAt as string)?.replace('_', ' ')}</Badge>
+                                  </div>
+                                  <p className="text-sm font-medium text-green-900">"{a.admission as string}"</p>
+                                  <p className="text-xs text-green-700">{a.legalSignificance as string}</p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Record Gaps */}
+                        {Array.isArray(intel.gaps) && (intel.gaps as unknown[]).length > 0 && (
+                          <div>
+                            <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                              <Search className="h-4 w-4 text-amber-500" />
+                              Record Gaps — Discovery Needed ({(intel.gaps as unknown[]).length})
+                            </h4>
+                            <div className="space-y-2">
+                              {(intel.gaps as Record<string, unknown>[]).map((g, i) => (
+                                <div key={i} className="border rounded-lg p-3 space-y-1">
+                                  <p className="text-sm font-medium">{g.missingFact as string}</p>
+                                  <p className="text-xs text-muted-foreground">{g.whyImportant as string}</p>
+                                  <p className="text-xs text-blue-600">Where to find: {g.whereToFind as string}</p>
+                                  <p className="text-xs font-medium text-amber-700">Discovery action: {g.discoveryAction as string}</p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Strongest Evidence */}
+                        {Array.isArray(intel.strongestEvidence) && (intel.strongestEvidence as unknown[]).length > 0 && (
+                          <div>
+                            <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                              <Star className="h-4 w-4 text-amber-500" />
+                              Strongest Evidence for Our Position
+                            </h4>
+                            <div className="space-y-2">
+                              {(intel.strongestEvidence as Record<string, unknown>[]).map((e, i) => (
+                                <div key={i} className="flex items-start gap-2 text-xs">
+                                  <span className="font-bold text-amber-500 shrink-0">{i + 1}.</span>
+                                  <div>
+                                    <span className="font-medium">[{e.doc as string}]</span> — {e.fact as string}
+                                    <p className="text-green-600 mt-0.5">{e.impact as string}</p>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </CardContent>
+                    );
+                  })()}
+                </Card>
               </TabsContent>
 
               {/* AI Tab */}
@@ -1896,10 +2531,37 @@ export default function CaseDetail() {
                     <CardTitle className="text-base flex items-center gap-2">
                       <MessageSquare className="h-4 w-4 text-amber-500" />
                       Ask the AI
+                      {chatDocumentCount > 0 && (
+                        <Badge variant="outline" className="text-xs ml-auto font-normal">
+                          <BookOpen className="h-3 w-3 mr-1" />
+                          {chatDocumentCount} doc{chatDocumentCount !== 1 ? 's' : ''} in context
+                        </Badge>
+                      )}
                     </CardTitle>
-                    <CardDescription>Ask questions about your case, strategy, or legal research.</CardDescription>
+                    <CardDescription>Ask anything about your case — the AI searches all {documents.filter(d => d.ai_analyzed).length} analyzed documents for answers.</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-3">
+                    {chatMessages.length === 0 && documents.filter(d => d.ai_analyzed).length > 0 && (
+                      <div className="space-y-2">
+                        <p className="text-xs text-muted-foreground">Suggested questions:</p>
+                        <div className="flex flex-wrap gap-2">
+                          {[
+                            "What are the strongest arguments for our position?",
+                            "What contradictions exist between the documents?",
+                            "What key admissions did the opposing party make?",
+                            "What are our biggest vulnerabilities?",
+                          ].map((q) => (
+                            <button
+                              key={q}
+                              onClick={() => { setChatInput(q); }}
+                              className="text-xs px-3 py-1.5 rounded-full border border-border hover:bg-muted transition-colors text-left"
+                            >
+                              {q}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     {chatMessages.length > 0 && (
                       <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
                         {chatMessages.map((msg, i) => (
