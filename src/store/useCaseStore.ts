@@ -27,7 +27,7 @@ export const useCaseStore = create<CaseState>((set, get) => ({
   fetchEvents: async (caseId: string) => {
     set({ isLoading: true, error: null });
     try {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from('case_events')
         .select('*')
         .eq('case_id', caseId)

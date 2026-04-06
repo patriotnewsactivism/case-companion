@@ -77,7 +77,7 @@ export function InviteMemberDialog({
         if (!userData.user) throw new Error("Not authenticated");
 
         // Look up the user by email in profiles (best-effort)
-        const { data: profileData, error: profileError } = await supabase
+        const { data: profileData, error: profileError } = await (supabase as any)
           .from("profiles")
           .select("user_id")
           .ilike("full_name", `%${trimmedEmail}%`)
@@ -85,11 +85,11 @@ export function InviteMemberDialog({
 
         if (profileError || !profileData) {
           // Insert as a pending invitation
-          const { error: insertError } = await supabase
+          const { error: insertError } = await (supabase as any)
             .from("case_members")
             .insert({
               case_id: caseId,
-              user_id: userData.user.id, // placeholder for invited user
+              user_id: userData.user.id,
               role,
               invited_email: trimmedEmail,
               status: "pending",
@@ -100,7 +100,7 @@ export function InviteMemberDialog({
         }
 
         // User found, add them directly
-        const { error: insertError } = await supabase
+        const { error: insertError } = await (supabase as any)
           .from("case_members")
           .insert({
             case_id: caseId,

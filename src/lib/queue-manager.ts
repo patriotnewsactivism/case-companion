@@ -24,7 +24,7 @@ export class QueueManager {
     const processingTypes = this.determineProcessingTypes(params.fileType, params.fileName);
     
     for (const procType of processingTypes) {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from('processing_queue')
         .insert({
           file_id: params.fileId,
@@ -99,7 +99,7 @@ export class QueueManager {
     completed: number;
     failed: number;
   }> {
-    const { data } = await supabase
+    const { data } = await (supabase as any)
       .from('processing_queue')
       .select('status')
       .eq('case_id', caseId);

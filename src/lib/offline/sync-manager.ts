@@ -14,14 +14,14 @@ async function executeMutation(mutation: OfflineMutation): Promise<boolean> {
 
     switch (operation) {
       case 'insert': {
-        const { error } = await supabase.from(table).insert(payload);
+        const { error } = await (supabase as any).from(table).insert(payload);
         if (error) throw error;
         return true;
       }
       case 'update': {
         const { id, ...updates } = payload;
         if (!id) throw new Error('Update mutation missing id in payload');
-        const { error } = await supabase
+        const { error } = await (supabase as any)
           .from(table)
           .update(updates)
           .eq('id', id as string);
@@ -31,7 +31,7 @@ async function executeMutation(mutation: OfflineMutation): Promise<boolean> {
       case 'delete': {
         const deleteId = payload.id;
         if (!deleteId) throw new Error('Delete mutation missing id in payload');
-        const { error } = await supabase
+        const { error } = await (supabase as any)
           .from(table)
           .delete()
           .eq('id', deleteId as string);

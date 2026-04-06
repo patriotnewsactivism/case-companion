@@ -38,7 +38,7 @@ export interface UpdateCaseInput extends Partial<CreateCaseInput> {
 
 // Cases API
 export async function getCases(): Promise<Case[]> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("cases")
     .select("*")
     .order("updated_at", { ascending: false });
@@ -48,7 +48,7 @@ export async function getCases(): Promise<Case[]> {
 }
 
 export async function getCase(id: string): Promise<Case | null> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("cases")
     .select("*")
     .eq("id", id)
@@ -59,7 +59,7 @@ export async function getCase(id: string): Promise<Case | null> {
 }
 
 export async function createCase(input: CreateCaseInput): Promise<Case> {
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user } } = await (supabase as any).auth.getUser();
   if (!user) throw new Error("Not authenticated");
 
   const payload: CreateCaseInput & { user_id: string } = {
@@ -67,7 +67,7 @@ export async function createCase(input: CreateCaseInput): Promise<Case> {
     user_id: user.id,
   };
 
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("cases")
     .insert(payload)
     .select()
@@ -81,7 +81,7 @@ export async function updateCase(input: UpdateCaseInput): Promise<Case> {
   const { id, ...updates } = input;
   const payload: Partial<CreateCaseInput> = updates;
 
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("cases")
     .update(payload)
     .eq("id", id)
@@ -93,7 +93,7 @@ export async function updateCase(input: UpdateCaseInput): Promise<Case> {
 }
 
 export async function deleteCase(id: string): Promise<void> {
-  const { error } = await supabase
+  const { error } = await (supabase as any)
     .from("cases")
     .delete()
     .eq("id", id);
@@ -158,7 +158,7 @@ export interface BulkUploadResult {
 }
 
 export async function getDocumentsByCase(caseId: string): Promise<Document[]> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("documents")
     .select("*")
     .eq("case_id", caseId)
@@ -169,7 +169,7 @@ export async function getDocumentsByCase(caseId: string): Promise<Document[]> {
 }
 
 export async function getAllDocuments(): Promise<Document[]> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("documents")
     .select("*")
     .order("created_at", { ascending: false });
@@ -179,7 +179,7 @@ export async function getAllDocuments(): Promise<Document[]> {
 }
 
 export async function createDocument(input: CreateDocumentInput): Promise<Document> {
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user } } = await (supabase as any).auth.getUser();
   if (!user) throw new Error("Not authenticated");
 
   const payload: CreateDocumentInput & { user_id: string } = {
@@ -187,7 +187,7 @@ export async function createDocument(input: CreateDocumentInput): Promise<Docume
     user_id: user.id,
   };
 
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("documents")
     .insert(payload)
     .select()
@@ -198,7 +198,7 @@ export async function createDocument(input: CreateDocumentInput): Promise<Docume
 }
 
 export async function bulkUploadDocuments(input: BulkDocumentUploadInput): Promise<BulkUploadResult> {
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user } } = await (supabase as any).auth.getUser();
   if (!user) throw new Error("Not authenticated");
 
   const results: BulkUploadResult = {
@@ -211,7 +211,7 @@ export async function bulkUploadDocuments(input: BulkDocumentUploadInput): Promi
     ocr_enqueue_error: null,
   };
 
-  const { data: existingDocs } = await supabase
+  const { data: existingDocs } = await (supabase as any)
     .from("documents")
     .select("bates_number")
     .eq("case_id", input.case_id);
@@ -251,7 +251,7 @@ export async function bulkUploadDocuments(input: BulkDocumentUploadInput): Promi
       );
 
       results.successful++;
-      results.documents.push(uploadResult.document);
+      results.documents.push(uploadResult.document as unknown as Document);
     } catch (error) {
       results.failed++;
       results.errors.push(`File ${file.name}: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -267,7 +267,7 @@ export async function bulkUploadDocuments(input: BulkDocumentUploadInput): Promi
 }
 
 export async function updateDocument(id: string, updates: Partial<Document>): Promise<Document> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("documents")
     .update(updates)
     .eq("id", id)
@@ -279,7 +279,7 @@ export async function updateDocument(id: string, updates: Partial<Document>): Pr
 }
 
 export async function deleteDocument(id: string): Promise<void> {
-  const { error } = await supabase
+  const { error } = await (supabase as any)
     .from("documents")
     .delete()
     .eq("id", id);
@@ -288,7 +288,7 @@ export async function deleteDocument(id: string): Promise<void> {
 }
 
 export async function triggerDocumentAnalysis(documentId: string, fileUrl: string): Promise<void> {
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { session } } = await (supabase as any).auth.getSession();
   if (!session) throw new Error("Not authenticated");
 
   const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ocr-document`;
@@ -330,7 +330,7 @@ export interface TimelineEvent {
 }
 
 export async function getTimelineEventsByCase(caseId: string): Promise<TimelineEvent[]> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("timeline_events")
     .select("*")
     .eq("case_id", caseId)
@@ -341,7 +341,7 @@ export async function getTimelineEventsByCase(caseId: string): Promise<TimelineE
 }
 
 export async function getAllTimelineEvents(): Promise<TimelineEvent[]> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("timeline_events")
     .select("*")
     .order("event_date", { ascending: true });
@@ -363,7 +363,7 @@ export interface CreateTimelineEventInput {
 }
 
 export async function createTimelineEvent(input: CreateTimelineEventInput): Promise<TimelineEvent> {
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user } } = await (supabase as any).auth.getUser();
   if (!user) throw new Error("Not authenticated");
 
   const payload: CreateTimelineEventInput & { user_id: string } = {
@@ -371,7 +371,7 @@ export async function createTimelineEvent(input: CreateTimelineEventInput): Prom
     user_id: user.id,
   };
 
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("timeline_events")
     .insert(payload)
     .select()
@@ -382,7 +382,7 @@ export async function createTimelineEvent(input: CreateTimelineEventInput): Prom
 }
 
 export async function updateTimelineEvent(id: string, updates: Partial<TimelineEvent>): Promise<TimelineEvent> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("timeline_events")
     .update(updates)
     .eq("id", id)
@@ -394,7 +394,7 @@ export async function updateTimelineEvent(id: string, updates: Partial<TimelineE
 }
 
 export async function deleteTimelineEvent(id: string): Promise<void> {
-  const { error } = await supabase
+  const { error } = await (supabase as any)
     .from("timeline_events")
     .delete()
     .eq("id", id);
@@ -412,14 +412,14 @@ export interface DocumentStats {
 
 export async function getDocumentStats(): Promise<DocumentStats> {
   // Get documents
-  const { data: docsData, error: docsError } = await supabase
+  const { data: docsData, error: docsError } = await (supabase as any)
     .from("documents")
     .select("id, ai_analyzed");
 
   if (docsError) throw docsError;
 
   // Get timeline events that are linked to documents
-  const { data: timelineData, error: timelineError } = await supabase
+  const { data: timelineData, error: timelineError } = await (supabase as any)
     .from("timeline_events")
     .select("linked_document_id")
     .not("linked_document_id", "is", null);
@@ -451,10 +451,10 @@ export interface Profile {
 }
 
 export async function getProfile(): Promise<Profile | null> {
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user } } = await (supabase as any).auth.getUser();
   if (!user) return null;
 
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("profiles")
     .select("*")
     .eq("user_id", user.id)
@@ -465,10 +465,10 @@ export async function getProfile(): Promise<Profile | null> {
 }
 
 export async function updateProfile(updates: Partial<Profile>): Promise<Profile> {
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user } } = await (supabase as any).auth.getUser();
   if (!user) throw new Error("Not authenticated");
 
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("profiles")
     .update(updates)
     .eq("user_id", user.id)
@@ -529,7 +529,7 @@ export async function analyzeDocument(
   fileUrl: string,
   extractTables: boolean = false
 ): Promise<AnalysisResult> {
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { session } } = await (supabase as any).auth.getSession();
   if (!session) throw new Error("Not authenticated");
 
   const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ocr-document`;
@@ -559,7 +559,7 @@ export async function extractDocumentTables(
   documentId: string,
   fileUrl: string
 ): Promise<TableExtractionResult> {
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { session } } = await (supabase as any).auth.getSession();
   if (!session) throw new Error("Not authenticated");
 
   const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ocr-document`;
@@ -667,7 +667,7 @@ export function getDocumentChunksForContext(
 export async function getDocumentWithContext(
   documentId: string
 ): Promise<{ document: Document; chunks: DocumentChunk[]; context: string } | null> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from('documents')
     .select('*')
     .eq('id', documentId)
@@ -705,7 +705,7 @@ export async function batchAnalyzeDocuments(
     results: [],
   };
 
-  const { data: documents, error } = await supabase
+  const { data: documents, error } = await (supabase as any)
     .from('documents')
     .select('id, file_url')
     .in('id', documentIds);
@@ -713,7 +713,7 @@ export async function batchAnalyzeDocuments(
   if (error) throw error;
 
   const docMap = new Map((documents || []).map(d => [d.id, d.file_url]));
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { session } } = await (supabase as any).auth.getSession();
   
   if (!session) throw new Error("Not authenticated");
 
@@ -802,7 +802,7 @@ export async function batchAnalyzeDocuments(
 }
 
 export async function reanalyzeDocument(documentId: string): Promise<AnalysisResult> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from('documents')
     .select('file_url')
     .eq('id', documentId)
@@ -834,7 +834,7 @@ export async function createVideoRoom(
   caseId: string,
   options?: CreateVideoRoomOptions
 ): Promise<VideoRoom> {
-  const { data, error } = await supabase.functions.invoke('create-video-room', {
+  const { data, error } = await (supabase as any).functions.invoke('create-video-room', {
     body: {
       name,
       caseId,
@@ -850,7 +850,7 @@ export async function createVideoRoom(
 }
 
 export async function joinVideoRoom(roomId: string, userName?: string): Promise<VideoRoom> {
-  const { data, error } = await supabase.functions.invoke('join-video-room', {
+  const { data, error } = await (supabase as any).functions.invoke('join-video-room', {
     body: { roomId, userName },
   });
 
@@ -886,7 +886,7 @@ export interface CreateBriefInput {
 }
 
 export async function getBriefsByCase(caseId: string): Promise<LegalBrief[]> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("legal_briefs")
     .select("*")
     .eq("case_id", caseId)
@@ -897,10 +897,10 @@ export async function getBriefsByCase(caseId: string): Promise<LegalBrief[]> {
 }
 
 export async function createBrief(input: CreateBriefInput): Promise<LegalBrief> {
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user } } = await (supabase as any).auth.getUser();
   if (!user) throw new Error("Not authenticated");
 
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("legal_briefs")
     .insert({ ...input, user_id: user.id })
     .select()
@@ -911,7 +911,7 @@ export async function createBrief(input: CreateBriefInput): Promise<LegalBrief> 
 }
 
 export async function updateBrief(id: string, updates: Partial<CreateBriefInput>): Promise<LegalBrief> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("legal_briefs")
     .update({ ...updates, updated_at: new Date().toISOString() })
     .eq("id", id)
@@ -923,7 +923,7 @@ export async function updateBrief(id: string, updates: Partial<CreateBriefInput>
 }
 
 export async function deleteBrief(id: string): Promise<void> {
-  const { error } = await supabase
+  const { error } = await (supabase as any)
     .from("legal_briefs")
     .delete()
     .eq("id", id);
@@ -957,7 +957,7 @@ export interface DocumentVersion {
 }
 
 export async function getDocumentVersions(documentId: string): Promise<DocumentVersion[]> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("document_versions")
     .select("*")
     .eq("document_id", documentId)
@@ -968,7 +968,7 @@ export async function getDocumentVersions(documentId: string): Promise<DocumentV
 }
 
 export async function getDocumentVersion(versionId: string): Promise<DocumentVersion | null> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("document_versions")
     .select("*")
     .eq("id", versionId)
@@ -982,7 +982,7 @@ export async function rollbackDocument(documentId: string, versionId: string): P
   const version = await getDocumentVersion(versionId);
   if (!version) throw new Error("Version not found");
 
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("documents")
     .update({
       name: version.name,
@@ -1036,7 +1036,7 @@ export interface CaseMember {
 }
 
 export async function getOrganization(): Promise<Organization | null> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("organizations")
     .select("*")
     .limit(1)
@@ -1047,10 +1047,10 @@ export async function getOrganization(): Promise<Organization | null> {
 }
 
 export async function createOrganization(name: string, slug?: string): Promise<Organization> {
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user } } = await (supabase as any).auth.getUser();
   if (!user) throw new Error("Not authenticated");
 
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("organizations")
     .insert({ name, slug: slug || name.toLowerCase().replace(/\s+/g, "-"), owner_id: user.id })
     .select()
@@ -1059,7 +1059,7 @@ export async function createOrganization(name: string, slug?: string): Promise<O
   if (error) throw error;
 
   // Add owner as member
-  await supabase.from("organization_members").insert({
+  await (supabase as any).from("organization_members").insert({
     organization_id: data.id,
     user_id: user.id,
     role: "owner",
@@ -1070,7 +1070,7 @@ export async function createOrganization(name: string, slug?: string): Promise<O
 }
 
 export async function getOrganizationMembers(orgId: string): Promise<OrganizationMember[]> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("organization_members")
     .select("*")
     .eq("organization_id", orgId);
@@ -1080,7 +1080,7 @@ export async function getOrganizationMembers(orgId: string): Promise<Organizatio
 }
 
 export async function getCaseMembers(caseId: string): Promise<CaseMember[]> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("case_members")
     .select("*")
     .eq("case_id", caseId);
@@ -1094,11 +1094,11 @@ export async function addCaseMember(
   email: string,
   role: CaseMember["role"]
 ): Promise<CaseMember> {
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user } } = await (supabase as any).auth.getUser();
   if (!user) throw new Error("Not authenticated");
 
   // Look up user by email via edge function
-  const { data, error } = await supabase.functions.invoke("invite-member", {
+  const { data, error } = await (supabase as any).functions.invoke("invite-member", {
     body: { caseId, email, role },
   });
 
@@ -1107,7 +1107,7 @@ export async function addCaseMember(
 }
 
 export async function removeCaseMember(memberId: string): Promise<void> {
-  const { error } = await supabase
+  const { error } = await (supabase as any)
     .from("case_members")
     .delete()
     .eq("id", memberId);
@@ -1119,7 +1119,7 @@ export async function updateCaseMemberRole(
   memberId: string,
   role: CaseMember["role"]
 ): Promise<CaseMember> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("case_members")
     .update({ role })
     .eq("id", memberId)
@@ -1154,7 +1154,7 @@ export async function createExportJob(
   exportType: ExportJob["export_type"],
   options?: Record<string, unknown>
 ): Promise<ExportJob> {
-  const { data, error } = await supabase.functions.invoke("export-document", {
+  const { data, error } = await (supabase as any).functions.invoke("export-document", {
     body: { caseId, exportType, options: options || {} },
   });
 
@@ -1163,7 +1163,7 @@ export async function createExportJob(
 }
 
 export async function getExportJobs(caseId: string): Promise<ExportJob[]> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("export_jobs")
     .select("*")
     .eq("case_id", caseId)
@@ -1203,7 +1203,7 @@ export async function runConflictCheck(params: {
   opposingParty?: string;
   additionalParties?: string[];
 }): Promise<{ conflicts: ConflictResult[]; totalChecked: number; checkId: string; status: string }> {
-  const { data, error } = await supabase.functions.invoke("conflict-check", {
+  const { data, error } = await (supabase as any).functions.invoke("conflict-check", {
     body: params,
   });
 
@@ -1212,7 +1212,7 @@ export async function runConflictCheck(params: {
 }
 
 export async function getConflictCheckHistory(): Promise<ConflictCheck[]> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("conflict_checks")
     .select("*")
     .order("created_at", { ascending: false })
@@ -1223,7 +1223,7 @@ export async function getConflictCheckHistory(): Promise<ConflictCheck[]> {
 }
 
 export async function resolveConflict(checkId: string, notes: string): Promise<void> {
-  const { error } = await supabase
+  const { error } = await (supabase as any)
     .from("conflict_checks")
     .update({ status: "waived", resolution_notes: notes })
     .eq("id", checkId);

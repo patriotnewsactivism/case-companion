@@ -1,10 +1,14 @@
 /**
  * Google Drive Integration Utilities
- * Handles OAuth authentication and folder browsing using the Drive REST API.
+ * Uses Google Identity Services for OAuth and Drive REST APIs for browsing.
  */
 
 const SCOPES = ["https://www.googleapis.com/auth/drive.readonly"].join(" ");
 const GOOGLE_IDENTITY_SCRIPT_ID = "google-identity-script";
+const GOOGLE_SCRIPT_TIMEOUT_MS = 10000;
+const GOOGLE_DRIVE_FOLDER_MIME_TYPE = "application/vnd.google-apps.folder";
+const ROOT_FOLDER_ID = "root";
+const ROOT_FOLDER_NAME = "My Drive";
 
 interface GoogleTokenResponse {
   error?: string;
@@ -48,8 +52,10 @@ export interface GoogleDriveFolder {
   path: string;
 }
 
-export interface GoogleDriveFolderListItem extends GoogleDriveFolder {
-  parentId: string | null;
+export interface GoogleDriveFolderItem {
+  id: string;
+  name: string;
+  isFolder: boolean;
 }
 
 function getGoogleClientId(): string {
@@ -61,9 +67,13 @@ function validateGoogleConfiguration(): void {
 
   if (!googleClientId || googleClientId.trim() === "") {
     throw new Error(
-      "Google Drive integration is not configured. Please add VITE_GOOGLE_CLIENT_ID to your .env file."
+      "Google Drive integration is not configured. Please add VITE_GOOGLE_CLIENT_ID to your .env file. See GOOGLE_DRIVE_SETUP.md for setup instructions."
     );
   }
+}
+
+function isGoogleIdentityReady(): boolean {
+  return Boolean(window.google?.accounts?.oauth2?.initTokenClient);
 }
 
 async function ensureScriptLoaded(id: string, src: string): Promise<void> {
@@ -101,11 +111,11 @@ async function ensureScriptLoaded(id: string, src: string): Promise<void> {
   });
 }
 
-async function waitForGoogleIdentityReady(timeoutMs = 10000): Promise<void> {
+async function waitForGoogleIdentityReady(timeoutMs = GOOGLE_SCRIPT_TIMEOUT_MS): Promise<void> {
   const start = Date.now();
 
   while (Date.now() - start < timeoutMs) {
-    if (window.google?.accounts?.oauth2?.initTokenClient) {
+    if (isGoogleIdentityReady()) {
       return;
     }
 
@@ -117,27 +127,47 @@ async function waitForGoogleIdentityReady(timeoutMs = 10000): Promise<void> {
   );
 }
 
-async function fetchDriveFileMetadata(fileId: string, accessToken: string): Promise<DriveFile> {
-  const response = await fetch(
-    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?fields=id,name,parents`,
-    {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-    }
-  );
+async function fetchDriveJson<T>(url: string, accessToken: string): Promise<T> {
+  const response = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
 
   if (!response.ok) {
-    throw new Error(`Failed to read Google Drive folder metadata (${response.status})`);
+    throw new Error(`Google Drive request failed (${response.status})`);
   }
 
-  return (await response.json()) as DriveFile;
+  return (await response.json()) as T;
 }
 
+async function fetchDriveFileMetadata(fileId: string, accessToken: string): Promise<DriveFile> {
+  return fetchDriveJson<DriveFile>(
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?fields=name,parents`,
+    accessToken
+  );
+}
+
+function buildDriveFilesListUrl(query: string, fields: string, orderBy?: string): string {
+  const params = new URLSearchParams({
+    q: query,
+    fields,
+  });
+
+  if (orderBy) {
+    params.set("orderBy", orderBy);
+  }
+
+  return `https://www.googleapis.com/drive/v3/files?${params.toString()}`;
+}
+
+/**
+ * Load Google Identity Services.
+ */
 export async function loadGoogleAPI(): Promise<void> {
   validateGoogleConfiguration();
 
-  if (window.google?.accounts?.oauth2?.initTokenClient) {
+  if (isGoogleIdentityReady()) {
     return;
   }
 
@@ -145,6 +175,9 @@ export async function loadGoogleAPI(): Promise<void> {
   await waitForGoogleIdentityReady();
 }
 
+/**
+ * Get Google OAuth access token.
+ */
 export async function getGoogleAccessToken(): Promise<string> {
   validateGoogleConfiguration();
 
@@ -177,16 +210,15 @@ export async function getGoogleAccessToken(): Promise<string> {
   });
 }
 
-async function getFolderPath(folderId: string, accessToken: string): Promise<string> {
-  if (folderId === "root") {
-    return "/My Drive";
-  }
-
+/**
+ * Get the full path of a folder in Google Drive.
+ */
+export async function getFolderPath(folderId: string, accessToken: string): Promise<string> {
   const path: string[] = [];
   let currentId: string | undefined = folderId;
 
   try {
-    while (currentId) {
+    while (currentId && currentId !== ROOT_FOLDER_ID) {
       const file = await fetchDriveFileMetadata(currentId, accessToken);
       path.unshift(file.name);
       currentId = file.parents?.[0];
@@ -195,73 +227,50 @@ async function getFolderPath(folderId: string, accessToken: string): Promise<str
     console.error("Error getting folder path:", error);
   }
 
-  return `/${path.join("/")}`;
+  return `/${ROOT_FOLDER_NAME}${path.length > 0 ? `/${path.join("/")}` : ""}`;
 }
 
+/**
+ * List folders in a Google Drive folder for custom browsing.
+ */
 export async function listGoogleDriveFolders(
   folderId: string,
   accessToken: string
-): Promise<GoogleDriveFolderListItem[]> {
-  const query = encodeURIComponent(`'${folderId}' in parents and trashed=false and mimeType='application/vnd.google-apps.folder'`);
-  const response = await fetch(
-    `https://www.googleapis.com/drive/v3/files?q=${query}&fields=files(id,name,parents)&orderBy=name_natural`,
-    {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-    }
+): Promise<GoogleDriveFolderItem[]> {
+  const query = folderId === ROOT_FOLDER_ID ? "'root' in parents and trashed=false" : `'${folderId}' in parents and trashed=false`;
+  const data = await fetchDriveJson<DriveListResponse>(
+    buildDriveFilesListUrl(query, "files(id,name,mimeType)", "name"),
+    accessToken
   );
 
-  if (!response.ok) {
-    throw new Error(`Failed to list Google Drive folders (${response.status})`);
-  }
-
-  const data = (await response.json()) as DriveListResponse;
-  const currentPath = await getFolderPath(folderId, accessToken);
-
-  return (data.files || []).map((file) => ({
-    id: file.id,
-    name: file.name,
-    path: `${currentPath}/${file.name}`.replace(/\/+/g, "/"),
-    parentId: file.parents?.[0] || null,
-  }));
+  return (data.files || [])
+    .filter((file) => file.mimeType === GOOGLE_DRIVE_FOLDER_MIME_TYPE)
+    .map((file) => ({
+      id: file.id,
+      name: file.name,
+      isFolder: true,
+    }));
 }
 
-export async function getGoogleDriveFolder(folderId: string, accessToken: string): Promise<GoogleDriveFolder> {
-  const file = await fetchDriveFileMetadata(folderId, accessToken);
-
-  return {
-    id: file.id,
-    name: file.name,
-    path: await getFolderPath(folderId, accessToken),
-  };
-}
-
+/**
+ * List files in a Google Drive folder (non-recursive)
+ * Useful for previewing what will be imported.
+ */
 export async function listFolderContents(
   folderId: string,
   accessToken: string
 ): Promise<Array<{ id: string; name: string; mimeType: string; isFolder: boolean }>> {
   try {
-    const query = encodeURIComponent(`'${folderId}' in parents and trashed=false`);
-    const response = await fetch(
-      `https://www.googleapis.com/drive/v3/files?q=${query}&fields=files(id,name,mimeType)`,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      }
+    const data = await fetchDriveJson<DriveListResponse>(
+      buildDriveFilesListUrl(`'${folderId}' in parents and trashed=false`, "files(id,name,mimeType)"),
+      accessToken
     );
 
-    if (!response.ok) {
-      throw new Error("Failed to list folder contents");
-    }
-
-    const data = (await response.json()) as DriveListResponse;
     return (data.files || []).map((file) => ({
       id: file.id,
       name: file.name,
       mimeType: file.mimeType,
-      isFolder: file.mimeType === "application/vnd.google-apps.folder",
+      isFolder: file.mimeType === GOOGLE_DRIVE_FOLDER_MIME_TYPE,
     }));
   } catch (error) {
     console.error("Error listing folder contents:", error);
@@ -269,6 +278,9 @@ export async function listFolderContents(
   }
 }
 
+/**
+ * Count total files recursively in a folder (for preview).
+ */
 export async function countFilesInFolder(
   folderId: string,
   accessToken: string

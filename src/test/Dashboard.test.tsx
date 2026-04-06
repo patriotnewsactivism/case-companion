@@ -4,6 +4,7 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import Dashboard from "@/pages/Dashboard";
+import { getCases, getDocumentStats } from "@/lib/api";
 
 vi.mock("@/components/Layout", () => ({
   Layout: ({ children }: React.PropsWithChildren) => <div data-testid="layout">{children}</div>,
@@ -45,6 +46,9 @@ function renderDashboard(): void {
   );
 }
 
+const mockGetCases = vi.mocked(getCases);
+const mockGetDocumentStats = vi.mocked(getDocumentStats);
+
 describe("Dashboard page", () => {
   it("renders the strategy workspace shell", async () => {
     renderDashboard();
@@ -63,5 +67,16 @@ describe("Dashboard page", () => {
 
     expect(screen.getByText(/witness reliability tracker/i)).toBeInTheDocument();
     expect(screen.getByText(/statement consistency/i)).toBeInTheDocument();
+  });
+  it("shows an honest empty state when there are no cases", async () => {
+    mockGetCases.mockResolvedValueOnce([]);
+    mockGetDocumentStats.mockResolvedValueOnce({ total: 0, analyzed: 0 });
+
+    renderDashboard();
+
+    expect(await screen.findByText(/no matters yet/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/case timeline events/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/build a case record to generate timeline-driven courtroom strategy recommendations/i)).toBeInTheDocument();
+    expect(screen.getByText(/add a case with deadlines to populate the strategy queue/i)).toBeInTheDocument();
   });
 });

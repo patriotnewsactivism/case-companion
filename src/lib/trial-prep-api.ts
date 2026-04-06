@@ -13,7 +13,7 @@ export interface CaseDocument {
 }
 
 export async function getCaseDocuments(caseId: string): Promise<CaseDocument[]> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from('documents')
     .select('id, name, file_type, summary, key_facts, favorable_findings, adverse_findings, ai_analyzed, bates_number')
     .eq('case_id', caseId)
@@ -106,7 +106,7 @@ export async function getOrCreateChecklist(caseId: string): Promise<TrialPrepChe
   if (!user) return null;
 
   // Try to get existing checklist
-  const { data: existing } = await supabase
+  const { data: existing } = await (supabase as any)
     .from('trial_prep_checklists')
     .select('*')
     .eq('case_id', caseId)
@@ -116,7 +116,7 @@ export async function getOrCreateChecklist(caseId: string): Promise<TrialPrepChe
   if (existing) return existing as TrialPrepChecklist;
 
   // Create new checklist
-  const { data: created, error } = await supabase
+  const { data: created, error } = await (supabase as any)
     .from('trial_prep_checklists')
     .insert({ case_id: caseId, user_id: user.id })
     .select()
@@ -131,7 +131,7 @@ export async function getOrCreateChecklist(caseId: string): Promise<TrialPrepChe
 }
 
 export async function updateChecklist(id: string, updates: Partial<TrialPrepChecklist>): Promise<boolean> {
-  const { error } = await supabase
+  const { error } = await (supabase as any)
     .from('trial_prep_checklists')
     .update(updates)
     .eq('id', id);
@@ -141,7 +141,7 @@ export async function updateChecklist(id: string, updates: Partial<TrialPrepChec
 
 // Witness Prep CRUD
 export async function getWitnesses(checklistId: string): Promise<WitnessPrep[]> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from('witness_prep')
     .select('*')
     .eq('checklist_id', checklistId)
@@ -174,7 +174,7 @@ export async function createWitness(checklistId: string, witness: Partial<Witnes
     user_id: user.id,
   };
 
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from('witness_prep')
     .insert(insertData)
     .select()
@@ -189,7 +189,7 @@ export async function createWitness(checklistId: string, witness: Partial<Witnes
 }
 
 export async function updateWitness(id: string, updates: Partial<WitnessPrep>): Promise<boolean> {
-  const { error } = await supabase
+  const { error } = await (supabase as any)
     .from('witness_prep')
     .update(updates)
     .eq('id', id);
@@ -198,7 +198,7 @@ export async function updateWitness(id: string, updates: Partial<WitnessPrep>): 
 }
 
 export async function deleteWitness(id: string): Promise<boolean> {
-  const { error } = await supabase
+  const { error } = await (supabase as any)
     .from('witness_prep')
     .delete()
     .eq('id', id);
@@ -208,7 +208,7 @@ export async function deleteWitness(id: string): Promise<boolean> {
 
 // Exhibit List CRUD
 export async function getExhibits(checklistId: string): Promise<ExhibitItem[]> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from('exhibit_list')
     .select('*')
     .eq('checklist_id', checklistId)
@@ -240,7 +240,7 @@ export async function createExhibit(checklistId: string, exhibit: Partial<Exhibi
     user_id: user.id,
   };
 
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from('exhibit_list')
     .insert(insertData)
     .select()
@@ -255,7 +255,7 @@ export async function createExhibit(checklistId: string, exhibit: Partial<Exhibi
 }
 
 export async function updateExhibit(id: string, updates: Partial<ExhibitItem>): Promise<boolean> {
-  const { error } = await supabase
+  const { error } = await (supabase as any)
     .from('exhibit_list')
     .update(updates)
     .eq('id', id);
@@ -264,7 +264,7 @@ export async function updateExhibit(id: string, updates: Partial<ExhibitItem>): 
 }
 
 export async function deleteExhibit(id: string): Promise<boolean> {
-  const { error } = await supabase
+  const { error } = await (supabase as any)
     .from('exhibit_list')
     .delete()
     .eq('id', id);
@@ -274,7 +274,7 @@ export async function deleteExhibit(id: string): Promise<boolean> {
 
 // Jury Instructions CRUD
 export async function getJuryInstructions(checklistId: string): Promise<JuryInstruction[]> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from('jury_instructions')
     .select('*')
     .eq('checklist_id', checklistId)
@@ -304,7 +304,7 @@ export async function createJuryInstruction(checklistId: string, instruction: Pa
     user_id: user.id,
   };
 
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from('jury_instructions')
     .insert(insertData)
     .select()
@@ -319,7 +319,7 @@ export async function createJuryInstruction(checklistId: string, instruction: Pa
 }
 
 export async function updateJuryInstruction(id: string, updates: Partial<JuryInstruction>): Promise<boolean> {
-  const { error } = await supabase
+  const { error } = await (supabase as any)
     .from('jury_instructions')
     .update(updates)
     .eq('id', id);
@@ -328,7 +328,7 @@ export async function updateJuryInstruction(id: string, updates: Partial<JuryIns
 }
 
 export async function deleteJuryInstruction(id: string): Promise<boolean> {
-  const { error } = await supabase
+  const { error } = await (supabase as any)
     .from('jury_instructions')
     .delete()
     .eq('id', id);
@@ -338,7 +338,7 @@ export async function deleteJuryInstruction(id: string): Promise<boolean> {
 
 // Motions in Limine CRUD
 export async function getMotionsInLimine(checklistId: string): Promise<MotionInLimine[]> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from('motions_in_limine')
     .select('*')
     .eq('checklist_id', checklistId)
@@ -370,7 +370,7 @@ export async function createMotionInLimine(checklistId: string, motion: Partial<
     user_id: user.id,
   };
 
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from('motions_in_limine')
     .insert(insertData)
     .select()
@@ -385,7 +385,7 @@ export async function createMotionInLimine(checklistId: string, motion: Partial<
 }
 
 export async function updateMotionInLimine(id: string, updates: Partial<MotionInLimine>): Promise<boolean> {
-  const { error } = await supabase
+  const { error } = await (supabase as any)
     .from('motions_in_limine')
     .update(updates)
     .eq('id', id);
@@ -394,7 +394,7 @@ export async function updateMotionInLimine(id: string, updates: Partial<MotionIn
 }
 
 export async function deleteMotionInLimine(id: string): Promise<boolean> {
-  const { error } = await supabase
+  const { error } = await (supabase as any)
     .from('motions_in_limine')
     .delete()
     .eq('id', id);

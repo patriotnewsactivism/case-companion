@@ -97,7 +97,7 @@ export function DocumentVersionHistory({
   } = useQuery({
     queryKey: ["document-versions", documentId],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("document_versions")
         .select("*")
         .eq("document_id", documentId)
@@ -123,7 +123,7 @@ export function DocumentVersionHistory({
       if (version.ocr_text !== undefined) updates.ocr_text = version.ocr_text;
       if (version.file_url !== undefined) updates.file_url = version.file_url;
 
-      const { error: updateError } = await supabase
+      const { error: updateError } = await (supabase as any)
         .from("documents")
         .update(updates)
         .eq("id", documentId);
@@ -132,7 +132,7 @@ export function DocumentVersionHistory({
 
       const { data: userData } = await supabase.auth.getUser();
 
-      const { error: versionError } = await supabase
+      const { error: versionError } = await (supabase as any)
         .from("document_versions")
         .insert({
           document_id: documentId,

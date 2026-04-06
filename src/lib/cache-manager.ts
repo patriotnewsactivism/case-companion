@@ -12,7 +12,7 @@ interface CacheResult<T> {
 
 export class CacheManager {
   static async checkOCRCache(contentHash: string): Promise<CacheResult<{ text: string; confidence: number }>> {
-    const { data } = await supabase
+    const { data } = await (supabase as any)
       .from('document_hash_cache')
       .select('ocr_text, ocr_confidence, ocr_provider')
       .eq('content_hash', contentHash)
@@ -20,7 +20,7 @@ export class CacheManager {
     
     if (data?.ocr_text) {
       // Update access stats
-      await supabase.rpc('increment_cache_access', { 
+      await (supabase as any).rpc('increment_cache_access', { 
         cache_table: 'document_hash_cache', 
         hash: contentHash 
       });
@@ -30,7 +30,7 @@ export class CacheManager {
   }
 
   static async storeOCRCache(contentHash: string, text: string, confidence: number, provider: string, fileType: string, fileSize: number): Promise<void> {
-    await supabase.from('document_hash_cache').upsert({
+    await (supabase as any).from('document_hash_cache').upsert({
       content_hash: contentHash,
       ocr_text: text,
       ocr_confidence: confidence,
@@ -41,7 +41,7 @@ export class CacheManager {
   }
 
   static async checkAICache(contentHash: string, analysisType: string, promptVersion: string): Promise<CacheResult<any>> {
-    const { data } = await supabase
+    const { data } = await (supabase as any)
       .from('ai_analysis_cache')
       .select('result, model_used')
       .eq('content_hash', contentHash)
@@ -50,7 +50,7 @@ export class CacheManager {
       .single();
     
     if (data?.result) {
-      await supabase.rpc('increment_cache_access', { 
+      await (supabase as any).rpc('increment_cache_access', { 
         cache_table: 'ai_analysis_cache', 
         hash: contentHash 
       });
@@ -60,7 +60,7 @@ export class CacheManager {
   }
 
   static async storeAICache(contentHash: string, analysisType: string, promptVersion: string, result: any, model: string, tokens: number): Promise<void> {
-    await supabase.from('ai_analysis_cache').upsert({
+    await (supabase as any).from('ai_analysis_cache').upsert({
       content_hash: contentHash,
       analysis_type: analysisType,
       prompt_version: promptVersion,
@@ -71,14 +71,14 @@ export class CacheManager {
   }
 
   static async checkTranscriptCache(contentHash: string): Promise<CacheResult<{ text: string; segments: any; speakers: any; duration: number }>> {
-    const { data } = await supabase
+    const { data } = await (supabase as any)
       .from('transcription_cache')
       .select('*')
       .eq('content_hash', contentHash)
       .single();
     
     if (data?.transcript_text) {
-      await supabase.rpc('increment_cache_access', { 
+      await (supabase as any).rpc('increment_cache_access', { 
         cache_table: 'transcription_cache', 
         hash: contentHash 
       });
@@ -97,7 +97,7 @@ export class CacheManager {
   }
 
   static async storeTranscriptCache(contentHash: string, text: string, segments: any, speakers: any, duration: number, provider: string): Promise<void> {
-    await supabase.from('transcription_cache').upsert({
+    await (supabase as any).from('transcription_cache').upsert({
       content_hash: contentHash,
       transcript_text: text,
       transcript_segments: segments,

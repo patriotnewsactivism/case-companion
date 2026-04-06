@@ -393,7 +393,7 @@ export default function CaseTimeline() {
   const { data: caseData, isLoading: caseLoading } = useQuery({
     queryKey: ["case", id],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("cases")
         .select("*")
         .eq("id", id!)
@@ -411,7 +411,7 @@ export default function CaseTimeline() {
   } = useQuery({
     queryKey: ["timeline_events", id],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("timeline_events")
         .select("*")
         .eq("case_id", id!)
@@ -433,7 +433,7 @@ export default function CaseTimeline() {
   const addEventMutation = useMutation({
     mutationFn: async () => {
       if (!id || !user) throw new Error("Not authenticated");
-      const { error } = await supabase.from("timeline_events").insert({
+      const { error } = await (supabase as any).from("timeline_events").insert({
         case_id: id,
         user_id: user.id,
         title: newTitle,
@@ -518,30 +518,9 @@ export default function CaseTimeline() {
 
   // ── Render ───────────────────────────────────────────────────────────────────
 
-  // Collect deadline events
-  const deadlineEvents = events
-    .filter(
-      (e) =>
-        (e.event_category ?? e.event_type ?? "").toLowerCase() === "deadline" ||
-        !!e.deadline_triggered_by
-    )
-    .sort(
-      (a, b) =>
-        new Date(a.event_date).getTime() - new Date(b.event_date).getTime()
-    );
-
-  const upcomingDeadlines = deadlineEvents.filter(
-    (e) => new Date(e.event_date) >= new Date()
-  );
-
-  const getDaysUntil = (dateStr: string) => {
-    const diff = new Date(dateStr).getTime() - Date.now();
-    return Math.ceil(diff / (1000 * 60 * 60 * 24));
-  };
-
   return (
     <Layout>
-      <div className="max-w-6xl mx-auto px-4 py-6 space-y-6">
+      <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
         {/* Header */}
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -737,177 +716,55 @@ export default function CaseTimeline() {
           )}
         </div>
 
-        {/* Two-column layout: Timeline + Deadline Sidebar */}
-        <div className="flex gap-6">
-          {/* Main timeline column */}
-          <div className="flex-1 min-w-0">
-            {/* Timeline */}
-            {isLoading ? (
-              <div className="flex items-center justify-center py-16">
-                <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-              </div>
-            ) : filteredEvents.length === 0 ? (
-              <Card>
-                <CardContent className="flex flex-col items-center justify-center py-16 text-center text-muted-foreground">
-                  <Calendar className="w-12 h-12 mb-4 opacity-20" />
-                  <p className="font-medium">No timeline events found</p>
-                  <p className="text-sm mt-1">
-                    {events.length === 0
-                      ? "Click \"Generate AI Timeline\" to extract events from your documents, or add events manually."
-                      : "No events match your current filters."}
-                  </p>
-                  {events.length === 0 && (
-                    <Button
-                      className="mt-4 bg-purple-600 hover:bg-purple-700 text-white"
-                      onClick={handleGenerate}
-                      disabled={generating}
-                    >
-                      <Sparkles className="w-4 h-4 mr-2" />
-                      Generate AI Timeline
-                    </Button>
-                  )}
-                </CardContent>
-              </Card>
-            ) : (
-              <div className="space-y-0">
-                {filteredEvents.map((event) => (
-                  <EventCard key={event.id} event={event} />
-                ))}
-              </div>
-            )}
-
-            {/* Gaps section */}
-            {allGaps.length > 0 && (
-              <div className="mt-8 space-y-2">
-                <div className="flex items-center gap-2 mb-3">
-                  <AlertTriangle className="w-4 h-4 text-amber-500" />
-                  <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-                    Identified Gaps ({allGaps.length})
-                  </h2>
-                </div>
-                {allGaps.map((gap, i) => (
-                  <GapCard key={i} gap={gap} />
-                ))}
-              </div>
-            )}
+        {/* Timeline */}
+        {isLoading ? (
+          <div className="flex items-center justify-center py-16">
+            <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
           </div>
+        ) : filteredEvents.length === 0 ? (
+          <Card>
+            <CardContent className="flex flex-col items-center justify-center py-16 text-center text-muted-foreground">
+              <Calendar className="w-12 h-12 mb-4 opacity-20" />
+              <p className="font-medium">No timeline events found</p>
+              <p className="text-sm mt-1">
+                {events.length === 0
+                  ? "Click \"Generate AI Timeline\" to extract events from your documents, or add events manually."
+                  : "No events match your current filters."}
+              </p>
+              {events.length === 0 && (
+                <Button
+                  className="mt-4 bg-purple-600 hover:bg-purple-700 text-white"
+                  onClick={handleGenerate}
+                  disabled={generating}
+                >
+                  <Sparkles className="w-4 h-4 mr-2" />
+                  Generate AI Timeline
+                </Button>
+              )}
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="space-y-0">
+            {filteredEvents.map((event) => (
+              <EventCard key={event.id} event={event} />
+            ))}
+          </div>
+        )}
 
-          {/* Deadline Tracker Sidebar */}
-          <div className="w-64 shrink-0 hidden lg:block">
-            <div className="sticky top-24 space-y-4">
-              <Card className="border-orange-200 dark:border-orange-800">
-                <CardHeader className="py-3 px-4">
-                  <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                    <Clock className="w-4 h-4 text-orange-500" />
-                    Deadline Tracker
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="px-4 pb-4 space-y-3">
-                  {upcomingDeadlines.length === 0 ? (
-                    <p className="text-xs text-muted-foreground italic">
-                      No upcoming deadlines tracked. Deadlines are extracted automatically from documents.
-                    </p>
-                  ) : (
-                    upcomingDeadlines.slice(0, 8).map((dl) => {
-                      const daysLeft = getDaysUntil(dl.event_date);
-                      const isUrgent = daysLeft <= 7;
-                      const isSoon = daysLeft <= 30;
-                      return (
-                        <div
-                          key={dl.id}
-                          className={cn(
-                            "rounded-lg border p-2.5 space-y-1",
-                            isUrgent
-                              ? "border-red-300 bg-red-50 dark:bg-red-950/20"
-                              : isSoon
-                              ? "border-orange-200 bg-orange-50 dark:bg-orange-950/20"
-                              : "border-border bg-muted/30"
-                          )}
-                        >
-                          <div className="flex items-center justify-between gap-1">
-                            <span
-                              className={cn(
-                                "text-[10px] font-bold uppercase tracking-wider",
-                                isUrgent
-                                  ? "text-red-600"
-                                  : isSoon
-                                  ? "text-orange-600"
-                                  : "text-muted-foreground"
-                              )}
-                            >
-                              {daysLeft <= 0
-                                ? "OVERDUE"
-                                : daysLeft === 1
-                                ? "TOMORROW"
-                                : `${daysLeft} days`}
-                            </span>
-                            {isUrgent && (
-                              <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                            )}
-                          </div>
-                          <p className="text-xs font-medium text-foreground leading-tight">
-                            {dl.title}
-                          </p>
-                          <p className="text-[10px] text-muted-foreground font-mono">
-                            {formatEventDate(dl.event_date)}
-                          </p>
-                          {dl.deadline_triggered_by && (
-                            <p className="text-[10px] text-orange-600 dark:text-orange-400">
-                              {dl.deadline_triggered_by}
-                            </p>
-                          )}
-                        </div>
-                      );
-                    })
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Category summary */}
-              <Card>
-                <CardHeader className="py-3 px-4">
-                  <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                    <Shield className="w-4 h-4 text-blue-500" />
-                    Event Summary
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="px-4 pb-4">
-                  <div className="space-y-1.5">
-                    {Object.entries(
-                      events.reduce<Record<string, number>>((acc, e) => {
-                        const cat = (e.event_category ?? e.event_type ?? "other").toLowerCase();
-                        acc[cat] = (acc[cat] || 0) + 1;
-                        return acc;
-                      }, {})
-                    )
-                      .sort((a, b) => b[1] - a[1])
-                      .map(([cat, count]) => {
-                        const cfg = getCategoryConfig(cat);
-                        return (
-                          <div
-                            key={cat}
-                            className="flex items-center justify-between text-xs"
-                          >
-                            <div className="flex items-center gap-1.5">
-                              <span
-                                className={cn("w-2 h-2 rounded-full", cfg.dotClass)}
-                              />
-                              <span className="text-muted-foreground">
-                                {cfg.label}
-                              </span>
-                            </div>
-                            <span className="font-mono font-medium text-foreground">
-                              {count}
-                            </span>
-                          </div>
-                        );
-                      })}
-                  </div>
-                </CardContent>
-              </Card>
+        {/* Gaps section */}
+        {allGaps.length > 0 && (
+          <div className="mt-8 space-y-2">
+            <div className="flex items-center gap-2 mb-3">
+              <AlertTriangle className="w-4 h-4 text-amber-500" />
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+                Identified Gaps ({allGaps.length})
+              </h2>
             </div>
+            {allGaps.map((gap, i) => (
+              <GapCard key={i} gap={gap} />
+            ))}
           </div>
-        </div>
+        )}
       </div>
 
       {/* Add Event Dialog */}

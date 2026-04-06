@@ -52,10 +52,10 @@ export interface SaveSessionInput {
 }
 
 export async function createSession(input: CreateSessionInput): Promise<TrialSession> {
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user } } = await (supabase as any).auth.getUser();
   if (!user) throw new Error("Not authenticated");
 
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("trial_sessions")
     .insert({
       case_id: input.case_id,
@@ -88,7 +88,7 @@ export async function createSession(input: CreateSessionInput): Promise<TrialSes
 }
 
 export async function getSessions(caseId?: string): Promise<TrialSession[]> {
-  let query = supabase
+  let query = (supabase as any)
     .from("trial_sessions")
     .select("*")
     .order("created_at", { ascending: false });
@@ -104,7 +104,7 @@ export async function getSessions(caseId?: string): Promise<TrialSession[]> {
 }
 
 export async function getSession(id: string): Promise<TrialSession | null> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("trial_sessions")
     .select("*")
     .eq("id", id)
@@ -121,7 +121,7 @@ export async function saveSession(input: SaveSessionInput): Promise<TrialSession
     const fileExt = input.audio_blob.type.split('/')[1] || 'webm';
     const fileName = `sessions/${input.id}/recording.${fileExt}`;
 
-    const { error: uploadError } = await supabase.storage
+    const { error: uploadError } = await (supabase as any).storage
       .from('session-recordings')
       .upload(fileName, input.audio_blob, {
         cacheControl: '3600',
@@ -131,14 +131,14 @@ export async function saveSession(input: SaveSessionInput): Promise<TrialSession
     if (uploadError) {
       console.error('Failed to upload audio:', uploadError);
     } else {
-      const { data: { publicUrl } } = supabase.storage
+      const { data: { publicUrl } } = (supabase as any).storage
         .from('session-recordings')
         .getPublicUrl(fileName);
       audioUrl = publicUrl;
     }
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("trial_sessions")
     .update({
       duration_seconds: input.duration_seconds,
@@ -157,7 +157,7 @@ export async function saveSession(input: SaveSessionInput): Promise<TrialSession
 }
 
 export async function deleteSession(id: string): Promise<void> {
-  const { data: session } = await supabase
+  const { data: session } = await (supabase as any)
     .from("trial_sessions")
     .select("audio_url")
     .eq("id", id)
@@ -168,13 +168,13 @@ export async function deleteSession(id: string): Promise<void> {
     const pathParts = url.pathname.split('/storage/v1/object/public/session-recordings/');
     if (pathParts.length > 1) {
       const filePath = pathParts[1];
-      await supabase.storage
+      await (supabase as any).storage
         .from('session-recordings')
         .remove([`sessions/${id}/recording.webm`]);
     }
   }
 
-  const { error } = await supabase
+  const { error } = await (supabase as any)
     .from("trial_sessions")
     .delete()
     .eq("id", id);
@@ -183,7 +183,7 @@ export async function deleteSession(id: string): Promise<void> {
 }
 
 export async function getSessionStats(): Promise<{ total: number; avgScore: number; totalDuration: number }> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("trial_sessions")
     .select("score, duration_seconds");
 

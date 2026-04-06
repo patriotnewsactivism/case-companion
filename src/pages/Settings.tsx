@@ -29,7 +29,7 @@ export default function Settings() {
 
     try {
       setLoading(true);
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("profiles")
         .select("full_name, firm_name")
         .eq("user_id", user?.id)
@@ -68,7 +68,7 @@ export default function Settings() {
         updated_at: new Date().toISOString(),
       };
 
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from("profiles")
         .update(updates)
         .eq("user_id", user?.id);

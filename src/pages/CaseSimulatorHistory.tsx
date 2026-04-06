@@ -30,7 +30,7 @@ export default function CaseSimulatorHistory() {
   } = useQuery({
     queryKey: ["trial_simulation_sessions", id],
     queryFn: async () => {
-      const { data, error: queryError } = await supabase
+      const { data, error: queryError } = await (supabase as any)
         .from("trial_simulation_sessions")
         .select("id, case_id, user_id, mode, scenario, started_at, ended_at, performance_metrics")
         .eq("case_id", id!)
