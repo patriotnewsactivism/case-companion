@@ -443,6 +443,78 @@ async function azureCVReadOcr(fileBlob: Blob, contentType: string): Promise<stri
   return extracted;
 }
 
+// ===== PDF embedded text extraction (Tier 0 — no OCR needed) =====
+async function extractPdfEmbeddedText(blob: Blob): Promise<string> {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  const text: string[] = [];
+  const decoder = new TextDecoder('latin1');
+  const raw = decoder.decode(bytes);
+
+  // Extract text between BT...ET (Begin Text / End Text) operators
+  const btEtRegex = /BT\s([\s\S]*?)ET/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = btEtRegex.exec(raw)) !== null) {
+    const block = match[1];
+    // Match Tj (show string) and TJ (show array of strings) operators
+    const tjRegex = /\(([^)]*)\)\s*Tj/g;
+    const tjArrayRegex = /\[([^\]]*)\]\s*TJ/g;
+    let tj: RegExpExecArray | null;
+
+    while ((tj = tjRegex.exec(block)) !== null) {
+      const decoded = tj[1]
+        .replace(/\\n/g, '\n').replace(/\\r/g, '\r')
+        .replace(/\\t/g, '\t').replace(/\\\\/g, '\\')
+        .replace(/\\([()])/g, '$1');
+      text.push(decoded);
+    }
+    while ((tj = tjArrayRegex.exec(block)) !== null) {
+      const parts = tj[1].match(/\(([^)]*)\)/g) || [];
+      const line = parts.map(p =>
+        p.slice(1, -1)
+          .replace(/\\n/g, '\n').replace(/\\r/g, '\r')
+          .replace(/\\t/g, '\t').replace(/\\\\/g, '\\')
+          .replace(/\\([()])/g, '$1')
+      ).join('');
+      if (line.trim()) text.push(line);
+    }
+  }
+
+  const result = text.join(' ').replace(/\s+/g, ' ').trim();
+  return result;
+}
+
+// ===== Tesseract.js OCR (free offline fallback for scanned documents) =====
+async function tesseractOcr(blob: Blob, isImage: boolean): Promise<string> {
+  console.log('Attempting Tesseract.js OCR...');
+
+  // Dynamic import to avoid loading unless needed
+  const { createWorker } = await import('https://esm.sh/tesseract.js@5?target=deno');
+  const worker = await createWorker('eng', 1, {
+    workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/worker.min.js',
+    corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5/tesseract-core-simd-lstm.wasm.js',
+  });
+
+  try {
+    if (isImage) {
+      // Direct image OCR
+      const arrayBuffer = await blob.arrayBuffer();
+      const uint8 = new Uint8Array(arrayBuffer);
+      const { data } = await worker.recognize(uint8);
+      console.log(`Tesseract OCR: ${data.text.length} chars, confidence: ${data.confidence}%`);
+      if (data.confidence < 20) {
+        throw new Error(`Tesseract confidence too low (${data.confidence}%)`);
+      }
+      return data.text;
+    } else {
+      // For PDFs, we can't use Tesseract directly — it needs images
+      throw new Error('Tesseract.js requires image input; PDF must be converted to images first');
+    }
+  } finally {
+    await worker.terminate();
+  }
+}
+
 // ===== Build the AI analysis prompt (shared between Azure OpenAI and Gemini) =====
 function buildAnalysisPrompt(documentContext: string, tableContext: string, maxEvents: number): string {
   const tableSection = tableContext
@@ -517,11 +589,12 @@ serve(async (req) => {
     const configuredGeminiModel = (Deno.env.get('GOOGLE_AI_MODEL') || '').trim();
     const geminiModelCandidates = Array.from(new Set([
       configuredGeminiModel,
+      'gemini-2.5-pro',
+      'gemini-2.5-flash',
       'gemini-2.0-flash',
-      'gemini-1.5-flash',
     ].filter(Boolean)));
 
-    console.log(`OCR providers: AzureDI=${hasAzure}, CV_fallback=${hasAzure}, OCR.space=${hasOcrSpace}, Gemini=${hasGemini}`);
+    console.log(`OCR providers: Gemini=${hasGemini}, AzureDI=${hasAzure}, Tesseract=true, OCR.space=${hasOcrSpace}`);
     console.log(`Analysis providers: AzureOpenAI=${hasAzureOpenAI}, Gemini=${hasGemini}`);
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
@@ -707,19 +780,47 @@ serve(async (req) => {
       !!validatedFileUrl.match(/\.(jpg|jpeg|png|gif|webp|bmp|tiff|pdf)$/i);
 
     if (isOcrTarget) {
-      if (!hasAzure && !hasGemini && !hasOcrSpace) {
-        throw new Error('No OCR providers configured.');
-      }
-
       const isImage = resolvedContentType.includes('image') || !!validatedFileUrl.match(/\.(jpg|jpeg|png|gif|webp|bmp|tiff)$/i);
-      console.log(`Document: ${(fileBlob.size / 1024 / 1024).toFixed(2)}MB, MIME: ${resolvedContentType}, isImage: ${isImage}`);
+      const isPdf = resolvedContentType.includes('pdf') || !!validatedFileUrl.match(/\.pdf$/i);
+      console.log(`Document: ${(fileBlob.size / 1024 / 1024).toFixed(2)}MB, MIME: ${resolvedContentType}, isImage: ${isImage}, isPdf: ${isPdf}`);
 
       const errors: string[] = [];
 
-      // Tier 1: Azure Document Intelligence - prebuilt-layout (extracts tables + text, best quality)
-      if (hasAzure) {
+      // Tier 0: PDF embedded text extraction (fast, free — works for PDFs with text layers)
+      if (isPdf && !isImage) {
         try {
-          console.log('Attempting Azure Document Intelligence (primary - tables + text)...');
+          console.log('Attempting PDF embedded text extraction (Tier 0)...');
+          const pdfText = await extractPdfEmbeddedText(fileBlob);
+          // Only accept if we got substantial text (not just metadata/headers)
+          if (pdfText.length > 100) {
+            extractedText = pdfText;
+            ocrProvider = 'pdf_text_extract';
+            console.log(`PDF text extraction: ${extractedText.length} chars (no OCR needed)`);
+          } else {
+            console.log(`PDF text extraction: only ${pdfText.length} chars — likely scanned, proceeding to OCR`);
+          }
+        } catch (pdfError) {
+          console.log(`PDF text extraction skipped: ${pdfError instanceof Error ? pdfError.message : String(pdfError)}`);
+        }
+      }
+
+      // Tier 1: Gemini 2.5 Pro (best multimodal AI for legal docs — tables, stamps, Bates numbers)
+      if (!extractedText && hasGemini) {
+        try {
+          console.log('Attempting Gemini OCR (primary — best for legal documents)...');
+          const mimeType = resolvedContentType || (isImage ? 'image/jpeg' : 'application/pdf');
+          extractedText = await geminiOcr(fileBlob, mimeType, isImage);
+          ocrProvider = 'gemini';
+        } catch (error) {
+          console.error('Gemini OCR error:', error);
+          errors.push(`Gemini: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+
+      // Tier 2: Azure Document Intelligence - prebuilt-layout (extracts tables + text)
+      if (!extractedText && hasAzure) {
+        try {
+          console.log('Attempting Azure Document Intelligence...');
           const diResult = await azureDIOcr(fileBlob);
           extractedText = diResult.text;
           extractedTables = diResult.tables;
@@ -728,9 +829,9 @@ serve(async (req) => {
           console.error('Azure DI error:', diError);
           errors.push(`Azure DI: ${diError instanceof Error ? diError.message : String(diError)}`);
 
-          // Tier 1b: Azure Computer Vision Read API v3.2 (fallback within Azure tier)
+          // Tier 2b: Azure Computer Vision Read API v3.2
           try {
-            console.log('Attempting Azure Computer Vision Read API v3.2 (CV fallback)...');
+            console.log('Attempting Azure Computer Vision Read API v3.2...');
             const mimeType = resolvedContentType || (isImage ? 'image/jpeg' : 'application/pdf');
             extractedText = await azureCVReadOcr(fileBlob, mimeType);
             ocrProvider = 'azure_cv';
@@ -741,7 +842,18 @@ serve(async (req) => {
         }
       }
 
-      // Tier 2: OCR.space (reliable fallback with 25k/month free)
+      // Tier 3: Tesseract.js (free offline OCR — best for scanned image documents)
+      if (!extractedText && isImage) {
+        try {
+          extractedText = await tesseractOcr(fileBlob, isImage);
+          ocrProvider = 'tesseract';
+        } catch (error) {
+          console.error('Tesseract.js error:', error);
+          errors.push(`Tesseract: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+
+      // Tier 4: OCR.space (backup — 25k/month free, 1MB file limit on free tier)
       if (!extractedText && hasOcrSpace) {
         try {
           extractedText = await ocrSpaceExtract(fileBlob, isImage, resolvedContentType);
@@ -749,19 +861,6 @@ serve(async (req) => {
         } catch (error) {
           console.error('OCR.space error:', error);
           errors.push(`OCR.space: ${error instanceof Error ? error.message : String(error)}`);
-        }
-      }
-
-      // Tier 3: Gemini Flash (AI-powered last resort)
-      if (!extractedText && hasGemini) {
-        try {
-          console.log('Attempting Gemini OCR (last resort)...');
-          const mimeType = resolvedContentType || (isImage ? 'image/jpeg' : 'application/pdf');
-          extractedText = await geminiOcr(fileBlob, mimeType, isImage);
-          ocrProvider = 'gemini';
-        } catch (error) {
-          console.error('Gemini OCR error:', error);
-          errors.push(`Gemini: ${error instanceof Error ? error.message : String(error)}`);
         }
       }
 
@@ -835,7 +934,7 @@ serve(async (req) => {
         }
       }
 
-      // === Analysis Tier 2: Gemini Flash ===
+      // === Analysis Tier 2: Gemini 2.5 ===
       if (!content && hasGemini) {
         try {
           console.log('Analyzing with Gemini Flash...');
