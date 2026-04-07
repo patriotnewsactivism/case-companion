@@ -21,7 +21,8 @@ export async function uploadAndProcessFile(
   const contentHash = await hashFile(file);
 
   // 1. Upload to Supabase Storage
-  const storagePath = `cases/${caseId}/${contentHash}/${file.name}`;
+  // Path must start with userId so storage RLS policies pass: (foldername(name))[1] = auth.uid()::text
+  const storagePath = `${userId}/${caseId}/${contentHash}/${file.name}`;
   const { error: uploadError } = await (supabase as any).storage
     .from('case-documents')
     .upload(storagePath, file, { upsert: true });
