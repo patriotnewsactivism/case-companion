@@ -3,6 +3,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { lazy, Suspense, Component, ErrorInfo, ReactNode } from "react";
+import { ThemeProvider } from "next-themes";
 import { AuthProvider } from "@/hooks/AuthProvider";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 
@@ -121,6 +122,7 @@ const queryClient = new QueryClient({
 
 // Main App component with routing fix
 const App = () => (
+  <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
       <TooltipProvider>
@@ -280,6 +282,7 @@ const App = () => (
       </TooltipProvider>
     </AuthProvider>
   </QueryClientProvider>
+  </ThemeProvider>
 );
 
 export default App;

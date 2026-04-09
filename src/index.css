@@ -124,11 +124,11 @@
 
 @layer components {
   .glass-card {
-    @apply bg-card/80 backdrop-blur-sm border border-border/60 shadow-[var(--shadow-card)];
+    @apply bg-card border border-border shadow-[var(--shadow-card)];
   }
 
   .glass-elevated {
-    @apply bg-card/90 backdrop-blur-md border border-border/50 shadow-[var(--shadow-elevated)];
+    @apply bg-card border border-border shadow-[var(--shadow-elevated)];
   }
 
   .gradient-hero {
