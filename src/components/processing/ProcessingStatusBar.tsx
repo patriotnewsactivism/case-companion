@@ -39,10 +39,11 @@ export function ProcessingStatusBar({ caseId }: ProcessingStatusBarProps) {
   }, [caseId]);
 
   async function fetchStatus() {
-    const { data } = await (supabase as any)
+    const { data, error } = await supabase
       .from('processing_queue')
       .select('status')
-      .eq('case_id', caseId);
+      .eq('case_id', caseId)
+      .eq('user_id', (await supabase.auth.getUser()).data.user?.id);
 
     if (data && data.length > 0) {
       const counts = { pending: 0, processing: 0, completed: 0, failed: 0 };
