@@ -12,6 +12,13 @@ export default defineConfig(({ mode }) => ({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      // Several `*-es5` packages pulled in by `botframework-webchat` rely on a
+      // postinstall build step that doesn't run here, leaving their
+      // `main`/`module` entries pointing at files that don't exist. Redirect
+      // them to working equivalents / tiny shims.
+      "markdown-it-attrs-es5": path.resolve(__dirname, "./node_modules/markdown-it-attrs"),
+      "p-defer-es5": path.resolve(__dirname, "./src/shims/p-defer-es5.js"),
+      "abort-controller-es5": path.resolve(__dirname, "./src/shims/abort-controller-es5.js"),
     },
   },
   build: {
