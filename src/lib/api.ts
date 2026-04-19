@@ -902,7 +902,7 @@ export async function createBrief(input: CreateBriefInput): Promise<LegalBrief> 
 
   const { data, error } = await supabase
     .from("legal_briefs")
-    .insert({ ...input, user_id: user.id })
+    .insert({ ...input, user_id: user.id } as never)
     .select()
     .single();
 
@@ -1225,7 +1225,7 @@ export async function getConflictCheckHistory(): Promise<ConflictCheck[]> {
 export async function resolveConflict(checkId: string, notes: string): Promise<void> {
   const { error } = await supabase
     .from("conflict_checks")
-    .update({ status: "waived", resolution_notes: notes })
+    .update({ status: "waived", resolution_notes: notes } as never)
     .eq("id", checkId);
 
   if (error) throw error;
@@ -1366,7 +1366,7 @@ export async function updatePrivilegeLogEntry(
 ): Promise<void> {
   const { error } = await supabase
     .from("privilege_log_entries")
-    .update({ ...updates })
+    .update({ ...updates } as never)
     .eq("id", id);
   if (error) throw error;
 }
