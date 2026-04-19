@@ -70,7 +70,7 @@ describe("Dashboard page", () => {
   });
   it("shows an honest empty state when there are no cases", async () => {
     mockGetCases.mockResolvedValueOnce([]);
-    mockGetDocumentStats.mockResolvedValueOnce({ total: 0, analyzed: 0 });
+    mockGetDocumentStats.mockResolvedValueOnce({ total: 0, analyzed: 0, pending: 0, withTimeline: 0 });
 
     renderDashboard();
 

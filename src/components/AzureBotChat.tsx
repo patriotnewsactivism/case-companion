@@ -43,7 +43,6 @@ export function AzureBotChat({
           backgroundColor: '#f8fafc',
           sendBoxHeight: 60,
           sendBoxButtonColor: '#f59e0b',
-          sendBoxButtonHoverColor: '#d97706',
           activityBackground: '#ffffff',
           activityTextColor: '#1e293b',
           activitySubtitleColor: '#64748b',

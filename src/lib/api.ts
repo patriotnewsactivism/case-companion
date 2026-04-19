@@ -1275,14 +1275,14 @@ export async function runCrossDocumentAnalysis(caseId: string): Promise<{ succes
 }
 
 export async function getCrossDocumentAnalysis(caseId: string): Promise<Record<string, unknown> | null> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("case_strategies")
-    .select("key_factors, updated_at")
+    .select("content, updated_at")
     .eq("case_id", caseId)
-    .eq("analysis_type", "cross_document")
+    .eq("strategy_type", "cross_document")
     .maybeSingle();
   if (error) throw error;
-  return data ? (data.key_factors as Record<string, unknown>) : null;
+  return data ? (data.content as Record<string, unknown>) : null;
 }
 
 // ──────────────────────────────────────────────────
@@ -1364,9 +1364,9 @@ export async function updatePrivilegeLogEntry(
   id: string,
   updates: Partial<PrivilegeLogEntry>
 ): Promise<void> {
-  const { error } = await supabase
+  const { error } = await (supabase as any)
     .from("privilege_log_entries")
-    .update({ ...updates, updated_at: new Date().toISOString() })
+    .update({ ...updates })
     .eq("id", id);
   if (error) throw error;
 }
