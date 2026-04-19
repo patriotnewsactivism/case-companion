@@ -60,7 +60,7 @@ export async function getEvidenceAnalyses(caseId: string): Promise<EvidenceAnaly
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Not authenticated");
 
-  const { data, error } = await (supabase as any)
+  const { data, error } = await supabase
     .from('evidence_analyses')
     .select('*')
     .eq('case_id', caseId)
@@ -72,7 +72,7 @@ export async function getEvidenceAnalyses(caseId: string): Promise<EvidenceAnaly
 }
 
 export async function getEvidenceAnalysis(id: string): Promise<EvidenceAnalysis | null> {
-  const { data, error } = await (supabase as any)
+  const { data, error } = await supabase
     .from('evidence_analyses')
     .select('*')
     .eq('id', id)
@@ -83,7 +83,7 @@ export async function getEvidenceAnalysis(id: string): Promise<EvidenceAnalysis 
 }
 
 export async function deleteEvidenceAnalysis(id: string): Promise<void> {
-  const { error } = await (supabase as any)
+  const { error } = await supabase
     .from('evidence_analyses')
     .delete()
     .eq('id', id);
