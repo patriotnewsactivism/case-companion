@@ -142,9 +142,9 @@ export async function saveSession(input: SaveSessionInput): Promise<TrialSession
     .from("trial_sessions")
     .update({
       duration_seconds: input.duration_seconds,
-      transcript: input.transcript,
+      transcript: input.transcript as unknown as Json,
       audio_url: audioUrl,
-      metrics: input.metrics,
+      metrics: input.metrics as unknown as Json,
       feedback: input.feedback || null,
       score: input.metrics.overallScore,
     })
