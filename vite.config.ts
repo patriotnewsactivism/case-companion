@@ -12,6 +12,10 @@ export default defineConfig(({ mode }) => ({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      // The published `markdown-it-attrs-es5` package relies on a postinstall
+      // build step that doesn't run in this environment, leaving its `main`/
+      // `module` entries missing. Redirect to the working `markdown-it-attrs`.
+      "markdown-it-attrs-es5": path.resolve(__dirname, "./node_modules/markdown-it-attrs"),
     },
   },
   build: {
