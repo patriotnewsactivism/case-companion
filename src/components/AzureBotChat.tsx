@@ -43,16 +43,13 @@ export function AzureBotChat({
           backgroundColor: '#f8fafc',
           sendBoxHeight: 60,
           sendBoxButtonColor: '#f59e0b',
-          activityBackground: '#ffffff',
-          activityTextColor: '#1e293b',
-          activitySubtitleColor: '#64748b',
           bubbleBorderRadius: 8,
           bubbleBackground: '#ffffff',
           bubbleFromUserBackground: '#1e40af',
           bubbleFromUserTextColor: '#ffffff',
           bubbleFromUserBorderRadius: 8,
           fontStack: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
-        }}
+        } as any}
       />
     </div>
   );
