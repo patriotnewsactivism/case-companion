@@ -459,6 +459,35 @@ export type Database = {
           },
         ]
       }
+      client_portal_credentials: {
+        Row: {
+          client_user_id: string
+          created_at: string
+          password_hash: string
+          updated_at: string
+        }
+        Insert: {
+          client_user_id: string
+          created_at?: string
+          password_hash: string
+          updated_at?: string
+        }
+        Update: {
+          client_user_id?: string
+          created_at?: string
+          password_hash?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_portal_credentials_client_user_id_fkey"
+            columns: ["client_user_id"]
+            isOneToOne: true
+            referencedRelation: "client_portal_users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       client_portal_users: {
         Row: {
           attorney_user_id: string
@@ -468,7 +497,6 @@ export type Database = {
           full_name: string | null
           id: string
           last_login_at: string | null
-          password_hash: string | null
           status: string | null
           updated_at: string
         }
@@ -480,7 +508,6 @@ export type Database = {
           full_name?: string | null
           id?: string
           last_login_at?: string | null
-          password_hash?: string | null
           status?: string | null
           updated_at?: string
         }
@@ -492,7 +519,6 @@ export type Database = {
           full_name?: string | null
           id?: string
           last_login_at?: string | null
-          password_hash?: string | null
           status?: string | null
           updated_at?: string
         }
