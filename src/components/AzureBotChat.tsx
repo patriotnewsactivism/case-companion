@@ -1,6 +1,8 @@
 import React, { useMemo } from 'react';
-import ReactWebChat from 'botframework-webchat';
+import ReactWebChatRaw from 'botframework-webchat';
 import { createDirectLine } from 'botframework-webchat';
+
+const ReactWebChat = ReactWebChatRaw as any;
 
 interface AzureBotChatProps {
   directLineSecret?: string;
