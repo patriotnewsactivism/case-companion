@@ -1,6 +1,8 @@
 import React, { useMemo } from 'react';
-import ReactWebChat from 'botframework-webchat';
+import ReactWebChatRaw from 'botframework-webchat';
 import { createDirectLine } from 'botframework-webchat';
+
+const ReactWebChat = ReactWebChatRaw as any;
 
 interface AzureBotChatProps {
   directLineSecret?: string;
@@ -43,17 +45,13 @@ export function AzureBotChat({
           backgroundColor: '#f8fafc',
           sendBoxHeight: 60,
           sendBoxButtonColor: '#f59e0b',
-          sendBoxButtonHoverColor: '#d97706',
-          activityBackground: '#ffffff',
-          activityTextColor: '#1e293b',
-          activitySubtitleColor: '#64748b',
           bubbleBorderRadius: 8,
           bubbleBackground: '#ffffff',
           bubbleFromUserBackground: '#1e40af',
           bubbleFromUserTextColor: '#ffffff',
           bubbleFromUserBorderRadius: 8,
           fontStack: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
-        }}
+        } as any}
       />
     </div>
   );
