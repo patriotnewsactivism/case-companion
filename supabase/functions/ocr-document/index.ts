@@ -918,7 +918,13 @@ serve(async (req) => {
     let extractedEntities: unknown[] = [];
     let analysisProvider: 'azure_openai' | 'gemini' | 'heuristic' | 'none' = 'none';
 
-    if (extractedText && extractedText.length > 50 && !extractedText.startsWith('[File type') && hasGemini) {
+    const hasSubstantialText = Boolean(
+      extractedText &&
+      extractedText.length > 50 &&
+      !extractedText.startsWith('[File type')
+    );
+
+    if (hasSubstantialText && hasGemini) {
       console.log('Analyzing extracted text with Gemini...');
 
       // Send the FULL document text to the best available Gemini model
@@ -979,7 +985,6 @@ serve(async (req) => {
     }
 
     // === Analysis Tier 3: Heuristic fallback ===
-    const hasSubstantialText = extractedText && extractedText.length > 50 && !extractedText.startsWith('[File type');
     if (hasSubstantialText && summary.length === 0 && keyFacts.length === 0) {
       console.log('AI analysis unavailable — falling back to heuristic extraction...');
       const heuristic = buildHeuristicAnalysis(extractedText);
