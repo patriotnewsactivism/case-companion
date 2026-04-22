@@ -979,6 +979,7 @@ serve(async (req) => {
     }
 
     // === Analysis Tier 3: Heuristic fallback ===
+    const hasSubstantialText = extractedText && extractedText.length > 50 && !extractedText.startsWith('[File type');
     if (hasSubstantialText && summary.length === 0 && keyFacts.length === 0) {
       console.log('AI analysis unavailable — falling back to heuristic extraction...');
       const heuristic = buildHeuristicAnalysis(extractedText);
