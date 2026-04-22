@@ -9,13 +9,7 @@ import {
 } from '../_shared/errorHandler.ts';
 import { verifyAuth, forbiddenResponse } from '../_shared/auth.ts';
 import { validateUUID, validateURL } from '../_shared/validation.ts';
-import {
-  analyzeDocument,
-  formatAnalyzeResultAsText,
-  formatTableAsMarkdown,
-  type TableResult,
-} from '../_shared/azureDocumentIntelligence.ts';
-import { callAzureOpenAI } from '../_shared/azureOpenAI.ts';
+import { getGenerateContentCapableGeminiModels, getPreferredGeminiCandidates, rankGeminiModels } from '../_shared/gemini-model-utils.ts';
 
 const STORAGE_BUCKET = 'case-documents';
 
@@ -586,13 +580,7 @@ serve(async (req) => {
     const hasAzure = !!(azureEndpoint && azureKey);
     const hasOcrSpace = !!ocrSpaceApiKey;
     const hasGemini = !!googleApiKey;
-    const configuredGeminiModel = (Deno.env.get('GOOGLE_AI_MODEL') || '').trim();
-    const geminiModelCandidates = Array.from(new Set([
-      configuredGeminiModel,
-      'gemini-2.5-pro',
-      'gemini-2.5-flash',
-      'gemini-2.0-flash',
-    ].filter(Boolean)));
+    const geminiModelCandidates = getPreferredGeminiCandidates(Deno.env.get('GOOGLE_AI_MODEL'));
 
     console.log(`OCR providers: Gemini=${hasGemini}, AzureDI=${hasAzure}, Tesseract=true, OCR.space=${hasOcrSpace}`);
     console.log(`Analysis providers: AzureOpenAI=${hasAzureOpenAI}, Gemini=${hasGemini}`);
@@ -671,7 +659,42 @@ serve(async (req) => {
     let extractedTables: TableResult[] = [];
     let ocrProvider = '';
 
-    // ===== Gemini OCR helper =====
+    // ===== OCR EXTRACTION - Triple-tier with Azure as primary =====
+    let resolvedGeminiModels: string[] | null = null;
+
+    const resolveGeminiModels = async (): Promise<string[]> => {
+      if (resolvedGeminiModels) return resolvedGeminiModels;
+
+      const preferredModels = geminiModelCandidates;
+      if (!googleApiKey) {
+        resolvedGeminiModels = preferredModels;
+        return preferredModels;
+      }
+
+      try {
+        const modelsResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${googleApiKey}`);
+        if (!modelsResponse.ok) {
+          console.warn(`Unable to list Gemini models (${modelsResponse.status}). Falling back to preferred defaults.`);
+          resolvedGeminiModels = preferredModels;
+          return preferredModels;
+        }
+
+        const modelsPayload = await modelsResponse.json();
+        const availableModels = getGenerateContentCapableGeminiModels(modelsPayload);
+        if (availableModels.length === 0) {
+          resolvedGeminiModels = preferredModels;
+          return preferredModels;
+        }
+
+        resolvedGeminiModels = rankGeminiModels(preferredModels, availableModels);
+        return resolvedGeminiModels;
+      } catch (modelError) {
+        console.warn('Failed to resolve Gemini models. Falling back to preferred defaults.', modelError);
+        resolvedGeminiModels = preferredModels;
+        return preferredModels;
+      }
+    };
+
     const invokeGeminiWithFallback = async (
       body: Record<string, unknown>,
       purpose: 'OCR' | 'analysis'
@@ -680,7 +703,9 @@ serve(async (req) => {
 
       let lastError = 'No Gemini models attempted';
 
-      for (const model of geminiModelCandidates) {
+      const candidateModels = await resolveGeminiModels();
+
+      for (const model of candidateModels) {
         const response = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${googleApiKey}`,
           {
@@ -706,7 +731,7 @@ serve(async (req) => {
 
         if (unavailableModel) {
           lastError = `${model}: ${errorText}`;
-          console.warn(`Gemini model unavailable for ${purpose}, trying next: ${model}`);
+          console.warn(`Gemini model unavailable for ${purpose}, trying next model: ${model}`);
           continue;
         }
 
@@ -716,8 +741,8 @@ serve(async (req) => {
       throw new Error(`Gemini ${purpose} failed for all models: ${lastError}`);
     };
 
-    const geminiOcr = async (blob: Blob, mimeType: string, isImage: boolean): Promise<string> => {
-      const arrayBuffer = await blob.arrayBuffer();
+    const geminiOcr = async (fileBlob: Blob, mimeType: string, isImage: boolean): Promise<string> => {
+      const arrayBuffer = await fileBlob.arrayBuffer();
       const base64 = arrayBufferToBase64(arrayBuffer);
 
       const prompt = isImage
@@ -893,10 +918,10 @@ serve(async (req) => {
     let extractedEntities: unknown[] = [];
     let analysisProvider: 'azure_openai' | 'gemini' | 'heuristic' | 'none' = 'none';
 
-    const hasSubstantialText = extractedText && extractedText.length > 50 && !extractedText.startsWith('[File type');
+    if (extractedText && extractedText.length > 50 && !extractedText.startsWith('[File type') && hasGemini) {
+      console.log('Analyzing extracted text with Gemini...');
 
-    if (hasSubstantialText) {
-      // Build analysis context - pass full text to AI
+      // Send the FULL document text to the best available Gemini model
       const analysisContext = buildAnalysisDocumentContext(extractedText);
 
       // Format extracted tables for inclusion in analysis
@@ -911,52 +936,24 @@ serve(async (req) => {
       const analysisPrompt = buildAnalysisPrompt(analysisContext, tableContext, MAX_TIMELINE_EVENTS);
       let content = '';
 
-      // === Analysis Tier 1: Azure OpenAI (GPT-4o) ===
-      if (hasAzureOpenAI) {
-        try {
-          console.log('Analyzing with Azure OpenAI (GPT-4o)...');
-          content = await callAzureOpenAI(
-            [
-              {
-                role: 'system',
-                content: 'You are a senior litigation paralegal and legal document analyst with 20 years of experience in complex civil and criminal litigation. You analyze documents to drive case strategy. Be exhaustive, precise, and legally accurate. Respond ONLY with valid JSON.',
-              },
-              { role: 'user', content: analysisPrompt },
-            ],
-            { temperature: 0.1, maxTokens: 32768, jsonMode: true }
-          );
-          if (content) {
-            analysisProvider = 'azure_openai';
-            console.log('Azure OpenAI analysis completed');
-          }
-        } catch (aoaiError) {
-          console.error('Azure OpenAI analysis error:', aoaiError);
-        }
-      }
-
-      // === Analysis Tier 2: Gemini 2.5 ===
-      if (!content && hasGemini) {
-        try {
-          console.log('Analyzing with Gemini Flash...');
-          const { payload: analysisData, model } = await invokeGeminiWithFallback(
-            {
-              contents: [{ parts: [{ text: analysisPrompt }] }],
-              generationConfig: {
-                temperature: 0.1,
-                maxOutputTokens: 16384,
-                responseMimeType: 'application/json',
-              },
+      try {
+        const { payload: analysisData, model } = await invokeGeminiWithFallback(
+          {
+            contents: [{ parts: [{ text: analysisPrompt }] }],
+            generationConfig: {
+              temperature: 0.15,
+              maxOutputTokens: 16384,
+              responseMimeType: 'application/json',
             },
-            'analysis'
-          );
-          content = extractGeminiText(analysisData);
-          if (content) {
-            analysisProvider = 'gemini';
-            console.log(`Gemini analysis completed with model: ${model}`);
-          }
-        } catch (geminiError) {
-          console.error('Gemini analysis error:', geminiError);
-        }
+          },
+          'analysis'
+        );
+
+        content = extractGeminiText(analysisData);
+        if (content) analysisProvider = 'gemini';
+        console.log(`Gemini analysis completed with model: ${model}`);
+      } catch (geminiError) {
+        console.error('Gemini analysis error:', geminiError);
       }
 
       // Parse JSON analysis result
