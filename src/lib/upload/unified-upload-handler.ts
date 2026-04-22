@@ -21,14 +21,15 @@ export async function uploadAndProcessFile(
   const contentHash = await hashFile(file);
 
   // 1. Upload to Supabase Storage
-  const storagePath = `cases/${caseId}/${contentHash}/${file.name}`;
-  const { error: uploadError } = await supabase.storage
+  // Path must start with userId so storage RLS policies pass: (foldername(name))[1] = auth.uid()::text
+  const storagePath = `${userId}/${caseId}/${contentHash}/${file.name}`;
+  const { error: uploadError } = await (supabase as any).storage
     .from('case-documents')
     .upload(storagePath, file, { upsert: true });
 
   if (uploadError) throw new Error(`Upload failed: ${uploadError.message}`);
 
-  const { data: publicData } = supabase.storage
+  const { data: publicData } = (supabase as any).storage
     .from('case-documents')
     .getPublicUrl(storagePath);
 
@@ -37,7 +38,7 @@ export async function uploadAndProcessFile(
   const documentName = typeof metadata?.name === "string" ? metadata.name : file.name;
   const batesNumber = typeof metadata?.bates_number === "string" ? metadata.bates_number : null;
 
-  const { data: docRecord, error: dbError } = await supabase
+  const { data: docRecord, error: dbError } = await (supabase as any)
     .from('documents')
     .insert({
       case_id: caseId,

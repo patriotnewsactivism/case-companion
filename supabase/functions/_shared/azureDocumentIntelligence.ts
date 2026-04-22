@@ -56,13 +56,18 @@ export interface ProgressCallback {
 }
 
 function getConfig(): AzureDocIntelligenceConfig {
-  const endpoint = Deno.env.get('AZURE_DOC_INTELLIGENCE_ENDPOINT');
-  const apiKey = Deno.env.get('AZURE_DOC_INTELLIGENCE_KEY');
+  // Support both dedicated DI keys and shared Azure Cognitive Services / Vision keys
+  const endpoint =
+    Deno.env.get('AZURE_DOC_INTELLIGENCE_ENDPOINT') ||
+    Deno.env.get('AZURE_VISION_ENDPOINT');
+  const apiKey =
+    Deno.env.get('AZURE_DOC_INTELLIGENCE_KEY') ||
+    Deno.env.get('AZURE_VISION_API_KEY');
 
   if (!endpoint || !apiKey) {
     throw new Error(
-      'Missing Azure Document Intelligence configuration. Required: ' +
-      'AZURE_DOC_INTELLIGENCE_ENDPOINT, AZURE_DOC_INTELLIGENCE_KEY'
+      'Missing Azure Document Intelligence configuration. Set one of: ' +
+      'AZURE_DOC_INTELLIGENCE_ENDPOINT/KEY or AZURE_VISION_ENDPOINT/API_KEY'
     );
   }
 

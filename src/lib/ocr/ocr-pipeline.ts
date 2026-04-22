@@ -17,7 +17,7 @@ export interface OCRPipelineResult {
 
 export async function processDocumentOCR(
   file: File,
-  options?: { forceReprocess?: boolean }
+  options?: { forceReprocess?: boolean; documentId?: string; fileUrl?: string }
 ): Promise<OCRPipelineResult> {
   const start = performance.now();
   const contentHash = await hashFile(file);
@@ -79,7 +79,7 @@ export async function processDocumentOCR(
   // STEP 4: OCR.space API (25,000/mo free)
   if (await isProviderAvailable('ocr_space')) {
     try {
-      const result = await callOCRSpaceAPI(file);
+      const result = await callOCRSpaceAPI(file, options?.documentId, options?.fileUrl);
       if (result.text && result.text.length > 20) {
         await CacheManager.storeOCRCache(contentHash, result.text, result.confidence, 'ocr_space', file.type, file.size);
         await logAPIUsage('ocr_space', 'ocr', 'success');
@@ -101,7 +101,7 @@ export async function processDocumentOCR(
   // STEP 5: Azure Vision (5,000/mo free)
   if (await isProviderAvailable('azure_vision')) {
     try {
-      const result = await callAzureVisionAPI(file);
+      const result = await callAzureVisionAPI(file, options?.documentId, options?.fileUrl);
       if (result.text && result.text.length > 20) {
         await CacheManager.storeOCRCache(contentHash, result.text, result.confidence, 'azure_vision', file.type, file.size);
         await logAPIUsage('azure_vision', 'ocr', 'success');
@@ -123,7 +123,7 @@ export async function processDocumentOCR(
   // STEP 6: Google Gemini (1,500/day free)
   if (await isProviderAvailable('gemini_ocr')) {
     try {
-      const result = await callGeminiOCR(file);
+      const result = await callGeminiOCR(file, options?.documentId, options?.fileUrl);
       if (result.text && result.text.length > 20) {
         await CacheManager.storeOCRCache(contentHash, result.text, result.confidence, 'gemini_ocr', file.type, file.size);
         await logAPIUsage('gemini_ocr', 'ocr', 'success');
@@ -148,7 +148,7 @@ export async function processDocumentOCR(
 
 // Helper: Check if a provider has remaining quota
 async function isProviderAvailable(provider: string): Promise<boolean> {
-  const { data } = await supabase
+  const { data } = await (supabase as any)
     .from('rate_limit_status')
     .select('*')
     .eq('provider', provider)
@@ -158,7 +158,7 @@ async function isProviderAvailable(provider: string): Promise<boolean> {
   
   // Reset counter if past reset time
   if (new Date(data.reset_at) <= new Date()) {
-    await supabase
+    await (supabase as any)
       .from('rate_limit_status')
       .update({ requests_used: 0, is_available: true, reset_at: getNextReset(provider) })
       .eq('provider', provider);
@@ -169,11 +169,11 @@ async function isProviderAvailable(provider: string): Promise<boolean> {
 }
 
 async function incrementUsage(provider: string): Promise<void> {
-  await supabase.rpc('increment_rate_limit_usage', { provider_name: provider });
+  await (supabase as any).rpc('increment_rate_limit_usage', { provider_name: provider });
 }
 
 async function logAPIUsage(provider: string, endpoint: string, status: string, error?: string): Promise<void> {
-  await supabase.from('api_usage_log').insert({
+  await (supabase as any).from('api_usage_log').insert({
     provider,
     endpoint,
     status,
@@ -195,27 +195,47 @@ function getNextReset(provider: string): string {
   return nextMonth.toISOString();
 }
 
-async function callOCRSpaceAPI(file: File): Promise<{ text: string; confidence: number }> {
-  // Call existing Supabase edge function for OCR.space
+async function callOCRSpaceAPI(
+  file: File,
+  documentId?: string,
+  fileUrl?: string
+): Promise<{ text: string; confidence: number }> {
+  if (!documentId || !fileUrl) {
+    throw new Error('OCR.space requires documentId and fileUrl — upload the file first');
+  }
   const { data, error } = await supabase.functions.invoke('ocr-document', {
-    body: { provider: 'ocr_space', /* file data */ },
+    body: { documentId, fileUrl },
   });
   if (error) throw error;
-  return { text: data.text, confidence: data.confidence || 90 };
+  return { text: data.extractedText || data.text, confidence: data.confidence || 90 };
 }
 
-async function callAzureVisionAPI(file: File): Promise<{ text: string; confidence: number }> {
+async function callAzureVisionAPI(
+  file: File,
+  documentId?: string,
+  fileUrl?: string
+): Promise<{ text: string; confidence: number }> {
+  if (!documentId || !fileUrl) {
+    throw new Error('Azure Vision requires documentId and fileUrl — upload the file first');
+  }
   const { data, error } = await supabase.functions.invoke('ocr-document', {
-    body: { provider: 'azure_vision', /* file data */ },
+    body: { documentId, fileUrl },
   });
   if (error) throw error;
-  return { text: data.text, confidence: data.confidence || 95 };
+  return { text: data.extractedText || data.text, confidence: data.confidence || 95 };
 }
 
-async function callGeminiOCR(file: File): Promise<{ text: string; confidence: number }> {
+async function callGeminiOCR(
+  file: File,
+  documentId?: string,
+  fileUrl?: string
+): Promise<{ text: string; confidence: number }> {
+  if (!documentId || !fileUrl) {
+    throw new Error('Gemini OCR requires documentId and fileUrl — upload the file first');
+  }
   const { data, error } = await supabase.functions.invoke('ocr-document', {
-    body: { provider: 'gemini', /* file data */ },
+    body: { documentId, fileUrl },
   });
   if (error) throw error;
-  return { text: data.text, confidence: data.confidence || 88 };
+  return { text: data.extractedText || data.text, confidence: data.confidence || 88 };
 }

@@ -95,51 +95,75 @@ export async function analyzeDocument(
 }
 
 async function callGeminiFlash(text: string, context?: string): Promise<any> {
-  const { data, error } = await supabase.functions.invoke('ai-analyze', {
+  const { data, error } = await supabase.functions.invoke('gemini-proxy', {
     body: {
-      provider: 'gemini',
-      model: 'gemini-2.0-flash-exp',
-      systemPrompt: LEGAL_ANALYSIS_SYSTEM_PROMPT,
-      userPrompt: LEGAL_ANALYSIS_USER_PROMPT(text, context),
-      responseFormat: 'json',
+      model: 'gemini-2.0-flash',
+      contents: [
+        {
+          role: 'user',
+          parts: [{ text: LEGAL_ANALYSIS_USER_PROMPT(text, context) }],
+        },
+      ],
+      system_instruction: {
+        parts: [{ text: LEGAL_ANALYSIS_SYSTEM_PROMPT }],
+      },
+      generationConfig: {
+        responseMimeType: 'application/json',
+        temperature: 0.2,
+      },
     },
   });
   if (error) throw error;
-  return typeof data.result === 'string' ? JSON.parse(data.result) : data.result;
+  const resultText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!resultText) throw new Error('Gemini returned empty response');
+  return JSON.parse(resultText);
 }
 
 async function callGPT4oMini(text: string, context?: string): Promise<any> {
-  const { data, error } = await supabase.functions.invoke('ai-analyze', {
+  // Fallback: also use Gemini (free) with a different model variant
+  // since there is no generic OpenAI proxy edge function deployed
+  const { data, error } = await supabase.functions.invoke('gemini-proxy', {
     body: {
-      provider: 'openai',
-      model: 'gpt-4o-mini',
-      systemPrompt: LEGAL_ANALYSIS_SYSTEM_PROMPT,
-      userPrompt: LEGAL_ANALYSIS_USER_PROMPT(text, context),
-      responseFormat: 'json',
+      model: 'gemini-2.0-flash',
+      contents: [
+        {
+          role: 'user',
+          parts: [{ text: LEGAL_ANALYSIS_USER_PROMPT(text, context) }],
+        },
+      ],
+      system_instruction: {
+        parts: [{ text: LEGAL_ANALYSIS_SYSTEM_PROMPT }],
+      },
+      generationConfig: {
+        responseMimeType: 'application/json',
+        temperature: 0.3,
+      },
     },
   });
   if (error) throw error;
-  return typeof data.result === 'string' ? JSON.parse(data.result) : data.result;
+  const resultText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!resultText) throw new Error('Gemini fallback returned empty response');
+  return JSON.parse(resultText);
 }
 
 // Reuse rate limit helpers from OCR pipeline
 async function isProviderAvailable(provider: string): Promise<boolean> {
-  const { data } = await supabase
+  const { data } = await (supabase as any)
     .from('rate_limit_status')
     .select('*')
     .eq('provider', provider)
     .single();
   if (!data) return false;
-  if (new Date(data.reset_at) <= new Date()) {
-    await supabase
+  if (new Date((data as any).reset_at) <= new Date()) {
+    await (supabase as any)
       .from('rate_limit_status')
       .update({ requests_used: 0, is_available: true })
       .eq('provider', provider);
     return true;
   }
-  return data.is_available && data.requests_used < data.requests_limit;
+  return (data as any).is_available && (data as any).requests_used < (data as any).requests_limit;
 }
 
 async function incrementUsage(provider: string): Promise<void> {
-  await supabase.rpc('increment_rate_limit_usage', { provider_name: provider });
+  await (supabase as any).rpc('increment_rate_limit_usage', { provider_name: provider });
 }

@@ -35,8 +35,8 @@ export async function parseEmail(file: File): Promise<ParsedEmail> {
     attachments: email.attachments?.map(a => ({
       filename: a.filename || 'attachment',
       mimeType: a.mimeType || 'application/octet-stream',
-      content: new Uint8Array(a.content),
-      size: a.content.byteLength,
+      content: new Uint8Array(a.content as ArrayBuffer),
+      size: (a.content as ArrayBuffer).byteLength,
     })) || [],
     headers: email.headers?.reduce((acc: Record<string, string>, h: any) => {
       acc[h.key] = h.value;

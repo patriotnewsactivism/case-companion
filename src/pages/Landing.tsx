@@ -4,7 +4,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Logo } from "@/components/Logo";
 import { motion } from "framer-motion";
 import {
-  ShieldCheck,
   FileSearch,
   BrainCircuit,
   Gavel,
@@ -95,13 +94,6 @@ const workflowSteps = [
   },
 ];
 
-const securityPoints = [
-  "End-to-end encrypted video calls within your case workspace",
-  "Authenticated sessions required for every case interaction",
-  "Granular audit trails for access, uploads, and case exports",
-  "Private AI processing—your data never trains external models",
-  "SOC 2 compliant infrastructure with 99.9% uptime",
-];
 
 const discoveryCapabilities = [
   {
@@ -163,7 +155,6 @@ export default function Landing() {
               <a href="#discovery" className="hover:text-primary transition-colors">Discovery AI</a>
               <a href="#features" className="hover:text-primary transition-colors">Features</a>
               <a href="#workflow" className="hover:text-primary transition-colors">Workflow</a>
-              <a href="#security" className="hover:text-primary transition-colors">Security</a>
             </div>
             <div className="flex items-center gap-3">
               <Link to="/login">
@@ -219,10 +210,6 @@ export default function Landing() {
                 <span className="inline-flex items-center gap-2">
                   <CheckCircle2 className="h-4 w-4 text-green-600" />
                   No credit card required
-                </span>
-                <span className="inline-flex items-center gap-2">
-                  <ShieldCheck className="h-4 w-4 text-green-600" />
-                  SOC 2 compliant
                 </span>
                 <span className="inline-flex items-center gap-2">
                   <Video className="h-4 w-4 text-accent" />
@@ -564,74 +551,6 @@ export default function Landing() {
               );
             })}
           </div>
-        </div>
-      </section>
-
-      {/* Security Section */}
-      <section id="security" className="bg-muted/30 px-6 py-20 lg:px-12">
-        <div className="mx-auto grid max-w-6xl gap-12 lg:grid-cols-[0.9fr_1.1fr]">
-          <motion.div 
-            className="space-y-6"
-            initial={{ opacity: 0, x: -20 }}
-            whileInView={{ opacity: 1, x: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.5 }}
-          >
-            <p className="text-sm uppercase tracking-[0.25em] text-accent font-medium">Security</p>
-            <h2 className="text-3xl font-serif font-bold text-primary sm:text-4xl">
-              Enterprise-Grade Security for Sensitive Cases
-            </h2>
-            <p className="text-muted-foreground">
-              Attorney-client privilege demands the highest security standards. CaseBuddy provides 
-              end-to-end encryption, compliance certifications, and complete audit trails.
-            </p>
-            <div className="flex flex-wrap gap-3">
-              <div className="inline-flex items-center gap-2 rounded-full bg-green-100 px-3 py-1 text-sm text-green-700">
-                <ShieldCheck className="h-4 w-4" />
-                SOC 2 Type II
-              </div>
-              <div className="inline-flex items-center gap-2 rounded-full bg-green-100 px-3 py-1 text-sm text-green-700">
-                <Lock className="h-4 w-4" />
-                256-bit Encryption
-              </div>
-              <div className="inline-flex items-center gap-2 rounded-full bg-green-100 px-3 py-1 text-sm text-green-700">
-                <Eye className="h-4 w-4" />
-                Full Audit Trail
-              </div>
-            </div>
-          </motion.div>
-          
-          <motion.div
-            initial={{ opacity: 0, x: 20 }}
-            whileInView={{ opacity: 1, x: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.5, delay: 0.2 }}
-          >
-            <Card className="glass-elevated">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-lg">
-                  <Lock className="h-5 w-5 text-accent" />
-                  Security Features
-                </CardTitle>
-                <CardDescription>Protecting your client's most sensitive information</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {securityPoints.map((point, index) => (
-                  <motion.div 
-                    key={point} 
-                    className="flex items-start gap-3"
-                    initial={{ opacity: 0, x: 10 }}
-                    whileInView={{ opacity: 1, x: 0 }}
-                    viewport={{ once: true }}
-                    transition={{ duration: 0.3, delay: 0.3 + index * 0.1 }}
-                  >
-                    <CheckCircle2 className="mt-0.5 h-5 w-5 text-green-600 flex-shrink-0" />
-                    <span className="text-sm text-muted-foreground">{point}</span>
-                  </motion.div>
-                ))}
-              </CardContent>
-            </Card>
-          </motion.div>
         </div>
       </section>
 
