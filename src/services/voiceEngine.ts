@@ -1,8 +1,10 @@
 // @ts-nocheck
 /**
  * VoiceEngine — Web Speech API wrapper for STT and TTS.
- * No external API keys required. Degrades gracefully when unsupported.
+ * Supports premium TTS services for enhanced realism.
  */
+
+import { PremiumTTSService, COURTROOM_VOICES } from "./premiumTTS";
 
 export interface CharacterVoiceProfile {
   pitch: number;
@@ -10,11 +12,28 @@ export interface CharacterVoiceProfile {
   preferredVoiceName: string;
 }
 
+// Legacy compatibility - map premium voices to browser TTS settings
 export const CHARACTER_VOICES: Record<string, CharacterVoiceProfile> = {
-  judge: { pitch: 0.85, rate: 0.9, preferredVoiceName: "Google US English" },
-  witness: { pitch: 1.0, rate: 1.0, preferredVoiceName: "Google US English" },
-  opposing_counsel: { pitch: 1.05, rate: 1.1, preferredVoiceName: "Google US English" },
-  clerk: { pitch: 1.15, rate: 0.95, preferredVoiceName: "Google US English Female" },
+  judge: {
+    pitch: COURTROOM_VOICES.judge.pitch,
+    rate: COURTROOM_VOICES.judge.speed,
+    preferredVoiceName: "Google US English"
+  },
+  witness: {
+    pitch: COURTROOM_VOICES.witness_cooperative.pitch,
+    rate: COURTROOM_VOICES.witness_cooperative.speed,
+    preferredVoiceName: "Google US English"
+  },
+  opposing_counsel: {
+    pitch: COURTROOM_VOICES.opposing_counsel.pitch,
+    rate: COURTROOM_VOICES.opposing_counsel.speed,
+    preferredVoiceName: "Google US English"
+  },
+  clerk: {
+    pitch: COURTROOM_VOICES.clerk.pitch,
+    rate: COURTROOM_VOICES.clerk.speed,
+    preferredVoiceName: "Google US English Female"
+  },
 };
 
 // Legacy role names used by trial simulation UI
@@ -52,6 +71,7 @@ function findBestVoice(preferredName: string): SpeechSynthesisVoice | null {
 export class VoiceEngine {
   private recognition: any | null = null;
   private synthesis: SpeechSynthesis | null = null;
+  private premiumTTS: PremiumTTSService | null = null;
   private options: VoiceEngineOptions;
   private _listening = false;
   private _speaking = false;
@@ -67,6 +87,20 @@ export class VoiceEngine {
 
     // SpeechSynthesis
     this.synthesis = window.speechSynthesis ?? null;
+
+    // Initialize premium TTS if credentials available
+    const credentials = {
+      elevenlabs_api_key: (import.meta as any)?.env?.VITE_ELEVENLABS_API_KEY,
+      elevenlabs_voice_id: (import.meta as any)?.env?.VITE_ELEVENLABS_VOICE_ID,
+      azure_tts_key: (import.meta as any)?.env?.VITE_AZURE_TTS_KEY,
+      azure_tts_region: (import.meta as any)?.env?.VITE_AZURE_TTS_REGION,
+      azure_tts_voice: (import.meta as any)?.env?.VITE_AZURE_TTS_VOICE,
+    };
+
+    if (Object.values(credentials).some(v => v)) {
+      this.premiumTTS = new PremiumTTSService(credentials);
+      this.premiumTTS.initialize().catch(console.warn);
+    }
 
     // any (vendor-prefixed)
     const SRClass =
@@ -226,6 +260,32 @@ export class VoiceEngine {
    * @param onEnd     - optional callback when speech finishes
    */
   speak(text: string, character: string = "default", onEnd?: () => void): void {
+    // Try premium TTS first
+    if (this.premiumTTS?.isPremiumTTSAvailable()) {
+      this._speaking = true;
+      this.options.onSpeechStart?.();
+
+      this.premiumTTS.speak(text, character)
+        .then(() => {
+          this._speaking = false;
+          this.options.onSpeechEnd?.();
+          onEnd?.();
+        })
+        .catch((error) => {
+          console.warn('Premium TTS failed, falling back to browser TTS:', error);
+          this._speaking = false;
+          this.options.onSpeechEnd?.();
+          // Fall back to browser TTS
+          this.speakBrowser(text, character, onEnd);
+        });
+      return;
+    }
+
+    // Fall back to browser TTS
+    this.speakBrowser(text, character, onEnd);
+  }
+
+  private speakBrowser(text: string, character: string = "default", onEnd?: () => void): void {
     if (!this.synthesis) {
       console.warn("[VoiceEngine] speechSynthesis is not available.");
       onEnd?.();

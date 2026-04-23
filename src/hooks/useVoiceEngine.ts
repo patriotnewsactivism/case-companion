@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
+import { PremiumTTSService, COURTROOM_VOICES } from "@/services/premiumTTS";
 
 export type VoiceMode = "push-to-talk" | "hands-free" | "off";
 
@@ -7,8 +8,9 @@ interface VoiceEngineOptions {
   onAutoSend?: (text: string) => void;
   onError?: (message: string) => void;
   initialVoiceMode?: VoiceMode;
-  silenceTimeout?: number; // ms before auto-sending in hands-free mode
+  silenceTimeout?: number; // ms before auto-sending in hands-free mode (default: 1200ms for lower latency)
   lang?: string;
+  predictiveThreshold?: number; // ms to wait for sentence completion before auto-send (default: 800ms)
 }
 
 interface VoiceEngineState {
@@ -130,9 +132,13 @@ export function useVoiceEngine(options: VoiceEngineOptions) {
     onAutoSend,
     onError,
     initialVoiceMode = "push-to-talk",
-    silenceTimeout = 1800,
+    silenceTimeout = 1200, // Reduced from 1800ms for lower latency
     lang = "en-US",
+    predictiveThreshold = 800, // New: predictive sending after sentence completion
   } = options;
+
+  // Premium TTS service
+  const premiumTTSRef = useRef<PremiumTTSService | null>(null);
 
   const [state, setState] = useState<VoiceEngineState>({
     isListening: false,
@@ -160,7 +166,7 @@ export function useVoiceEngine(options: VoiceEngineOptions) {
     voiceModeRef.current = state.voiceMode;
   }, [state.voiceMode]);
 
-  // Check support
+  // Check support and initialize premium TTS
   useEffect(() => {
     const SpeechRecognitionAPI = window.SpeechRecognition ?? window.webkitSpeechRecognition;
     setState(prev => ({
@@ -176,6 +182,24 @@ export function useVoiceEngine(options: VoiceEngineOptions) {
         window.speechSynthesis.getVoices();
       };
     }
+
+    // Initialize premium TTS
+    const initializePremiumTTS = async () => {
+      const credentials = {
+        elevenlabs_api_key: import.meta.env.VITE_ELEVENLABS_API_KEY,
+        elevenlabs_voice_id: import.meta.env.VITE_ELEVENLABS_VOICE_ID,
+        azure_tts_key: import.meta.env.VITE_AZURE_TTS_KEY,
+        azure_tts_region: import.meta.env.VITE_AZURE_TTS_REGION,
+        azure_tts_voice: import.meta.env.VITE_AZURE_TTS_VOICE,
+      };
+
+      if (Object.values(credentials).some(v => v)) {
+        premiumTTSRef.current = new PremiumTTSService(credentials);
+        await premiumTTSRef.current.initialize();
+      }
+    };
+
+    initializePremiumTTS();
 
     return () => {
       if (recognitionRef.current) {
@@ -197,6 +221,31 @@ export function useVoiceEngine(options: VoiceEngineOptions) {
         clearTimeout(silenceTimerRef.current);
       }
     };
+  }, []);
+
+  // Predictive sentence completion detection
+  const detectSentenceCompletion = useCallback((text: string): boolean => {
+    const trimmed = text.trim();
+    if (!trimmed) return false;
+
+    // Check for sentence-ending punctuation
+    if (trimmed.endsWith('.') || trimmed.endsWith('!') || trimmed.endsWith('?')) {
+      return true;
+    }
+
+    // Check for question patterns
+    if (/\b(what|how|why|when|where|who|which|whose|whom|how much|how many|what time|what date)\b/i.test(trimmed)) {
+      return true;
+    }
+
+    // Check for complete statements (subject + verb + object pattern)
+    const words = trimmed.split(/\s+/);
+    if (words.length >= 4) {
+      // Simple heuristic: if we have a decent length statement, consider it potentially complete
+      return true;
+    }
+
+    return false;
   }, []);
 
   // Audio level monitoring
@@ -274,7 +323,26 @@ export function useVoiceEngine(options: VoiceEngineOptions) {
         interimRef.current = "";
         setState(prev => ({ ...prev, interimTranscript: "" }));
 
-        // Reset silence timer for auto-send
+        // Predictive sending: send immediately if sentence appears complete
+        if (onAutoSend && voiceModeRef.current === "hands-free" && detectSentenceCompletion(trimmed)) {
+          const now = Date.now();
+          if (lastAutoSentRef.current.text !== trimmed || now - lastAutoSentRef.current.at > 1000) {
+            // Small delay to allow for corrections
+            setTimeout(() => {
+              const currentText = accumulatedRef.current.trim();
+              if (currentText && detectSentenceCompletion(currentText)) {
+                onAutoSend(currentText);
+                lastAutoSentRef.current = { text: currentText, at: Date.now() };
+                accumulatedRef.current = "";
+                interimRef.current = "";
+                setState(prev => ({ ...prev, interimTranscript: "" }));
+              }
+            }, predictiveThreshold);
+          }
+          return; // Skip regular silence timeout if predictive sending triggered
+        }
+
+        // Reset silence timer for auto-send (fallback)
         if (silenceTimerRef.current) {
           clearTimeout(silenceTimerRef.current);
         }
@@ -387,7 +455,7 @@ export function useVoiceEngine(options: VoiceEngineOptions) {
     };
 
     return recognition;
-  }, [lang, onTranscript, onAutoSend, onError, silenceTimeout, stopAudioMonitoring]);
+  }, [lang, onTranscript, onAutoSend, onError, silenceTimeout, predictiveThreshold, detectSentenceCompletion, stopAudioMonitoring]);
 
   const startListening = useCallback(() => {
     if (state.isListening) return;
@@ -432,7 +500,21 @@ export function useVoiceEngine(options: VoiceEngineOptions) {
     setState(prev => ({ ...prev, isListening: false, interimTranscript: "" }));
   }, [stopAudioMonitoring]);
 
-  const speak = useCallback((text: string, role: string = "default") => {
+  const speak = useCallback(async (text: string, role: string = "default") => {
+    // Try premium TTS first
+    if (premiumTTSRef.current?.isPremiumTTSAvailable()) {
+      try {
+        setState(prev => ({ ...prev, isSpeaking: true }));
+        await premiumTTSRef.current.speak(text, role);
+        setState(prev => ({ ...prev, isSpeaking: false }));
+        return;
+      } catch (error) {
+        console.warn('Premium TTS failed, falling back to browser TTS:', error);
+        setState(prev => ({ ...prev, isSpeaking: false }));
+      }
+    }
+
+    // Fallback to browser TTS
     if (!("speechSynthesis" in window)) return;
 
     const chunks = splitIntoSpeechChunks(text);
@@ -476,6 +558,7 @@ export function useVoiceEngine(options: VoiceEngineOptions) {
 
   const stopSpeaking = useCallback(() => {
     window.speechSynthesis.cancel();
+    // Premium TTS doesn't have a stop method, but we can set speaking to false
     setState(prev => ({ ...prev, isSpeaking: false }));
   }, []);
 

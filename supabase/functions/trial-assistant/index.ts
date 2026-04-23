@@ -37,22 +37,31 @@ serve(async (req) => {
       });
     }
 
-    // Fetch key documents for evidence references
+    // Fetch comprehensive discovery data for evidence references
     const { data: documents } = await supabase
       .from('documents')
-      .select('name, bates_number, summary, key_facts, favorable_findings')
+      .select('name, bates_number, summary, key_facts, favorable_findings, adverse_findings, action_items, ocr_text')
       .eq('case_id', caseId)
       .eq('ai_analyzed', true)
       .order('created_at', { ascending: false })
-      .limit(10);
+      .limit(15);
 
     const docContext = (documents || []).map((d: Record<string, unknown>) => {
       const parts: string[] = [`[${d.bates_number || d.name}]`];
-      if (d.summary) parts.push(d.summary as string);
+      if (d.summary) parts.push(`Summary: ${d.summary as string}`);
       if (Array.isArray(d.key_facts) && d.key_facts.length) {
-        parts.push((d.key_facts as string[]).slice(0, 2).join('; '));
+        parts.push(`Key Facts: ${(d.key_facts as string[]).slice(0, 3).join('; ')}`);
       }
-      return parts.join(': ');
+      if (Array.isArray(d.favorable_findings) && d.favorable_findings.length) {
+        parts.push(`Favorable: ${(d.favorable_findings as string[]).slice(0, 2).join('; ')}`);
+      }
+      if (Array.isArray(d.adverse_findings) && d.adverse_findings.length) {
+        parts.push(`Adverse: ${(d.adverse_findings as string[]).slice(0, 2).join('; ')}`);
+      }
+      if (Array.isArray(d.action_items) && d.action_items.length) {
+        parts.push(`Actions: ${(d.action_items as string[]).slice(0, 2).join('; ')}`);
+      }
+      return parts.join(' | ');
     }).join('\n');
 
     const recentConversation = Array.isArray(recentHistory)
@@ -62,7 +71,7 @@ serve(async (req) => {
           .join('\n')
       : '';
 
-    const prompt = `You are a real-time trial advocacy coach watching a ${mode || 'trial'} practice session.
+    const prompt = `You are an expert trial advocacy coach providing real-time guidance during a ${mode || 'trial'} practice session. You have access to comprehensive discovery materials and must provide tactical, evidence-based coaching.
 
 LAST EXCHANGE:
 Attorney asked: "${lastQuestion}"
@@ -71,8 +80,16 @@ Witness/Opponent answered: "${lastAnswer || '(no answer yet)'}"
 RECENT CONVERSATION:
 ${recentConversation || 'Beginning of session'}
 
-CASE DOCUMENTS:
-${docContext || 'No documents available'}
+DISCOVERY DATABASE (use this to provide evidence-based coaching):
+${docContext || 'No discovery materials available - focus on general trial tactics'}
+
+COACHING INSTRUCTIONS:
+- Reference specific documents/facts when suggesting follow-ups or objections
+- Identify when answers contradict discovery materials
+- Suggest impeachment opportunities based on adverse findings
+- Recommend using favorable findings to strengthen positions
+- Flag when testimony creates openings to introduce key evidence
+- Provide tactical advice based on the specific case facts available
 
 Analyze this exchange and provide real-time coaching. Respond with ONLY valid JSON:
 {

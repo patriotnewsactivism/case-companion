@@ -88,7 +88,17 @@ export interface TrialSimulatorV2Props {
     key_issues: string[] | null;
     winning_factors: string[] | null;
   } | null;
-  documents?: Array<{ id: string; name: string; summary?: string | null }>;
+  documents?: Array<{
+    id: string;
+    name: string;
+    summary?: string | null;
+    ocrText?: string | null;
+    keyFacts?: string[] | null;
+    favorableFindings?: string[] | null;
+    adverseFindings?: string[] | null;
+    actionItems?: string[] | null;
+    aiAnalyzed?: boolean;
+  }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -300,13 +310,54 @@ function buildCaseContext(
       parts.push(`WINNING FACTORS: ${caseData.winning_factors.join('; ')}`);
     }
   }
+
   if (documents?.length) {
+    const analyzedDocs = documents.filter(d => d.aiAnalyzed);
+    if (analyzedDocs.length > 0) {
+      parts.push(`\n=== DISCOVERY ANALYSIS ===`);
+
+      // Aggregate all key facts from analyzed documents
+      const allKeyFacts = analyzedDocs.flatMap(d => d.keyFacts || []).filter(Boolean);
+      if (allKeyFacts.length > 0) {
+        parts.push(`KEY FACTS: ${allKeyFacts.slice(0, 10).join('; ')}`);
+      }
+
+      // Aggregate favorable findings
+      const allFavorable = analyzedDocs.flatMap(d => d.favorableFindings || []).filter(Boolean);
+      if (allFavorable.length > 0) {
+        parts.push(`FAVORABLE EVIDENCE: ${allFavorable.slice(0, 8).join('; ')}`);
+      }
+
+      // Aggregate adverse findings
+      const allAdverse = analyzedDocs.flatMap(d => d.adverseFindings || []).filter(Boolean);
+      if (allAdverse.length > 0) {
+        parts.push(`ADVERSE EVIDENCE: ${allAdverse.slice(0, 8).join('; ')}`);
+      }
+
+      // Aggregate action items
+      const allActionItems = analyzedDocs.flatMap(d => d.actionItems || []).filter(Boolean);
+      if (allActionItems.length > 0) {
+        parts.push(`REQUIRED ACTIONS: ${allActionItems.slice(0, 6).join('; ')}`);
+      }
+    }
+
+    // Document summaries
     const docLines = documents
-      .slice(0, 8)
-      .map((d) => `- ${d.name}${d.summary ? ': ' + d.summary.slice(0, 120) : ''}`)
+      .slice(0, 6)
+      .map((d) => {
+        let line = `- ${d.name}`;
+        if (d.summary) {
+          line += `: ${d.summary.slice(0, 150)}`;
+        }
+        if (d.aiAnalyzed) {
+          line += ' [AI ANALYZED]';
+        }
+        return line;
+      })
       .join('\n');
     parts.push(`DOCUMENTS:\n${docLines}`);
   }
+
   return parts.join('\n');
 }
 

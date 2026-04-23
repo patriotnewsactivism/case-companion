@@ -33,7 +33,7 @@ export default function CaseSimulator() {
     queryFn: async () => {
       const { data, error } = await (supabase as any)
         .from('documents')
-        .select('id, name, summary')
+        .select('id, name, summary, ocr_text, key_facts, favorable_findings, adverse_findings, action_items, ai_analyzed')
         .eq('case_id', id!)
         .order('created_at', { ascending: false })
         .limit(20);
@@ -103,6 +103,12 @@ export default function CaseSimulator() {
               id: d.id,
               name: d.name,
               summary: d.summary ?? null,
+              ocrText: d.ocr_text ?? null,
+              keyFacts: d.key_facts ?? null,
+              favorableFindings: d.favorable_findings ?? null,
+              adverseFindings: d.adverse_findings ?? null,
+              actionItems: d.action_items ?? null,
+              aiAnalyzed: d.ai_analyzed ?? false,
             }))}
           />
         )}

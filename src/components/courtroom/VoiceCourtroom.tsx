@@ -318,7 +318,7 @@ export function VoiceCourtroom({ caseId, caseName, mode, modeName, onEnd }: Voic
   const initializedVoiceModeRef = useRef(false);
   const sessionCreatedRef = useRef(false);
 
-  // Voice engine
+  // Voice engine - optimized for low latency courtroom simulation
   const voice = useVoiceEngine({
     onTranscript: (text, isFinal) => {
       const normalized = text.trim();
@@ -348,7 +348,8 @@ export function VoiceCourtroom({ caseId, caseName, mode, modeName, onEnd }: Voic
       toast.error(message, { duration: 6000 });
     },
     initialVoiceMode: "hands-free",
-    silenceTimeout: 2000,
+    silenceTimeout: 1200, // Reduced from 2000ms for lower latency
+    predictiveThreshold: 600, // Faster predictive sending for courtroom pace
   });
   const {
     isListening,
