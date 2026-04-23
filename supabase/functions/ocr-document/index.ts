@@ -11,6 +11,7 @@ import { verifyAuth, forbiddenResponse } from '../_shared/auth.ts';
 import { validateUUID, validateURL } from '../_shared/validation.ts';
 import { getGenerateContentCapableGeminiModels, getPreferredGeminiCandidates, rankGeminiModels } from '../_shared/gemini-model-utils.ts';
 import { analyzeDocument, formatAnalyzeResultAsText, formatTableAsMarkdown, type TableResult } from '../_shared/azureDocumentIntelligence.ts';
+import { callAzureOpenAI } from '../_shared/azureOpenAI.ts';
 
 const STORAGE_BUCKET = 'case-documents';
 
@@ -36,6 +37,15 @@ interface GeminiCandidate {
 
 interface GeminiResponse {
   candidates?: GeminiCandidate[];
+}
+
+interface GeminiJsonBody {
+  contents: Array<{ parts: Array<{ text: string }> }>;
+  generationConfig: {
+    temperature: number;
+    maxOutputTokens: number;
+    responseMimeType: 'application/json';
+  };
 }
 
 type TimelineImportance = 'low' | 'medium' | 'high';
@@ -86,6 +96,25 @@ interface HeuristicAnalysisResult {
   timelineEvents: TimelineEventCandidate[];
 }
 
+interface AnalysisCaseContext {
+  caseName?: string | null;
+  caseType?: string | null;
+  clientName?: string | null;
+  representation?: string | null;
+  caseTheory?: string | null;
+  keyIssues?: string[] | null;
+}
+
+interface StructuredAnalysisOutput {
+  summary?: unknown;
+  key_facts?: unknown;
+  favorable_findings?: unknown;
+  adverse_findings?: unknown;
+  action_items?: unknown;
+  timeline_events?: unknown;
+  entities?: unknown;
+}
+
 function extractStoragePath(fileUrl: string): string | null {
   if (!fileUrl || typeof fileUrl !== 'string') return null;
   if (!fileUrl.startsWith('http')) return fileUrl.replace(/^\/+/, '');
@@ -130,6 +159,84 @@ const arrayBufferToBase64 = (buffer: ArrayBuffer): string => {
 
 const normalizeExtractedText = (text: string) =>
   text.replace(/\r\n/g, '\n').replace(/[ \t]+\n/g, '\n').replace(/\n{4,}/g, '\n\n\n').trim();
+
+const compactWhitespace = (text: string): string => text.replace(/\s+/g, ' ').trim();
+
+const toStringArray = (value: unknown, maxItems: number): string[] => {
+  if (!Array.isArray(value)) return [];
+  return uniqueTrimmed(
+    value
+      .map((item) => compactWhitespace(String(item || '')))
+      .filter((item) => item.length > 0),
+    maxItems,
+  );
+};
+
+const cleanSummary = (value: unknown): string => {
+  const normalized = compactWhitespace(String(value || ''));
+  if (!normalized) return '';
+  const sentences = normalized
+    .split(/(?<=[.!?])\s+/)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean)
+    .slice(0, 3);
+  return compactWhitespace(sentences.join(' ')).slice(0, 700);
+};
+
+const inferDocumentTitle = (documentName: string, summary: string, text: string): string => {
+  const candidates: string[] = [];
+  const normalizedName = documentName.replace(/\.[a-z0-9]+$/i, '').replace(/[_-]+/g, ' ').trim();
+  if (normalizedName) candidates.push(normalizedName);
+
+  const summaryLead = cleanSummary(summary).split(/[.?!]/)[0]?.trim();
+  if (summaryLead) candidates.push(summaryLead);
+
+  const firstNonArtifactLine = normalizeExtractedText(text)
+    .split('\n')
+    .map((line) => compactWhitespace(line))
+    .find((line) => line.length >= 8 && !isOcrArtifact(line) && !isTitleOcrJunk(line));
+  if (firstNonArtifactLine) candidates.push(firstNonArtifactLine);
+
+  for (const candidate of candidates) {
+    const cleaned = candidate
+      .replace(/^Document\s*[:\-]\s*/i, '')
+      .replace(/^Subject\s*[:\-]\s*/i, '')
+      .replace(/\b(page\s+\d+\s+of\s+\d+)\b/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!cleaned || cleaned.length < 5 || isTitleOcrJunk(cleaned)) continue;
+    return cleaned.slice(0, 80);
+  }
+
+  return normalizedName.slice(0, 80) || 'Document Summary';
+};
+
+const filterFactsByUsefulness = (facts: string[], maxItems: number): string[] => {
+  const useful = facts.filter((fact) => {
+    const value = compactWhitespace(fact);
+    if (value.length < 12 || value.length > 280) return false;
+    if (isOcrArtifact(value)) return false;
+    if (/^(summary|recommendation|strategic significance|next steps)\b/i.test(value)) return false;
+    if (/\b(page\s+\d+|document\s+\d+|case\s+\d+[:\-])\b/i.test(value) && value.length < 40) return false;
+    return /(\b\d{4}\b|\$\d|\b(admitted|stated|testified|reported|signed|served|filed|received|emailed|called|meeting|incident|injury|payment|deadline|diagnosis|estimate|agreement|termination|inspection|repair|complaint|response|order)\b)/i.test(value);
+  });
+  return uniqueTrimmed(useful, maxItems);
+};
+
+const filterTimelineEvents = (events: TimelineEventCandidate[]): TimelineEventCandidate[] => {
+  return events.filter((event) => {
+    const title = compactWhitespace(event.event_title || '');
+    const description = compactWhitespace(event.description || '');
+    if (!toDateOnlyString(event.date)) return false;
+    if (!title || title.length < 5 || isTitleOcrJunk(title)) return false;
+    if (!description || description.length < 15) return false;
+    if (isOcrArtifact(description)) return false;
+    if (!/(filed|served|hearing|trial|deposition|meeting|conference|incident|accident|injury|deadline|notice|email|letter|call|agreement|payment|settlement|judgment|order|motion|complaint|treatment|evaluation|inspection|repair|termination|response)/i.test(`${title} ${description}`)) {
+      return false;
+    }
+    return true;
+  });
+};
 
 const extractGeminiText = (payload: GeminiResponse): string => {
   const parts = payload?.candidates?.[0]?.content?.parts;
@@ -349,6 +456,116 @@ const buildHeuristicAnalysis = (text: string): HeuristicAnalysisResult => {
   };
 };
 
+function buildTargetedAnalysisPrompt(
+  documentName: string,
+  documentContext: string,
+  tableContext: string,
+  caseContext?: AnalysisCaseContext,
+): string {
+  const caseSummary = [
+    caseContext?.caseName ? `Case: ${caseContext.caseName}` : '',
+    caseContext?.caseType ? `Type: ${caseContext.caseType}` : '',
+    caseContext?.clientName ? `Client: ${caseContext.clientName}` : '',
+    caseContext?.representation ? `Representation: ${caseContext.representation}` : '',
+    caseContext?.caseTheory ? `Theory: ${caseContext.caseTheory}` : '',
+    caseContext?.keyIssues?.length ? `Key issues: ${caseContext.keyIssues.join('; ')}` : '',
+  ].filter(Boolean).join('\n');
+
+  const tableSection = tableContext
+    ? `\n\nEXTRACTED TABLES:\n${tableContext}`
+    : '';
+
+  return `You are analyzing a legal document for litigation use. Be selective and practical.
+
+Return ONLY facts that matter to the case. Do not invent details. Do not include generic strategic commentary. Do not include recommendations unless directly supported by the document.
+
+Produce valid JSON with exactly these fields:
+{
+  "summary": "2-3 sentences max",
+  "key_facts": ["important fact from the document"],
+  "favorable_findings": ["fact helpful to this side"],
+  "adverse_findings": ["fact harmful to this side"],
+  "action_items": ["follow-up only if the document itself clearly triggers one"],
+  "timeline_events": [{ "date": "YYYY-MM-DD", "event_title": "short title", "description": "what happened and why it matters", "importance": "high|medium|low", "event_type": "communication|filing|incident|meeting|deadline|medical|financial|contractual", "phase": "pre-suit|pleadings|discovery|dispositive|trial|post-trial", "next_required_action": "optional", "entities": ["..."] }],
+  "entities": [{ "name": "...", "type": "person|organization|location", "role": "..." }]
+}
+
+Rules:
+- Summary must read like a short docket-style document summary, not a memo.
+- key_facts must be concrete facts only: dates, statements, amounts, diagnoses, communications, filings, admissions, deadlines, contract terms, witness-relevant facts.
+- favorable_findings must contain only facts actually supported by the document that help the case.
+- adverse_findings must contain only facts actually supported by the document that hurt the case.
+- If a category has no reliable items, return an empty array.
+- timeline_events must include only meaningful case dates found in the document itself.
+- Ignore page numbers, Bates labels, OCR artifacts, headers, footers, filing stamps without substantive event meaning, and generic boilerplate.
+
+DOCUMENT NAME: ${documentName}
+${caseSummary ? `\nCASE CONTEXT:\n${caseSummary}` : ''}
+
+DOCUMENT TEXT:
+${documentContext}${tableSection}`;
+}
+
+async function analyzeStructuredDocument(
+  documentName: string,
+  extractedText: string,
+  extractedTables: TableResult[],
+  invokeGeminiWithFallback: (body: GeminiJsonBody, purpose: 'OCR' | 'analysis') => Promise<{ payload: GeminiResponse; model: string }>,
+  caseContext?: AnalysisCaseContext,
+): Promise<{
+  output: StructuredAnalysisOutput;
+  provider: 'azure_openai' | 'gemini' | 'none';
+}> {
+  const analysisContext = buildAnalysisDocumentContext(extractedText, 90000);
+  const tableContext = extractedTables.length > 0
+    ? extractedTables.map((t, i) => `Table ${i + 1}:\n${formatTableAsMarkdown(t)}`).join('\n\n')
+    : '';
+
+  const prompt = buildTargetedAnalysisPrompt(documentName, analysisContext, tableContext, caseContext);
+
+  try {
+    const azureContent = await callAzureOpenAI(
+      [
+        { role: 'system', content: 'You extract only concrete litigation-relevant document facts and dates. Respond with valid JSON only.' },
+        { role: 'user', content: prompt },
+      ],
+      { temperature: 0.05, maxTokens: 2500, jsonMode: true },
+    );
+    return {
+      output: JSON.parse(azureContent) as StructuredAnalysisOutput,
+      provider: 'azure_openai',
+    };
+  } catch (azureError) {
+    console.warn('Azure OpenAI targeted analysis unavailable, falling back to Gemini.', azureError);
+  }
+
+  try {
+    const { payload, model } = await invokeGeminiWithFallback(
+      {
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0.05,
+          maxOutputTokens: 8192,
+          responseMimeType: 'application/json',
+        },
+      },
+      'analysis',
+    );
+    const content = extractGeminiText(payload);
+    if (!content) return { output: {}, provider: 'none' };
+    console.log(`Gemini targeted analysis completed with model: ${model}`);
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    return {
+      output: jsonMatch ? JSON.parse(jsonMatch[0]) as StructuredAnalysisOutput : {},
+      provider: 'gemini',
+    };
+  } catch (geminiError) {
+    console.error('Gemini targeted analysis error:', geminiError);
+  }
+
+  return { output: {}, provider: 'none' };
+}
+
 // ===== Azure Document Intelligence OCR (primary - best quality) =====
 // Uses prebuilt-layout model: extracts text + structured tables + key-value pairs
 // Falls back to prebuilt-read if layout model is unavailable on the endpoint
@@ -510,54 +727,6 @@ async function tesseractOcr(blob: Blob, isImage: boolean): Promise<string> {
   }
 }
 
-// ===== Build the AI analysis prompt (shared between Azure OpenAI and Gemini) =====
-function buildAnalysisPrompt(documentContext: string, tableContext: string, maxEvents: number): string {
-  const tableSection = tableContext
-    ? `\n\n=== EXTRACTED TABLES ===\n${tableContext}\n=== END TABLES ===\n`
-    : '';
-
-  return `Analyze this legal document with maximum precision. Extract every strategically relevant detail.
-
-CRITICAL RULES FOR TIMELINE EVENTS:
-- Extract REAL legal events only: filings, hearings, depositions, incidents, deadlines, agreements, rulings, communications, medical appointments, financial transactions.
-- DO NOT create events from OCR page markers, document headers, case number lines, page counts, or Bates stamps.
-- Each event_title must describe WHAT HAPPENED (e.g., "Motion for Summary Judgment Filed", "Deposition of John Smith Conducted", "Plaintiff Served with Complaint").
-- BAD titles: "PAGE 1 Case 3:25-cv", "Filed 12:54 PM", "Document 1"
-- GOOD titles: "Complaint Filed in District Court", "Defense Expert Disclosure Deadline Passed", "Settlement Conference Held"
-
-ANALYSIS REQUIREMENTS:
-1. SUMMARY: 4-6 sentence executive summary — document type, parties, key facts, strategic significance, and recommended next steps
-2. KEY_FACTS: 10-20 specific factual findings (dates, events, admissions, amounts, names, locations, Bates numbers)
-3. FAVORABLE_FINDINGS: 6-10 findings supporting the client's position (admissions, favorable testimony, corroborating evidence, compliance)
-4. ADVERSE_FINDINGS: 6-10 findings that could hurt the case (contradictions, damaging statements, weaknesses, non-compliance, liability exposure)
-5. ACTION_ITEMS: 6-10 specific follow-up tasks (witnesses to depose, documents to request, legal research needed, deadlines to calendar, issues to address)
-6. TIMELINE_EVENTS: Up to ${maxEvents} meaningful chronological events. Each must include:
-   - "date": YYYY-MM-DD format
-   - "event_title": Clear action-oriented title (5-12 words)
-   - "description": 1-3 sentences explaining what happened and its legal significance
-   - "importance": "high", "medium", or "low"
-   - "event_type": one of "communication", "filing", "incident", "meeting", "deadline", "medical", "financial", "contractual"
-   - "entities": Array of parties/people/orgs directly involved
-   - "phase": "pre-suit", "pleadings", "discovery", "dispositive", "trial", or "post-trial"
-   - "next_required_action": One concrete litigation task triggered by this event
-7. ENTITIES: All key people, organizations, and locations with their roles
-   - "name", "type" (person/organization/location), "role" (e.g., "Plaintiff", "Defense Expert", "Treating Physician")
-
-Respond ONLY with valid JSON (no markdown, no preamble):
-{
-  "summary": "string",
-  "key_facts": ["fact1", ...],
-  "favorable_findings": ["finding1", ...],
-  "adverse_findings": ["finding1", ...],
-  "action_items": ["action1", ...],
-  "timeline_events": [{ "date": "YYYY-MM-DD", "event_title": "...", "description": "...", "importance": "high", "event_type": "...", "phase": "...", "next_required_action": "...", "entities": ["..."] }],
-  "entities": [{ "name": "...", "type": "person", "role": "..." }]
-}
-
-DOCUMENT TEXT:
-${documentContext}${tableSection}`;
-}
-
 serve(async (req) => {
   const corsHeaders = getCorsHeaders(req);
 
@@ -633,7 +802,7 @@ serve(async (req) => {
 
     const { data: documentData, error: docError } = await supabase
       .from('documents')
-      .select('case_id, name, cases!inner(user_id)')
+      .select('case_id, name, cases!inner(user_id, name, case_type, client_name, representation, case_theory, key_issues)')
       .eq('id', validatedDocumentId)
       .single();
 
@@ -653,6 +822,16 @@ serve(async (req) => {
     }
 
     console.log(`Processing: ${documentData.name}`);
+
+    const caseDetails = Array.isArray(caseRelation) ? caseRelation[0] : caseRelation;
+    const analysisCaseContext: AnalysisCaseContext = {
+      caseName: typeof caseDetails?.name === 'string' ? caseDetails.name : null,
+      caseType: typeof caseDetails?.case_type === 'string' ? caseDetails.case_type : null,
+      clientName: typeof caseDetails?.client_name === 'string' ? caseDetails.client_name : null,
+      representation: typeof caseDetails?.representation === 'string' ? caseDetails.representation : null,
+      caseTheory: typeof caseDetails?.case_theory === 'string' ? caseDetails.case_theory : null,
+      keyIssues: Array.isArray(caseDetails?.key_issues) ? caseDetails.key_issues as string[] : null,
+    };
 
     const { blob: fileBlob, contentType } = await loadFileBlob(supabase, validatedFileUrl);
     const resolvedContentType = contentType || fileBlob.type || '';
