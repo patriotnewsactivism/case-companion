@@ -10,6 +10,7 @@ import {
 import { verifyAuth, forbiddenResponse } from '../_shared/auth.ts';
 import { validateUUID, validateURL } from '../_shared/validation.ts';
 import { getGenerateContentCapableGeminiModels, getPreferredGeminiCandidates, rankGeminiModels } from '../_shared/gemini-model-utils.ts';
+import { analyzeDocument, formatAnalyzeResultAsText, formatTableAsMarkdown, type TableResult } from '../_shared/azureDocumentIntelligence.ts';
 
 const STORAGE_BUCKET = 'case-documents';
 
