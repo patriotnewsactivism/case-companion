@@ -721,6 +721,14 @@ serve(async (req) => {
       .order('event_date', { ascending: true })
       .limit(20);
 
+    // Get case_context (OCR knowledge bank)
+    const { data: caseContextRows } = await supabase
+      .from('case_context')
+      .select('context_type, content, summary, source_document, key_entities, key_dates, key_facts, confidence_score')
+      .eq('case_id', caseId)
+      .order('confidence_score', { ascending: false })
+      .limit(30);
+
     // Build rich context from case data
     const caseContext = {
       caseName: caseData.name,
@@ -747,6 +755,16 @@ serve(async (req) => {
       adverse: doc.adverse_findings || [],
       ocrPreview: doc.ocr_text?.substring(0, 500),
     })) || [];
+
+    const caseContextSummary = (caseContextRows || []).map(ctx => ({
+      contextType: ctx.context_type,
+      content: ctx.content ? String(ctx.content).substring(0, 800) : '',
+      summary: ctx.summary,
+      source: ctx.source_document,
+      keyEntities: ctx.key_entities || [],
+      keyDates: ctx.key_dates || [],
+      keyFacts: ctx.key_facts || [],
+    }));
 
     const depositionContext = depositions?.map(dep => ({
       deponent: dep.deponent_name,
@@ -811,6 +829,8 @@ ${wp.name} (${wp.type || 'Witness'}):
 - Preparation Notes: ${wp.notes || 'N/A'}
 ${wp.simulationNotes ? `- Simulation Notes: ${wp.simulationNotes}` : ''}
 `).join('\n')}` : ''}
+
+${caseContextSummary.length > 0 ? `=== OCR KNOWLEDGE BANK (" + caseContextSummary.length + " entries) ===\n" + caseContextSummary.slice(0, 8).map((c, i) => `[${i+1}] ${c.contextType} | ${c.source || 'unknown'}\nSummary: ${c.summary || 'N/A'}\nFacts: ${c.keyFacts.slice(0,3).join('; ') || 'N/A'}\nEntities: ${c.keyEntities.slice(0,3).join(', ') || 'N/A'}\nDates: ${c.keyDates.slice(0,2).join(', ') || 'N/A'}`).join('\n\n') + "` : ''}
 
 ${timelineContext.length > 0 ? `=== CASE TIMELINE ===
 ${timelineContext.slice(0, 10).map(event =>
