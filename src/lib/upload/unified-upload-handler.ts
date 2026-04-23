@@ -1,13 +1,11 @@
 import { supabase } from '@/integrations/supabase/client';
 import { QueueManager } from '../queue-manager';
-import { hashFile } from '../hashing';
 
 export interface UploadResult {
   fileId: string;
   document: Record<string, unknown>;
   storagePath: string;
   queueJobIds: string[];
-  contentHash: string;
 }
 
 export async function uploadAndProcessFile(
@@ -18,11 +16,10 @@ export async function uploadAndProcessFile(
   metadata?: Record<string, unknown>,
   priority?: number
 ): Promise<UploadResult> {
-  const contentHash = await hashFile(file);
+  // Use timestamp-based path — no full-file read needed
+  const storagePath = `${userId}/${caseId}/${Date.now()}-${file.name}`;
 
   // 1. Upload to Supabase Storage
-  // Path must start with userId so storage RLS policies pass: (foldername(name))[1] = auth.uid()::text
-  const storagePath = `${userId}/${caseId}/${contentHash}/${file.name}`;
   const { error: uploadError } = await (supabase as any).storage
     .from('case-documents')
     .upload(storagePath, file, { upsert: true });
@@ -33,10 +30,9 @@ export async function uploadAndProcessFile(
     .from('case-documents')
     .getPublicUrl(storagePath);
 
-  // 2. Create document record in database
-  // Use the stable schema used by the app's documents table.
-  const documentName = typeof metadata?.name === "string" ? metadata.name : file.name;
-  const batesNumber = typeof metadata?.bates_number === "string" ? metadata.bates_number : null;
+  // 2. Create document record
+  const documentName = typeof metadata?.name === 'string' ? metadata.name : file.name;
+  const batesNumber = typeof metadata?.bates_number === 'string' ? metadata.bates_number : null;
 
   const { data: docRecord, error: dbError } = await (supabase as any)
     .from('documents')
@@ -54,7 +50,7 @@ export async function uploadAndProcessFile(
 
   if (dbError) throw new Error(`DB insert failed: ${dbError.message}`);
 
-  // 3. Enqueue for processing
+  // 3. Enqueue for processing (non-fatal — a queue failure won't block the upload)
   const jobIds = await QueueManager.enqueueFile({
     fileId: docRecord.id,
     caseId,
@@ -64,7 +60,6 @@ export async function uploadAndProcessFile(
     fileType: file.type,
     fileSize: file.size,
     storagePath,
-    file,
     priority,
   });
 
@@ -73,7 +68,6 @@ export async function uploadAndProcessFile(
     document: docRecord,
     storagePath,
     queueJobIds: jobIds,
-    contentHash,
   };
 }
 
@@ -94,7 +88,6 @@ export async function uploadMultipleFiles(
       results.push(result);
     } catch (e) {
       console.error(`Failed to upload ${files[i].name}:`, e);
-      // Continue with other files — don't let one failure stop the batch
     }
   }
 
