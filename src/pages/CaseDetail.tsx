@@ -9,6 +9,7 @@ import { ImportJobsViewer } from "@/components/ImportJobsViewer";
 import { BulkDocumentUpload } from "@/components/BulkDocumentUpload";
 import { TrialSimulator } from "@/components/TrialSimulator";
 import { VideoRoom } from "@/components/VideoRoom";
+import { VideoConference } from "@/components/VideoConference";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1135,7 +1136,7 @@ export default function CaseDetail() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" className="gap-2">
+                <Button variant="outline" size="sm" className="gap-2" onClick={() => navigate(`/cases/${id}/chat`)}>
                   <MessageSquare className="h-4 w-4" />
                   Chat
                 </Button>
@@ -2638,27 +2639,24 @@ export default function CaseDetail() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Video Room Dialog */}
-      <Dialog open={showVideoRoom} onOpenChange={setShowVideoRoom}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
+      {/* Video Conference — full in-app embedded panel */}
+      {showVideoRoom && id && (
+        <div className="fixed inset-0 z-50 bg-background/95 backdrop-blur-sm flex flex-col">
+          <div className="flex items-center justify-between px-4 py-3 border-b bg-card shrink-0">
+            <div className="flex items-center gap-2">
               <Video className="h-5 w-5 text-accent" />
-              Video Conference
-            </DialogTitle>
-            <DialogDescription>
-              Secure, encrypted video conference for case collaboration
-            </DialogDescription>
-          </DialogHeader>
-          {showVideoRoom && id && (
-            <VideoRoom
-              caseId={id}
-              roomName={videoRoomName}
-              onLeave={() => setShowVideoRoom(false)}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
+              <span className="font-semibold">Video Conference</span>
+              <span className="text-xs text-muted-foreground">— {caseData?.name}</span>
+            </div>
+            <Button variant="ghost" size="sm" onClick={() => setShowVideoRoom(false)} className="gap-1 text-xs">
+              ✕ Close
+            </Button>
+          </div>
+          <div className="flex-1 overflow-auto p-4">
+            <VideoConference defaultCaseId={id} />
+          </div>
+        </div>
+      )}
       
       {id && <ProcessingStatusBar caseId={id} />}
     </Layout>
