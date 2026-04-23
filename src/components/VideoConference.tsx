@@ -117,32 +117,50 @@ export function VideoConference({ defaultCaseId }: VideoConferenceProps) {
 
   const copyInviteLink = useCallback(async () => {
     if (!currentRoom) return;
-    const inviteUrl = `${window.location.origin}/video/join?room=${currentRoom.roomId || currentRoom.roomName}`;
+    // Guest token valid for 1 hour — no CaseBuddy account required to join
+    const expires = Date.now() + 60 * 60 * 1000;
+    const guestToken = btoa(`guest:${currentRoom.roomId || currentRoom.roomName}:${expires}`);
+    const inviteUrl = `${window.location.origin}/video/join?room=${currentRoom.roomId || currentRoom.roomName}&gt=${guestToken}`;
     await navigator.clipboard.writeText(inviteUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-    toast.success("Invite link copied!");
+    toast.success("Guest link copied — valid for 1 hour, no account needed");
   }, [currentRoom]);
 
   const sendEmailInvite = useCallback(async () => {
     if (!inviteEmail.trim() || !currentRoom) return;
-    // Log the invite in Supabase for audit trail
+    const expires = Date.now() + 60 * 60 * 1000;
+    const guestToken = btoa(`guest:${currentRoom.roomId || currentRoom.roomName}:${expires}`);
+    const joinUrl = `${window.location.origin}/video/join?room=${currentRoom.roomId || currentRoom.roomName}&gt=${guestToken}`;
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session) {
-        await supabase.from("client_messages").insert({
-          case_id: selectedCaseId || null,
-          subject: `Video Conference Invitation - ${currentRoom.roomName}`,
-          content: `You have been invited to a secure video conference: ${currentRoom.roomName}. Join at: ${window.location.origin}/video/join?room=${currentRoom.roomId || currentRoom.roomName}`,
-          recipient_email: inviteEmail.trim(),
+      const res = await (supabase as any).functions.invoke("send-email", {
+        body: {
+          to: inviteEmail.trim(),
+          subject: `Video Conference Invitation: ${currentRoom.roomName}`,
+          html: `<div style="font-family:sans-serif;max-width:560px;margin:auto">
+            <h2 style="color:#1a1a2e">You've been invited to a secure video conference</h2>
+            <p><strong>Room:</strong> ${currentRoom.roomName}</p>
+            <p style="margin:24px 0">
+              <a href="${joinUrl}" style="background:#d4a017;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600">Join Video Conference</a>
+            </p>
+            <p style="color:#666;font-size:12px">Or copy this link: ${joinUrl}</p>
+            <p style="color:#999;font-size:11px">No CaseBuddy account required. Link expires in 1 hour.</p>
+          </div>`,
+          text: `You've been invited to join: ${currentRoom.roomName}\nJoin at: ${joinUrl}`,
+          case_id: selectedCaseId || undefined,
           message_type: "video_invite",
-          sent_at: new Date().toISOString(),
-        });
-      }
-    } catch (e) {
-      // Non-fatal - invitation was still logged attempt
+        },
+      });
+      if (res.error) throw res.error;
+      const sent = res.data?.sent;
+      toast.success(sent
+        ? `Invite email sent to ${inviteEmail}`
+        : `Invite logged for ${inviteEmail} — set RESEND_API_KEY to enable actual emails`
+      );
+    } catch (err) {
+      console.error("Invite error:", err);
+      toast.error("Failed to send invite");
     }
-    toast.success(`Invite sent to ${inviteEmail}`);
     setInviteEmail("");
     setInviteDialogOpen(false);
   }, [inviteEmail, currentRoom, selectedCaseId]);
