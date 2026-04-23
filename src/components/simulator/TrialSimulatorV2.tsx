@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { VoiceEngine, VoiceRole } from "@/services/voiceEngine";
+import { TrialTeleprompter, CaptionEntry, CoachingTip } from "@/components/courtroom/TrialTeleprompter";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -368,6 +369,11 @@ export function TrialSimulatorV2({
 
   // UI state
   const [captionLines, setCaptionLines] = useState<string[]>([]);
+
+  // Teleprompter state
+  const [showTeleprompter, setShowTeleprompter] = useState(false);
+  const [teleprompterCaptions, setTeleprompterCaptions] = useState<CaptionEntry[]>([]);
+  const [teleprompterTips, setTeleprompterTips] = useState<CoachingTip[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -387,6 +393,13 @@ export function TrialSimulatorV2({
               return combined.trim();
             });
             setLiveCaption('');
+            // Feed into teleprompter captions
+            setTeleprompterCaptions(prev => [...prev.slice(-49), {
+              id: Date.now().toString(),
+              speaker: 'you',
+              text: text.trim(),
+              timestamp: new Date(),
+            }]);
           } else {
             setLiveCaption(text);
           }
@@ -559,6 +572,22 @@ export function TrialSimulatorV2({
 
         const responseText = (data?.message as string | undefined) || 'The character pauses and waits.';
         const coaching = (data?.coaching as string | undefined) || '';
+        // Feed AI response into teleprompter live captions
+        setTeleprompterCaptions(prev => [...prev.slice(-49), {
+          id: Date.now().toString() + '_ai',
+          speaker: 'ai',
+          text: responseText.trim(),
+          timestamp: new Date(),
+        }]);
+        // Feed coaching into teleprompter tips
+        if (coaching) {
+          setTeleprompterTips(prev => [...prev.slice(-19), {
+            id: Date.now().toString() + '_tip',
+            type: (exchangeScore ?? 7) >= 7 ? 'success' : (exchangeScore ?? 7) >= 5 ? 'suggestion' : 'warning',
+            text: coaching,
+            timestamp: new Date(),
+          }]);
+        }
 
         // Simple exchange score: base 5, coaching implies feedback was needed → lower
         const exchangeScore = coaching
@@ -991,6 +1020,15 @@ export function TrialSimulatorV2({
           <span className="text-xs text-muted-foreground hidden md:block">Score:</span>
           <span className={cn('font-bold text-lg', scoreColor(scores.overall))}>{scores.overall}</span>
           <Button
+            variant={showTeleprompter ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setShowTeleprompter(s => !s)}
+            className="h-7 text-xs gap-1"
+            title="Toggle Teleprompter & Coaching Overlay"
+          >
+            📡 Teleprompter
+          </Button>
+          <Button
             variant="outline"
             size="sm"
             onClick={endSession}
@@ -1225,6 +1263,21 @@ export function TrialSimulatorV2({
           </div>
         </div>
       </div>
+
+      {/* TELEPROMPTER OVERLAY */}
+      {showTeleprompter && phase === 'active' && (
+        <div className="border-t bg-slate-900 shrink-0" style={{ height: '420px' }}>
+          <TrialTeleprompter
+            captions={teleprompterCaptions}
+            coachingTips={teleprompterTips}
+            isListening={isListening}
+            aiSpeaking={loading}
+            onToggleMic={toggleListening}
+            onClose={() => setShowTeleprompter(false)}
+            modeLabel={selectedMode.label}
+          />
+        </div>
+      )}
 
       {/* CAPTION BAR */}
       {captionLines.length > 0 && (
