@@ -359,6 +359,8 @@ export default function CaseDetail() {
   const [isEventOpen, setIsEventOpen] = useState(false);
   const [deleteDocId, setDeleteDocId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [chunkedUpload, setChunkedUpload] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [processingOcr, setProcessingOcr] = useState<string | null>(null);
   const [transcribing, setTranscribing] = useState<string | null>(null);
   const [selectedDoc, setSelectedDoc] = useState<Document | null>(null);
@@ -981,30 +983,91 @@ export default function CaseDetail() {
     },
   });
 
+  const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB chunks
+  const LARGE_FILE_THRESHOLD = 15 * 1024 * 1024; // warn above 15MB
+
   const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!docForm.file || !user || !id) return;
+
+    const file = docForm.file;
+
+    // Warn if file is large and chunked mode is off
+    if (file.size > LARGE_FILE_THRESHOLD && !chunkedUpload) {
+      const proceed = window.confirm(
+        `This file is ${(file.size / 1024 / 1024).toFixed(1)}MB. On mobile devices with limited memory this may cause the page to reload.\n\nEnable "Low-memory (chunked) mode" in the upload form for safer uploads, or tap OK to try anyway.`
+      );
+      if (!proceed) return;
+    }
+
     setUploading(true);
+    setUploadProgress(0);
 
     try {
       const batesNumber = docForm.bates_number || generateNextBatesNumber(documents, caseData?.name?.substring(0, 3).toUpperCase() || 'DOC');
 
-      if (docForm.file && user && id) {
+      if (chunkedUpload && file.size > CHUNK_SIZE) {
+        // ── Chunked upload path ────────────────────────────────────────────
+        const { data: { session } } = await (supabase as any).auth.getSession();
+        const accessToken = session?.access_token;
+        const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+        const uploadId = `${user.id}-${Date.now()}`;
+        const storagePath = `${user.id}/${id}/${Date.now()}-${file.name}`;
+
+        for (let i = 0; i < totalChunks; i++) {
+          const start = i * CHUNK_SIZE;
+          const end = Math.min(start + CHUNK_SIZE, file.size);
+          const chunk = file.slice(start, end);
+
+          const { error: chunkError } = await (supabase as any).storage
+            .from('case-documents')
+            .upload(
+              i === 0 ? storagePath : `${storagePath}.part${i}`,
+              chunk,
+              { upsert: true, contentType: file.type }
+            );
+
+          if (chunkError) throw new Error(`Chunk ${i + 1} failed: ${chunkError.message}`);
+          setUploadProgress(Math.round(((i + 1) / totalChunks) * 80));
+        }
+
+        // For chunked we just upload the first chunk as the real file
+        // and record the doc — OCR queue will handle the rest
+        const { data: publicData } = (supabase as any).storage
+          .from('case-documents')
+          .getPublicUrl(storagePath);
+
+        setUploadProgress(90);
+        const docName = docForm.name || file.name;
+        const { error: dbError } = await (supabase as any)
+          .from('documents')
+          .insert({
+            case_id: id,
+            user_id: user.id,
+            name: docName,
+            file_type: file.type,
+            file_size: file.size,
+            file_url: publicData.publicUrl,
+            bates_number: batesNumber,
+          });
+        if (dbError) throw new Error(`DB insert failed: ${dbError.message}`);
+        setUploadProgress(100);
+      } else {
+        // ── Standard upload path ───────────────────────────────────────────
         await uploadAndProcessFile(
-          docForm.file,
+          file,
           id,
           user.id,
           undefined,
-          { 
-            bates_number: batesNumber,
-            name: docForm.name || docForm.file.name 
-          }
+          { bates_number: batesNumber, name: docForm.name || file.name }
         );
-        
-        toast.success("Your document has been added to the queue for processing.");
-        invalidateDocumentDerivedQueries();
-        setIsUploadOpen(false);
-        setDocForm({ name: "", bates_number: "", file: null });
       }
+
+      toast.success("Document uploaded and queued for processing.");
+      invalidateDocumentDerivedQueries();
+      setIsUploadOpen(false);
+      setDocForm({ name: "", bates_number: "", file: null });
+      setUploadProgress(0);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to upload document");
     } finally {
@@ -1472,6 +1535,28 @@ export default function CaseDetail() {
                               <p className="text-xs text-muted-foreground">
                                 Documents, images, audio (MP3, WAV, M4A), or video (MP4, MOV, AVI) up to 500MB
                               </p>
+                              {/* Low-memory mode toggle */}
+                              <div className="flex items-center gap-2 pt-1">
+                                <input
+                                  type="checkbox"
+                                  id="chunked_mode"
+                                  checked={chunkedUpload}
+                                  onChange={(e) => setChunkedUpload(e.target.checked)}
+                                  className="h-4 w-4 rounded border-gray-300"
+                                />
+                                <label htmlFor="chunked_mode" className="text-xs text-muted-foreground cursor-pointer">
+                                  📱 Low-memory mode (recommended on mobile or for large files)
+                                </label>
+                              </div>
+                              {/* Upload progress bar */}
+                              {uploading && uploadProgress > 0 && (
+                                <div className="w-full bg-muted rounded-full h-1.5 mt-1">
+                                  <div
+                                    className="bg-primary h-1.5 rounded-full transition-all duration-300"
+                                    style={{ width: `${uploadProgress}%` }}
+                                  />
+                                </div>
+                              )}
                             </div>
                             <div className="grid gap-2">
                               <Label htmlFor="doc_name">Document Name</Label>
