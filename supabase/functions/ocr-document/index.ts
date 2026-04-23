@@ -106,6 +106,11 @@ interface AnalysisCaseContext {
 }
 
 interface StructuredAnalysisOutput {
+  title?: unknown;
+  document_type?: unknown;
+  legal_importance?: unknown;
+  key_evidence?: unknown;
+  evidentiary_value?: unknown;
   summary?: unknown;
   key_facts?: unknown;
   favorable_findings?: unknown;
@@ -481,6 +486,11 @@ Return ONLY facts that matter to the case. Do not invent details. Do not include
 
 Produce valid JSON with exactly these fields:
 {
+  "title": "short distinctive title (5-10 words) to differentiate this document from others in the case",
+  "document_type": "type of legal document (e.g., complaint, interrogatory response, medical record, correspondence, deposition, contract, bill, police report, expert report)",
+  "legal_importance": "brief assessment: critical|high|medium|low",
+  "key_evidence": ["specific evidentiary item from the document that could be used as proof at trial"],
+  "evidentiary_value": "1 sentence: what this document proves or establishes for the case",
   "summary": "2-3 sentences max",
   "key_facts": ["important fact from the document"],
   "favorable_findings": ["fact helpful to this side"],
@@ -491,6 +501,10 @@ Produce valid JSON with exactly these fields:
 }
 
 Rules:
+- title must be a short, distinctive label so a lawyer can tell this document apart from others at a glance. Not just the filename.
+- document_type must be a standard legal document category, not a description.
+- key_evidence must list specific items that could be introduced as exhibits or used for proof at trial (e.g., "Defendant's admission that the pipe was installed on March 5", "Invoice #4471 for $12,500").
+- evidentiary_value must state concisely what this document proves or establishes.
 - Summary must read like a short docket-style document summary, not a memo.
 - key_facts must be concrete facts only: dates, statements, amounts, diagnoses, communications, filings, admissions, deadlines, contract terms, witness-relevant facts.
 - favorable_findings must contain only facts actually supported by the document that help the case.
@@ -1088,7 +1102,12 @@ serve(async (req) => {
     }
 
     // ===== AI ANALYSIS =====
-    // Chain: Azure OpenAI (GPT-4o) → Gemini Flash → Heuristic
+    // Chain: Azure OpenAI (GPT-4o) → Gemini → Heuristic
+    let title = '';
+    let documentType = '';
+    let legalImportance = '';
+    let keyEvidence: string[] = [];
+    let evidentiaryValue = '';
     let keyFacts: string[] = [];
     let favorableFindings: string[] = [];
     let adverseFindings: string[] = [];
@@ -1104,63 +1123,34 @@ serve(async (req) => {
       !extractedText.startsWith('[File type')
     );
 
-    if (hasSubstantialText && hasGemini) {
-      console.log('Analyzing extracted text with Gemini...');
+    if (hasSubstantialText) {
+      const { output: analysisOutput, provider: aProvider } = await analyzeStructuredDocument(
+        documentData.name,
+        extractedText,
+        extractedTables,
+        invokeGeminiWithFallback,
+        analysisCaseContext,
+      );
 
-      // Send the FULL document text to the best available Gemini model
-      const analysisContext = buildAnalysisDocumentContext(extractedText);
-
-      // Format extracted tables for inclusion in analysis
-      const tableContext = extractedTables.length > 0
-        ? extractedTables.map((t, i) => `Table ${i + 1}:\n${formatTableAsMarkdown(t)}`).join('\n\n')
-        : '';
-
-      if (tableContext) {
-        console.log(`Including ${extractedTables.length} extracted tables in analysis context`);
+      if (aProvider !== 'none') {
+        analysisProvider = aProvider;
+        title = compactWhitespace(String(analysisOutput.title || ''));
+        documentType = compactWhitespace(String(analysisOutput.document_type || ''));
+        legalImportance = compactWhitespace(String(analysisOutput.legal_importance || ''));
+        keyEvidence = toStringArray(analysisOutput.key_evidence, 10);
+        evidentiaryValue = compactWhitespace(String(analysisOutput.evidentiary_value || ''));
+        summary = cleanSummary(analysisOutput.summary);
+        keyFacts = filterFactsByUsefulness(toStringArray(analysisOutput.key_facts, 15), 12);
+        favorableFindings = filterFactsByUsefulness(toStringArray(analysisOutput.favorable_findings, 10), 8);
+        adverseFindings = filterFactsByUsefulness(toStringArray(analysisOutput.adverse_findings, 10), 8);
+        actionItems = toStringArray(analysisOutput.action_items, 5);
+        timelineEvents = Array.isArray(analysisOutput.timeline_events) ? analysisOutput.timeline_events : [];
+        extractedEntities = Array.isArray(analysisOutput.entities) ? analysisOutput.entities : [];
+        console.log(`Analysis parsed via ${aProvider}: ${keyFacts.length} facts, ${keyEvidence.length} evidence items, ${timelineEvents.length} events`);
       }
 
-      const analysisPrompt = buildAnalysisPrompt(analysisContext, tableContext, MAX_TIMELINE_EVENTS);
-      let content = '';
-
-      try {
-        const { payload: analysisData, model } = await invokeGeminiWithFallback(
-          {
-            contents: [{ parts: [{ text: analysisPrompt }] }],
-            generationConfig: {
-              temperature: 0.15,
-              maxOutputTokens: 16384,
-              responseMimeType: 'application/json',
-            },
-          },
-          'analysis'
-        );
-
-        content = extractGeminiText(analysisData);
-        if (content) analysisProvider = 'gemini';
-        console.log(`Gemini analysis completed with model: ${model}`);
-      } catch (geminiError) {
-        console.error('Gemini analysis error:', geminiError);
-      }
-
-      // Parse JSON analysis result
-      if (content) {
-        try {
-          const jsonMatch = content.match(/{[\s\S]*}/);
-          if (jsonMatch) {
-            const analysis = JSON.parse(jsonMatch[0]);
-            summary = analysis.summary || '';
-            keyFacts = Array.isArray(analysis.key_facts) ? analysis.key_facts : [];
-            favorableFindings = Array.isArray(analysis.favorable_findings) ? analysis.favorable_findings : [];
-            adverseFindings = Array.isArray(analysis.adverse_findings) ? analysis.adverse_findings : [];
-            actionItems = Array.isArray(analysis.action_items) ? analysis.action_items : [];
-            timelineEvents = Array.isArray(analysis.timeline_events) ? analysis.timeline_events : [];
-            extractedEntities = Array.isArray(analysis.entities) ? analysis.entities : [];
-            console.log(`Analysis parsed: ${keyFacts.length} facts, ${timelineEvents.length} events, ${extractedEntities.length} entities`);
-          }
-        } catch (parseError) {
-          console.error('Failed to parse analysis JSON:', parseError);
-          summary = content.substring(0, 500);
-        }
+      if (!title) {
+        title = inferDocumentTitle(documentData.name, summary, extractedText);
       }
     }
 
@@ -1175,6 +1165,7 @@ serve(async (req) => {
       adverseFindings = heuristic.adverseFindings;
       actionItems = heuristic.actionItems;
       timelineEvents = heuristic.timelineEvents;
+      if (!title) title = inferDocumentTitle(documentData.name, summary, extractedText);
     }
 
     const hasAnalysis = summary.length > 0 || keyFacts.length > 0 || favorableFindings.length > 0 || adverseFindings.length > 0 || actionItems.length > 0 || timelineEvents.length > 0;
@@ -1184,6 +1175,11 @@ serve(async (req) => {
       ocr_processed_at: new Date().toISOString(),
       ocr_provider: ocrProvider,
       ai_analyzed: hasAnalysis,
+      title: title || null,
+      document_type: documentType || null,
+      legal_importance: legalImportance || null,
+      key_evidence: keyEvidence.length > 0 ? keyEvidence : null,
+      evidentiary_value: evidentiaryValue || null,
       summary: summary || null,
       key_facts: keyFacts.length > 0 ? keyFacts : null,
       favorable_findings: favorableFindings.length > 0 ? favorableFindings : null,
@@ -1204,6 +1200,11 @@ serve(async (req) => {
       const legacyData: Record<string, unknown> = {
         ocr_text: extractedText,
         ai_analyzed: hasAnalysis,
+        title: title || null,
+        document_type: documentType || null,
+        legal_importance: legalImportance || null,
+        key_evidence: keyEvidence.length > 0 ? keyEvidence : null,
+        evidentiary_value: evidentiaryValue || null,
         summary: summary || null,
         key_facts: keyFacts.length > 0 ? keyFacts : null,
         favorable_findings: favorableFindings.length > 0 ? favorableFindings : null,
@@ -1261,6 +1262,11 @@ serve(async (req) => {
         ocrProvider,
         analysisProvider,
         hasAnalysis,
+        title,
+        documentType,
+        legalImportance,
+        keyEvidence,
+        evidentiaryValue,
         summary,
         keyFacts,
         favorableFindings,

@@ -880,17 +880,23 @@ export type Database = {
           bates_number: string | null
           case_id: string
           created_at: string
+          document_type: string | null
+          evidentiary_value: string | null
           favorable_findings: string[] | null
           file_size: number | null
           file_type: string | null
           file_url: string | null
           id: string
+          key_evidence: string[] | null
           key_facts: string[] | null
+          legal_importance: string | null
+          legal_entities: Json | null
           name: string
           ocr_page_count: number | null
           ocr_processed_at: string | null
           ocr_text: string | null
           summary: string | null
+          title: string | null
           updated_at: string
           user_id: string
         }
@@ -901,17 +907,23 @@ export type Database = {
           bates_number?: string | null
           case_id: string
           created_at?: string
+          document_type?: string | null
+          evidentiary_value?: string | null
           favorable_findings?: string[] | null
           file_size?: number | null
           file_type?: string | null
           file_url?: string | null
           id?: string
+          key_evidence?: string[] | null
           key_facts?: string[] | null
+          legal_importance?: string | null
+          legal_entities?: Json | null
           name: string
           ocr_page_count?: number | null
           ocr_processed_at?: string | null
           ocr_text?: string | null
           summary?: string | null
+          title?: string | null
           updated_at?: string
           user_id: string
         }
@@ -922,17 +934,23 @@ export type Database = {
           bates_number?: string | null
           case_id?: string
           created_at?: string
+          document_type?: string | null
+          evidentiary_value?: string | null
           favorable_findings?: string[] | null
           file_size?: number | null
           file_type?: string | null
           file_url?: string | null
           id?: string
+          key_evidence?: string[] | null
           key_facts?: string[] | null
+          legal_importance?: string | null
+          legal_entities?: Json | null
           name?: string
           ocr_page_count?: number | null
           ocr_processed_at?: string | null
           ocr_text?: string | null
           summary?: string | null
+          title?: string | null
           updated_at?: string
           user_id?: string
         }

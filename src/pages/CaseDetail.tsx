@@ -94,6 +94,11 @@ interface Document {
   file_type: string | null;
   file_size: number | null;
   bates_number: string | null;
+  title: string | null;
+  document_type: string | null;
+  legal_importance: string | null;
+  key_evidence: string[] | null;
+  evidentiary_value: string | null;
   summary: string | null;
   key_facts: string[] | null;
   favorable_findings: string[] | null;
@@ -127,7 +132,12 @@ interface TimelineEvent {
 interface OcrFunctionResponse {
   success: boolean;
   hasAnalysis?: boolean;
-  analysisProvider?: "openai" | "gemini" | "none";
+  analysisProvider?: "azure_openai" | "gemini" | "heuristic" | "none";
+  title?: string;
+  documentType?: string;
+  legalImportance?: string;
+  keyEvidence?: string[];
+  evidentiaryValue?: string;
   requestedTimelineEvents?: number;
   timelineEventsInserted?: number;
   timelineInsertWarning?: string | null;
@@ -193,7 +203,17 @@ const DocumentRow = memo(({ index, style, data }: ListChildComponentProps<Docume
       </div>
 
       <div className="col-span-4 min-w-0">
-        <p className="text-sm font-medium truncate">{doc.name}</p>
+        <p className="text-sm font-medium truncate">{doc.title || doc.name}</p>
+        {doc.legal_importance && (
+          <span className={cn("text-[10px] font-medium px-1.5 py-0.5 rounded mr-1", {
+            "bg-red-100 text-red-700": doc.legal_importance === "critical",
+            "bg-orange-100 text-orange-700": doc.legal_importance === "high",
+            "bg-yellow-100 text-yellow-700": doc.legal_importance === "medium",
+            "bg-gray-100 text-gray-600": doc.legal_importance === "low",
+          })}>
+            {doc.legal_importance}
+          </span>
+        )}
         {doc.summary && (
           <p className="text-xs text-muted-foreground truncate mt-0.5">
             {doc.summary}
@@ -865,6 +885,8 @@ export default function CaseDetail() {
     const searchLower = searchQuery.toLowerCase();
     const matchesSearch = !searchQuery || 
       doc.name.toLowerCase().includes(searchLower) ||
+      (doc.title && doc.title.toLowerCase().includes(searchLower)) ||
+      (doc.document_type && doc.document_type.toLowerCase().includes(searchLower)) ||
       doc.bates_number?.toLowerCase().includes(searchLower) ||
       doc.summary?.toLowerCase().includes(searchLower);
 

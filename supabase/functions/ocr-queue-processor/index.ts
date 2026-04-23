@@ -348,12 +348,137 @@ Extract now:`;
   return text;
 }
 
+interface AnalysisCaseContext {
+  caseName?: string | null;
+  caseType?: string | null;
+  clientName?: string | null;
+  representation?: string | null;
+  caseTheory?: string | null;
+  keyIssues?: string[] | null;
+}
+
+interface StructuredAnalysisOutput {
+  title?: unknown;
+  document_type?: unknown;
+  legal_importance?: unknown;
+  key_evidence?: unknown;
+  evidentiary_value?: unknown;
+  summary?: unknown;
+  key_facts?: unknown;
+  favorable_findings?: unknown;
+  adverse_findings?: unknown;
+  action_items?: unknown;
+  timeline_events?: unknown;
+  entities?: unknown;
+}
+
+const compactWhitespace = (text: string): string => text.replace(/\s+/g, ' ').trim();
+
+const toStringArray = (value: unknown, maxItems: number): string[] => {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const item of value) {
+    const cleaned = compactWhitespace(String(item || ''));
+    if (!cleaned) continue;
+    const key = cleaned.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(cleaned);
+    if (result.length >= maxItems) break;
+  }
+  return result;
+};
+
+const cleanSummary = (value: unknown): string => {
+  const normalized = compactWhitespace(String(value || ''));
+  if (!normalized) return '';
+  const sentences = normalized
+    .split(/(?<=[.!?])\s+/)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean)
+    .slice(0, 3);
+  return compactWhitespace(sentences.join(' ')).slice(0, 700);
+};
+
+const inferDocumentTitle = (documentName: string, summary: string, text: string): string => {
+  const normalizedName = documentName.replace(/\.[a-z0-9]+$/i, '').replace(/[_-]+/g, ' ').trim();
+  const summaryLead = cleanSummary(summary).split(/[.?!]/)[0]?.trim();
+  const firstLine = text.split('\n').map((l) => compactWhitespace(l)).find((l) => l.length >= 8 && !/^={2,}\s*PAGE\s+\d+/i.test(l) && !/^PAGE\s+\d+/i.test(l));
+  for (const candidate of [normalizedName, summaryLead, firstLine].filter(Boolean) as string[]) {
+    const cleaned = candidate.replace(/^Document\s*[:\-]\s*/i, '').replace(/\b(page\s+\d+\s+of\s+\d+)\b/gi, '').replace(/\s+/g, ' ').trim();
+    if (cleaned && cleaned.length >= 5 && !/^PAGE\s+\d+/i.test(cleaned)) return cleaned.slice(0, 80);
+  }
+  return normalizedName.slice(0, 80) || 'Document Summary';
+};
+
+function buildTargetedAnalysisPrompt(
+  documentName: string,
+  documentContext: string,
+  caseContext?: AnalysisCaseContext,
+): string {
+  const caseSummary = [
+    caseContext?.caseName ? `Case: ${caseContext.caseName}` : '',
+    caseContext?.caseType ? `Type: ${caseContext.caseType}` : '',
+    caseContext?.clientName ? `Client: ${caseContext.clientName}` : '',
+    caseContext?.representation ? `Representation: ${caseContext.representation}` : '',
+    caseContext?.caseTheory ? `Theory: ${caseContext.caseTheory}` : '',
+    caseContext?.keyIssues?.length ? `Key issues: ${caseContext.keyIssues.join('; ')}` : '',
+  ].filter(Boolean).join('\n');
+
+  return `You are analyzing a legal document for litigation use. Be selective and practical.
+
+Return ONLY facts that matter to the case. Do not invent details. Do not include generic strategic commentary. Do not include recommendations unless directly supported by the document.
+
+Produce valid JSON with exactly these fields:
+{
+  "title": "short distinctive title (5-10 words) to differentiate this document from others in the case",
+  "document_type": "type of legal document (e.g., complaint, interrogatory response, medical record, correspondence, deposition, contract, bill, police report, expert report)",
+  "legal_importance": "brief assessment: critical|high|medium|low",
+  "key_evidence": ["specific evidentiary item from the document that could be used as proof at trial"],
+  "evidentiary_value": "1 sentence: what this document proves or establishes for the case",
+  "summary": "2-3 sentences max",
+  "key_facts": ["important fact from the document"],
+  "favorable_findings": ["fact helpful to this side"],
+  "adverse_findings": ["fact harmful to this side"],
+  "action_items": ["follow-up only if the document itself clearly triggers one"],
+  "timeline_events": [{ "date": "YYYY-MM-DD", "event_title": "short title", "description": "what happened and why it matters", "importance": "high|medium|low", "event_type": "communication|filing|incident|meeting|deadline|medical|financial|contractual", "phase": "pre-suit|pleadings|discovery|dispositive|trial|post-trial", "next_required_action": "optional", "entities": ["..."] }],
+  "entities": [{ "name": "...", "type": "person|organization|location", "role": "..." }]
+}
+
+Rules:
+- title must be a short, distinctive label so a lawyer can tell this document apart from others at a glance.
+- document_type must be a standard legal document category.
+- key_evidence must list specific items that could be introduced as exhibits at trial.
+- evidentiary_value must state concisely what this document proves.
+- Summary must read like a short docket-style document summary, not a memo.
+- key_facts must be concrete facts only: dates, statements, amounts, diagnoses, communications, filings, admissions, deadlines, contract terms.
+- favorable_findings must contain only facts actually supported by the document that help the case.
+- adverse_findings must contain only facts actually supported by the document that hurt the case.
+- If a category has no reliable items, return an empty array.
+- timeline_events must include only meaningful case dates found in the document itself.
+- Ignore page numbers, Bates labels, OCR artifacts, headers, footers, filing stamps without substantive event meaning, and generic boilerplate.
+
+DOCUMENT NAME: ${documentName}
+${caseSummary ? `\nCASE CONTEXT:\n${caseSummary}` : ''}
+
+DOCUMENT TEXT:
+${documentContext}`;
+}
+
 async function analyzeWithAI(
+  documentName: string,
   extractedText: string,
   openaiApiKey: string | undefined,
   aiGatewayUrl: string | undefined,
-  googleApiKey: string | undefined
+  googleApiKey: string | undefined,
+  caseContext?: AnalysisCaseContext,
 ): Promise<{
+  title: string;
+  documentType: string;
+  legalImportance: string;
+  keyEvidence: string[];
+  evidentiaryValue: string;
   summary: string;
   keyFacts: string[];
   favorableFindings: string[];
@@ -361,6 +486,11 @@ async function analyzeWithAI(
   actionItems: string[];
   timelineEvents: unknown[];
 }> {
+  let title = '';
+  let documentType = '';
+  let legalImportance = '';
+  let keyEvidence: string[] = [];
+  let evidentiaryValue = '';
   let summary = '';
   let keyFacts: string[] = [];
   let favorableFindings: string[] = [];
@@ -372,43 +502,14 @@ async function analyzeWithAI(
   const hasGemini = !!googleApiKey;
 
   if (extractedText.length <= 50) {
-    return { summary, keyFacts, favorableFindings, adverseFindings, actionItems, timelineEvents };
+    return { title, documentType, legalImportance, keyEvidence, evidentiaryValue, summary, keyFacts, favorableFindings, adverseFindings, actionItems, timelineEvents };
   }
 
-  const analysisPrompt = `You are an expert legal document analyst specializing in litigation support. Analyze documents with precision and identify strategic insights for case preparation.
+  const documentContext = extractedText.length <= 90000
+    ? extractedText
+    : extractedText.slice(0, 63000) + '\n\n[... document continues ...]\n\n' + extractedText.slice(-18000);
 
-Analyze this legal document and provide a JSON response with comprehensive legal analysis, including chronological timeline events.
-
-ANALYSIS REQUIREMENTS:
-1. SUMMARY: 2-4 sentence executive summary of the document's content and significance
-2. KEY_FACTS: 5-10 specific factual findings (dates, events, statements, numbers)
-3. FAVORABLE_FINDINGS: 3-5 findings that could support the case (admissions, favorable testimony, helpful evidence)
-4. ADVERSE_FINDINGS: 3-5 findings that could hurt the case (contradictions, damaging statements, weaknesses)
-5. ACTION_ITEMS: 3-5 specific follow-up actions (witnesses to interview, documents to request, issues to research)
-6. TIMELINE_EVENTS: Extract chronological events found in the document. For each event provide:
-   - "event_date": YYYY-MM-DD format (if approximate, use first of month/year)
-   - "title": Short title (5-10 words)
-   - "description": Detailed description (1-2 sentences)
-   - "importance": "high", "medium", or "low"
-   - "event_type": e.g., "communication", "filing", "incident", "meeting"
-
-Be thorough, precise, and strategic. Focus on facts that matter for litigation.
-
-Respond ONLY with valid JSON in this exact format:
-{
-  "summary": "string",
-  "key_facts": ["fact1", "fact2", ...],
-  "favorable_findings": ["finding1", "finding2", ...],
-  "adverse_findings": ["finding1", "finding2", ...],
-  "action_items": ["action1", "action2", ...],
-  "timeline_events": [
-    { "event_date": "2023-01-01", "title": "...", "description": "...", "importance": "high", "event_type": "..." }
-  ]
-}
-
-Document text:
-${extractedText.substring(0, 20000)}`;
-
+  const analysisPrompt = buildTargetedAnalysisPrompt(documentName, documentContext, caseContext);
   let content = '';
 
   if (hasOpenAI) {
@@ -422,9 +523,12 @@ ${extractedText.substring(0, 20000)}`;
         },
         body: JSON.stringify({
           model: 'gpt-4o',
-          messages: [{ role: 'user', content: analysisPrompt }],
-          temperature: 0.2,
-          max_tokens: 4096,
+          messages: [
+            { role: 'system', content: 'You extract only concrete litigation-relevant document facts and dates. Respond with valid JSON only.' },
+            { role: 'user', content: analysisPrompt },
+          ],
+          temperature: 0.05,
+          max_tokens: 2500,
           response_format: { type: 'json_object' },
         }),
       });
@@ -443,14 +547,10 @@ ${extractedText.substring(0, 20000)}`;
       const { payload: analysisData } = await invokeGeminiWithFallback(
         googleApiKey,
         {
-          contents: [
-            {
-              parts: [{ text: analysisPrompt }]
-            }
-          ],
+          contents: [{ parts: [{ text: analysisPrompt }] }],
           generationConfig: {
-            temperature: 0.2,
-            maxOutputTokens: 4096,
+            temperature: 0.05,
+            maxOutputTokens: 8192,
             responseMimeType: 'application/json',
           }
         },
@@ -466,12 +566,17 @@ ${extractedText.substring(0, 20000)}`;
   try {
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
-      const analysis = JSON.parse(jsonMatch[0]);
-      summary = analysis.summary || '';
-      keyFacts = Array.isArray(analysis.key_facts) ? analysis.key_facts : [];
-      favorableFindings = Array.isArray(analysis.favorable_findings) ? analysis.favorable_findings : [];
-      adverseFindings = Array.isArray(analysis.adverse_findings) ? analysis.adverse_findings : [];
-      actionItems = Array.isArray(analysis.action_items) ? analysis.action_items : [];
+      const analysis: StructuredAnalysisOutput = JSON.parse(jsonMatch[0]);
+      title = compactWhitespace(String(analysis.title || ''));
+      documentType = compactWhitespace(String(analysis.document_type || ''));
+      legalImportance = compactWhitespace(String(analysis.legal_importance || ''));
+      keyEvidence = toStringArray(analysis.key_evidence, 10);
+      evidentiaryValue = compactWhitespace(String(analysis.evidentiary_value || ''));
+      summary = cleanSummary(analysis.summary);
+      keyFacts = toStringArray(analysis.key_facts, 15);
+      favorableFindings = toStringArray(analysis.favorable_findings, 10);
+      adverseFindings = toStringArray(analysis.adverse_findings, 10);
+      actionItems = toStringArray(analysis.action_items, 5);
       timelineEvents = Array.isArray(analysis.timeline_events) ? analysis.timeline_events : [];
     }
   } catch (parseError) {
@@ -479,7 +584,11 @@ ${extractedText.substring(0, 20000)}`;
     summary = content.substring(0, 500);
   }
 
-  return { summary, keyFacts, favorableFindings, adverseFindings, actionItems, timelineEvents };
+  if (!title) {
+    title = inferDocumentTitle(documentName, summary, extractedText);
+  }
+
+  return { title, documentType, legalImportance, keyEvidence, evidentiaryValue, summary, keyFacts, favorableFindings, adverseFindings, actionItems, timelineEvents };
 }
 
 async function processOcrJob(
@@ -502,7 +611,7 @@ async function processOcrJob(
 
   const { data: document, error: docError } = await supabase
     .from('documents')
-    .select('id, name, file_url, case_id')
+    .select('id, name, file_url, case_id, cases!inner(user_id, name, case_type, client_name, representation, case_theory, key_issues)')
     .eq('id', job.document_id)
     .single();
 
@@ -510,10 +619,19 @@ async function processOcrJob(
     return { success: false, error: 'Document not found' };
   }
 
-  const doc = document as { id: string; name: string; file_url: string | null; case_id: string };
+  const doc = document as { id: string; name: string; file_url: string | null; case_id: string; cases: { user_id?: string; name?: string; case_type?: string; client_name?: string; representation?: string; case_theory?: string; key_issues?: string[] } };
   if (!doc.file_url) {
     return { success: false, error: 'Document has no file URL' };
   }
+
+  const caseContext: AnalysisCaseContext = {
+    caseName: typeof doc.cases?.name === 'string' ? doc.cases.name : null,
+    caseType: typeof doc.cases?.case_type === 'string' ? doc.cases.case_type : null,
+    clientName: typeof doc.cases?.client_name === 'string' ? doc.cases.client_name : null,
+    representation: typeof doc.cases?.representation === 'string' ? doc.cases.representation : null,
+    caseTheory: typeof doc.cases?.case_theory === 'string' ? doc.cases.case_theory : null,
+    keyIssues: Array.isArray(doc.cases?.key_issues) ? doc.cases.key_issues as string[] : null,
+  };
 
   let extractedText = '';
 
@@ -566,8 +684,8 @@ async function processOcrJob(
       return { success: false, error: 'OCR extraction returned too little text' };
     }
 
-    const { summary, keyFacts, favorableFindings, adverseFindings, actionItems, timelineEvents } = 
-      await analyzeWithAI(extractedText, openaiApiKey, aiGatewayUrl, googleApiKey);
+    const { title, documentType, legalImportance, keyEvidence, evidentiaryValue, summary, keyFacts, favorableFindings, adverseFindings, actionItems, timelineEvents } = 
+      await analyzeWithAI(doc.name, extractedText, openaiApiKey, aiGatewayUrl, googleApiKey, caseContext);
 
     const { error: updateError } = await supabase
       .from('documents')
@@ -575,6 +693,11 @@ async function processOcrJob(
         ocr_text: extractedText,
         ocr_processed_at: new Date().toISOString(),
         ai_analyzed: !!summary,
+        title: title || null,
+        document_type: documentType || null,
+        legal_importance: legalImportance || null,
+        key_evidence: keyEvidence.length > 0 ? keyEvidence : null,
+        evidentiary_value: evidentiaryValue || null,
         summary: summary || null,
         key_facts: keyFacts.length > 0 ? keyFacts : null,
         favorable_findings: favorableFindings.length > 0 ? favorableFindings : null,

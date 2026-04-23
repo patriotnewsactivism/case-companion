@@ -139,7 +139,16 @@ export function ExhibitDisplay({ documents, onShowToWitness, sessionId }: Exhibi
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <p className="text-sm font-medium truncate">{doc.name}</p>
+                          <p className="text-sm font-medium truncate">{(doc as any).title || doc.name}</p>
+                          {(doc as any).legal_importance && (
+                            <Badge variant="outline" className={cn("text-[10px]", {
+                              "border-red-500 text-red-700": (doc as any).legal_importance === "critical",
+                              "border-orange-500 text-orange-700": (doc as any).legal_importance === "high",
+                              "border-yellow-500 text-yellow-700": (doc as any).legal_importance === "medium",
+                            })}>
+                              {(doc as any).legal_importance}
+                            </Badge>
+                          )}
                           {state?.exhibitNumber && (
                             <Badge variant="outline" className="text-xs">
                               {state.exhibitNumber}
@@ -239,17 +248,39 @@ export function ExhibitDisplay({ documents, onShowToWitness, sessionId }: Exhibi
         </ScrollArea>
       </CardContent>
 
-      {selectedDocument && selectedDocument.key_facts && selectedDocument.key_facts.length > 0 && (
-        <div className="border-t p-3">
-          <p className="text-xs font-medium mb-2">Key Facts:</p>
-          <ul className="text-xs text-muted-foreground space-y-1">
-            {selectedDocument.key_facts.slice(0, 3).map((fact, i) => (
-              <li key={i} className="flex items-start gap-2">
-                <span className="text-primary">•</span>
-                <span>{fact}</span>
-              </li>
-            ))}
-          </ul>
+      {selectedDocument && (
+        <div className="border-t p-3 space-y-2">
+          {(selectedDocument as any).key_evidence && (selectedDocument as any).key_evidence.length > 0 && (
+            <div>
+              <p className="text-xs font-medium mb-1">Key Evidence:</p>
+              <ul className="text-xs text-muted-foreground space-y-1">
+                {(selectedDocument as any).key_evidence.slice(0, 4).map((ev: string, i: number) => (
+                  <li key={`ev-${i}`} className="flex items-start gap-2">
+                    <span className="text-amber-600">&#9670;</span>
+                    <span>{ev}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {selectedDocument.key_facts && selectedDocument.key_facts.length > 0 && (
+            <div>
+              <p className="text-xs font-medium mb-1">Key Facts:</p>
+              <ul className="text-xs text-muted-foreground space-y-1">
+                {selectedDocument.key_facts.slice(0, 3).map((fact, i) => (
+                  <li key={i} className="flex items-start gap-2">
+                    <span className="text-primary">•</span>
+                    <span>{fact}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {(selectedDocument as any).evidentiary_value && (
+            <p className="text-xs text-muted-foreground italic">
+              Evidentiary value: {(selectedDocument as any).evidentiary_value}
+            </p>
+          )}
         </div>
       )}
     </Card>

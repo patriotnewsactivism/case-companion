@@ -3,6 +3,11 @@ import { supabase } from "@/integrations/supabase/client";
 export interface CaseDocument {
   id: string;
   name: string;
+  title: string | null;
+  document_type: string | null;
+  legal_importance: string | null;
+  key_evidence: string[] | null;
+  evidentiary_value: string | null;
   file_type: string | null;
   summary: string | null;
   key_facts: string[] | null;
@@ -15,7 +20,7 @@ export interface CaseDocument {
 export async function getCaseDocuments(caseId: string): Promise<CaseDocument[]> {
   const { data, error } = await (supabase as any)
     .from('documents')
-    .select('id, name, file_type, summary, key_facts, favorable_findings, adverse_findings, ai_analyzed, bates_number')
+    .select('id, name, title, document_type, legal_importance, key_evidence, evidentiary_value, file_type, summary, key_facts, favorable_findings, adverse_findings, ai_analyzed, bates_number')
     .eq('case_id', caseId)
     .order('name');
   if (error) { console.error('Error fetching docs:', error); return []; }

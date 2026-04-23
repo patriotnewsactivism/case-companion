@@ -11,6 +11,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { Plus, Users, FileText, Scale, Gavel, Trash2, Edit, CheckCircle2, Clock, AlertCircle, Calendar, Link2 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import {
   getOrCreateChecklist,
   updateChecklist,
@@ -332,21 +333,46 @@ export function TrialPrepChecklist({ caseId }: TrialPrepChecklistProps) {
                               {linkedDoc && (
                                 <Badge variant="secondary" className="flex items-center gap-1 text-xs">
                                   <Link2 className="h-3 w-3" />
-                                  {linkedDoc.name}
+                                  {(linkedDoc as any).title || linkedDoc.name}
+                                </Badge>
+                              )}
+                              {linkedDoc && (linkedDoc as any).legal_importance && (
+                                <Badge variant="outline" className={cn("text-[10px]", {
+                                  "border-red-500 text-red-700": (linkedDoc as any).legal_importance === "critical",
+                                  "border-orange-500 text-orange-700": (linkedDoc as any).legal_importance === "high",
+                                  "border-yellow-500 text-yellow-700": (linkedDoc as any).legal_importance === "medium",
+                                })}>
+                                  {(linkedDoc as any).legal_importance}
                                 </Badge>
                               )}
                             </div>
                             <p className="text-sm text-muted-foreground">{exhibit.description}</p>
-                            {linkedDoc?.ai_analyzed && linkedDoc.key_facts && linkedDoc.key_facts.length > 0 && (
-                              <div className="mt-2 p-2 rounded bg-muted/50 border border-border">
-                                <p className="text-xs font-medium mb-1">Key Facts (from OCR):</p>
-                                <ul className="text-xs text-muted-foreground space-y-0.5">
-                                  {linkedDoc.key_facts.slice(0, 3).map((f, i) => (
-                                    <li key={i} className="flex items-start gap-1">
-                                      <span className="text-primary mt-0.5">•</span> {f}
-                                    </li>
-                                  ))}
-                                </ul>
+                            {linkedDoc?.ai_analyzed && (
+                              <div className="mt-2 p-2 rounded bg-muted/50 border border-border space-y-1">
+                                {(linkedDoc as any).key_evidence && (linkedDoc as any).key_evidence.length > 0 && (
+                                  <div>
+                                    <p className="text-xs font-medium mb-1">Key Evidence:</p>
+                                    <ul className="text-xs text-muted-foreground space-y-0.5">
+                                      {(linkedDoc as any).key_evidence.slice(0, 3).map((ev: string, i: number) => (
+                                        <li key={`ev-${i}`} className="flex items-start gap-1">
+                                          <span className="text-amber-600 mt-0.5">&#9670;</span> {ev}
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )}
+                                {linkedDoc.key_facts && linkedDoc.key_facts.length > 0 && (
+                                  <div>
+                                    <p className="text-xs font-medium mb-1">Key Facts:</p>
+                                    <ul className="text-xs text-muted-foreground space-y-0.5">
+                                      {linkedDoc.key_facts.slice(0, 3).map((f, i) => (
+                                        <li key={i} className="flex items-start gap-1">
+                                          <span className="text-primary mt-0.5">•</span> {f}
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )}
                               </div>
                             )}
                             <div className="flex items-center gap-4 text-xs text-muted-foreground">
@@ -808,7 +834,7 @@ function ExhibitDialog({
                 <SelectItem value="none">No linked document</SelectItem>
                 {caseDocuments.map(doc => (
                   <SelectItem key={doc.id} value={doc.id}>
-                    {doc.name} {doc.ai_analyzed ? "✓ AI Analyzed" : ""} {doc.bates_number ? `(${doc.bates_number})` : ""}
+                    {(doc as any).title || doc.name} {doc.ai_analyzed ? "✓ AI Analyzed" : ""} {doc.bates_number ? `(${doc.bates_number})` : ""}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -818,7 +844,11 @@ function ExhibitDialog({
               if (!doc?.ai_analyzed) return null;
               return (
                 <div className="p-2 rounded bg-muted/50 border border-border text-xs space-y-1">
+                  {(doc as any).evidentiary_value && <p className="italic text-muted-foreground">{(doc as any).evidentiary_value}</p>}
                   {doc.summary && <p><span className="font-medium">Summary:</span> {doc.summary}</p>}
+                  {(doc as any).key_evidence && (doc as any).key_evidence.length > 0 && (
+                    <div><span className="font-medium">Key Evidence:</span> {(doc as any).key_evidence.slice(0,3).join("; ")}</div>
+                  )}
                   {doc.key_facts && doc.key_facts.length > 0 && (
                     <div><span className="font-medium">Key Facts:</span> {doc.key_facts.slice(0,3).join("; ")}</div>
                   )}

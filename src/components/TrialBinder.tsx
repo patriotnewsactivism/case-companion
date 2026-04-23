@@ -140,8 +140,15 @@ export function TrialBinder({ caseId, caseName }: TrialBinderProps) {
                       )}
                       {doc?.ai_analyzed && (
                         <div className="mt-2 p-2 bg-muted/50 rounded text-xs space-y-1">
-                          <p className="font-medium">Linked Document: {doc.name}</p>
+                          <p className="font-medium">Linked Document: {(doc as any).title || doc.name}</p>
+                          {(doc as any).evidentiary_value && <p className="italic text-muted-foreground">{(doc as any).evidentiary_value}</p>}
                           {doc.summary && <p>{doc.summary}</p>}
+                          {(doc as any).key_evidence && (doc as any).key_evidence.length > 0 && (
+                            <div>
+                              <span className="font-medium">Key Evidence: </span>
+                              {(doc as any).key_evidence.join("; ")}
+                            </div>
+                          )}
                           {doc.key_facts && doc.key_facts.length > 0 && (
                             <div>
                               <span className="font-medium">Key Facts: </span>

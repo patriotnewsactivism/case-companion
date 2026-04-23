@@ -111,6 +111,11 @@ export interface Document {
   file_type: string | null;
   file_size: number | null;
   bates_number: string | null;
+  title: string | null;
+  document_type: string | null;
+  legal_importance: string | null;
+  key_evidence: string[] | null;
+  evidentiary_value: string | null;
   summary: string | null;
   key_facts: string[] | null;
   favorable_findings: string[] | null;
