@@ -1181,10 +1181,15 @@ export function TrialSimulatorV2({
                   <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                 </div>
                 <div className="bg-muted rounded-2xl rounded-tl-sm px-4 py-3">
-                  <div className="flex gap-1 items-center h-5">
-                    <div className="w-2 h-2 rounded-full bg-muted-foreground/40 animate-bounce [animation-delay:0ms]" />
-                    <div className="w-2 h-2 rounded-full bg-muted-foreground/40 animate-bounce [animation-delay:150ms]" />
-                    <div className="w-2 h-2 rounded-full bg-muted-foreground/40 animate-bounce [animation-delay:300ms]" />
+                  <div className="flex gap-2 items-center">
+                    <div className="flex gap-1">
+                      <div className="w-2 h-2 rounded-full bg-muted-foreground/40 animate-bounce [animation-delay:0ms]" />
+                      <div className="w-2 h-2 rounded-full bg-muted-foreground/40 animate-bounce [animation-delay:150ms]" />
+                      <div className="w-2 h-2 rounded-full bg-muted-foreground/40 animate-bounce [animation-delay:300ms]" />
+                    </div>
+                    <span className="text-[10px] text-muted-foreground italic">
+                      {selectedMode.character === 'judge' ? 'The judge considers...' : selectedMode.character === 'juror' ? 'Reflecting...' : `${characterName} pauses, thinking...`}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -1294,8 +1299,26 @@ export function TrialSimulatorV2({
         </div>
       )}
 
+      {/* QUICK ACTIONS BAR — courtroom shortcuts */}
+      {(selectedMode.id === 'cross-examination' || selectedMode.id === 'objections-practice' || selectedMode.id === 'deposition') && (
+        <div className="border-t bg-muted/40 px-2 py-1.5 shrink-0 flex gap-1.5 overflow-x-auto scrollbar-thin">
+          {['Objection — Hearsay', 'Objection — Leading', 'Objection — Relevance', 'Objection — Speculation', 'Move to Strike', 'Approach the Bench'].map((label) => (
+            <Button
+              key={label}
+              size="sm"
+              variant="outline"
+              className="h-7 text-[10px] sm:text-xs whitespace-nowrap shrink-0"
+              onClick={() => sendMessage(label + '.')}
+              disabled={loading}
+            >
+              {label}
+            </Button>
+          ))}
+        </div>
+      )}
+
       {/* INPUT BAR */}
-      <div className="border-t bg-card px-3 py-2.5 shrink-0 flex items-center gap-2">
+      <div className="border-t bg-card px-2 sm:px-3 py-2 shrink-0 flex items-center gap-1.5 sm:gap-2">
         {voiceSupported && (
           <>
             <Button
@@ -1310,7 +1333,7 @@ export function TrialSimulatorV2({
             <Button
               variant={isListening ? 'destructive' : 'outline'}
               size="icon"
-              className={cn('h-12 w-12 rounded-full shrink-0', isListening && 'animate-pulse')}
+              className={cn('h-11 w-11 sm:h-12 sm:w-12 rounded-full shrink-0', isListening && 'animate-pulse')}
               onClick={toggleListening}
               title={isListening ? 'Stop listening' : 'Start voice input'}
             >
@@ -1330,7 +1353,7 @@ export function TrialSimulatorV2({
               : 'Your question or statement…'
           }
           disabled={loading}
-          className="flex-1 h-10"
+          className="flex-1 h-10 text-sm"
         />
 
         <Button
