@@ -995,53 +995,49 @@ export function TrialSimulatorV2({
   const characterRole = session?.characterProfile.role || selectedMode.character;
 
   return (
-    <div className="flex flex-col h-[calc(100vh-160px)] min-h-[600px] gap-0">
-      {/* TOP BAR */}
-      <div className="flex items-center justify-between gap-3 bg-card border rounded-t-xl px-4 py-2.5 shrink-0 flex-wrap">
-        <div className="flex items-center gap-3">
-          <span className="text-xl">{selectedMode.icon}</span>
-          <div>
-            <p className="font-semibold text-sm leading-tight">{selectedMode.label}</p>
-            <p className="text-xs text-muted-foreground">{scores.exchanges} exchanges</p>
+    <div className="flex flex-col h-[calc(100dvh-140px)] min-h-[500px] gap-0">
+      {/* TOP BAR - responsive */}
+      <div className="flex items-center justify-between gap-2 bg-card border rounded-t-xl px-3 py-2 shrink-0 flex-wrap">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-lg sm:text-xl">{selectedMode.icon}</span>
+          <div className="min-w-0">
+            <p className="font-semibold text-xs sm:text-sm leading-tight truncate">{selectedMode.label}</p>
+            <p className="text-[10px] sm:text-xs text-muted-foreground">{scores.exchanges} exchanges</p>
           </div>
-          <Badge variant="outline" className="text-xs hidden sm:flex">
-            Phase: {session?.characterProfile.demeanor ?? 'neutral'}
-          </Badge>
         </div>
 
-        {/* Timer */}
-        <div className="flex items-center gap-1.5 font-mono text-sm text-muted-foreground">
-          <Clock className="h-4 w-4" />
+        <div className="flex items-center gap-1.5 font-mono text-xs sm:text-sm text-muted-foreground">
+          <Clock className="h-3.5 w-3.5" />
           {formatTime(timer)}
         </div>
 
-        {/* Score Summary */}
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground hidden md:block">Score:</span>
-          <span className={cn('font-bold text-lg', scoreColor(scores.overall))}>{scores.overall}</span>
+        <div className="flex items-center gap-1.5 ml-auto">
+          <span className="text-[10px] text-muted-foreground hidden sm:block">Score:</span>
+          <span className={cn('font-bold text-base sm:text-lg', scoreColor(scores.overall))}>{scores.overall}</span>
           <Button
             variant={showTeleprompter ? 'default' : 'outline'}
             size="sm"
             onClick={() => setShowTeleprompter(s => !s)}
-            className="h-7 text-xs gap-1"
-            title="Toggle Teleprompter & Coaching Overlay"
+            className="h-7 text-[10px] sm:text-xs gap-1 px-2"
+            title="Toggle Teleprompter"
           >
-            📡 Teleprompter
+            📡<span className="hidden sm:inline">Teleprompter</span>
           </Button>
           <Button
             variant="outline"
             size="sm"
             onClick={endSession}
-            className="h-7 text-xs gap-1 ml-2"
+            className="h-7 text-[10px] sm:text-xs gap-1 px-2"
           >
             <Square className="h-3 w-3" />
-            End
+            <span className="hidden sm:inline">End</span>
           </Button>
           <Button
             variant="ghost"
             size="sm"
             onClick={resetToSetup}
-            className="h-7 text-xs gap-1"
+            className="h-7 w-7 p-0"
+            title="Reset"
           >
             <RotateCcw className="h-3 w-3" />
           </Button>
@@ -1185,10 +1181,15 @@ export function TrialSimulatorV2({
                   <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                 </div>
                 <div className="bg-muted rounded-2xl rounded-tl-sm px-4 py-3">
-                  <div className="flex gap-1 items-center h-5">
-                    <div className="w-2 h-2 rounded-full bg-muted-foreground/40 animate-bounce [animation-delay:0ms]" />
-                    <div className="w-2 h-2 rounded-full bg-muted-foreground/40 animate-bounce [animation-delay:150ms]" />
-                    <div className="w-2 h-2 rounded-full bg-muted-foreground/40 animate-bounce [animation-delay:300ms]" />
+                  <div className="flex gap-2 items-center">
+                    <div className="flex gap-1">
+                      <div className="w-2 h-2 rounded-full bg-muted-foreground/40 animate-bounce [animation-delay:0ms]" />
+                      <div className="w-2 h-2 rounded-full bg-muted-foreground/40 animate-bounce [animation-delay:150ms]" />
+                      <div className="w-2 h-2 rounded-full bg-muted-foreground/40 animate-bounce [animation-delay:300ms]" />
+                    </div>
+                    <span className="text-[10px] text-muted-foreground italic">
+                      {selectedMode.character === 'judge' ? 'The judge considers...' : selectedMode.character === 'juror' ? 'Reflecting...' : `${characterName} pauses, thinking...`}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -1298,8 +1299,26 @@ export function TrialSimulatorV2({
         </div>
       )}
 
+      {/* QUICK ACTIONS BAR — courtroom shortcuts */}
+      {(selectedMode.id === 'cross-examination' || selectedMode.id === 'objections-practice' || selectedMode.id === 'deposition') && (
+        <div className="border-t bg-muted/40 px-2 py-1.5 shrink-0 flex gap-1.5 overflow-x-auto scrollbar-thin">
+          {['Objection — Hearsay', 'Objection — Leading', 'Objection — Relevance', 'Objection — Speculation', 'Move to Strike', 'Approach the Bench'].map((label) => (
+            <Button
+              key={label}
+              size="sm"
+              variant="outline"
+              className="h-7 text-[10px] sm:text-xs whitespace-nowrap shrink-0"
+              onClick={() => sendMessage(label + '.')}
+              disabled={loading}
+            >
+              {label}
+            </Button>
+          ))}
+        </div>
+      )}
+
       {/* INPUT BAR */}
-      <div className="border-t bg-card px-3 py-2.5 shrink-0 flex items-center gap-2">
+      <div className="border-t bg-card px-2 sm:px-3 py-2 shrink-0 flex items-center gap-1.5 sm:gap-2">
         {voiceSupported && (
           <>
             <Button
@@ -1314,7 +1333,7 @@ export function TrialSimulatorV2({
             <Button
               variant={isListening ? 'destructive' : 'outline'}
               size="icon"
-              className={cn('h-12 w-12 rounded-full shrink-0', isListening && 'animate-pulse')}
+              className={cn('h-11 w-11 sm:h-12 sm:w-12 rounded-full shrink-0', isListening && 'animate-pulse')}
               onClick={toggleListening}
               title={isListening ? 'Stop listening' : 'Start voice input'}
             >
@@ -1334,7 +1353,7 @@ export function TrialSimulatorV2({
               : 'Your question or statement…'
           }
           disabled={loading}
-          className="flex-1 h-10"
+          className="flex-1 h-10 text-sm"
         />
 
         <Button

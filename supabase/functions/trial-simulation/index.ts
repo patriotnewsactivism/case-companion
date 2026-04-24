@@ -830,7 +830,12 @@ ${wp.name} (${wp.type || 'Witness'}):
 ${wp.simulationNotes ? `- Simulation Notes: ${wp.simulationNotes}` : ''}
 `).join('\n')}` : ''}
 
-${caseContextSummary.length > 0 ? `=== OCR KNOWLEDGE BANK (" + caseContextSummary.length + " entries) ===\n" + caseContextSummary.slice(0, 8).map((c, i) => `[${i+1}] ${c.contextType} | ${c.source || 'unknown'}\nSummary: ${c.summary || 'N/A'}\nFacts: ${c.keyFacts.slice(0,3).join('; ') || 'N/A'}\nEntities: ${c.keyEntities.slice(0,3).join(', ') || 'N/A'}\nDates: ${c.keyDates.slice(0,2).join(', ') || 'N/A'}`).join('\n\n') + "` : ''}
+${caseContextSummary.length > 0 ? `=== OCR KNOWLEDGE BANK (${caseContextSummary.length} entries) ===
+${caseContextSummary.slice(0, 8).map((c, i) => `[${i+1}] ${c.contextType} | ${c.source || 'unknown'}
+Summary: ${c.summary || 'N/A'}
+Facts: ${c.keyFacts.slice(0,3).join('; ') || 'N/A'}
+Entities: ${c.keyEntities.slice(0,3).join(', ') || 'N/A'}
+Dates: ${c.keyDates.slice(0,2).join(', ') || 'N/A'}`).join('\n\n')}` : ''}
 
 ${timelineContext.length > 0 ? `=== CASE TIMELINE ===
 ${timelineContext.slice(0, 10).map(event =>
