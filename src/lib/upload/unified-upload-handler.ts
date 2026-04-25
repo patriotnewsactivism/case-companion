@@ -33,6 +33,17 @@ function sanitizeFileName(name: string): string {
   return name.replace(/[\\/]/g, '_').replace(/[^\w.\-() ]+/g, '_');
 }
 
+function isMissingDocumentsContentHashColumn(errorMessage: string): boolean {
+  return (
+    errorMessage.includes("Could not find the 'content_hash' column") &&
+    errorMessage.includes("'documents'")
+  );
+}
+
+export function shouldRetryDocumentInsertWithoutContentHash(errorMessage: string): boolean {
+  return isMissingDocumentsContentHashColumn(errorMessage);
+}
+
 export async function uploadAndProcessFile(
   file: File,
   caseId: string,
@@ -47,66 +58,62 @@ export async function uploadAndProcessFile(
   // 1. Upload to Supabase Storage (bucket is public; public URL works)
   const { error: uploadError } = await supabase.storage
     .from('case-documents')
-    .upload(storagePath, file, {
-      upsert: true,
-      contentType: file.type || 'application/octet-stream',
-    });
+    .upload(storagePath, file, { upsert: true });
+  
+  if (uploadError) throw new Error(`Upload failed: ${uploadError.message}`);
+  
+  // 2. Create document record in database
+  const baseDocumentPayload = {
+    case_id: caseId,
+    user_id: userId,
+    organization_id: organizationId,
+    file_name: file.name,
+    file_type: file.type,
+    file_size: file.size,
+    storage_path: storagePath,
+    status: 'queued',
+    ...metadata,
+  };
 
-  if (uploadError) {
-    throw new Error(`Upload failed: ${uploadError.message}`);
-  }
-
-  const { data: publicData } = supabase.storage
-    .from('case-documents')
-    .getPublicUrl(storagePath);
-
-  // 2. Create document record
-  const documentName = typeof metadata?.name === 'string' ? metadata.name : file.name;
-  const batesNumber = typeof metadata?.bates_number === 'string' ? metadata.bates_number : null;
-  const contentHash = await computeContentHash(file);
-
-  const { data: docRecord, error: dbError } = await (supabase as unknown as {
-    from: (t: string) => {
-      insert: (row: Record<string, unknown>) => {
-        select: (cols: string) => { single: () => Promise<{ data: Record<string, unknown> | null; error: { message: string } | null }> };
-      };
-    };
-  })
+  const { data: docRecordWithHash, error: dbErrorWithHash } = await supabase
     .from('documents')
     .insert({
-      case_id: caseId,
-      user_id: userId,
-      name: documentName,
-      file_type: file.type,
-      file_size: file.size,
-      file_url: publicData.publicUrl,
-      bates_number: batesNumber,
+      ...baseDocumentPayload,
+      content_hash: contentHash,
     })
     .select('*')
     .single();
 
-  if (dbError || !docRecord) {
-    throw new Error(`DB insert failed: ${dbError?.message ?? 'unknown error'}`);
-  }
+  let docRecord = docRecordWithHash;
+  let dbError = dbErrorWithHash;
 
-  // 3. Enqueue for processing (non-fatal — a queue failure won't block the upload)
-  let jobIds: string[] = [];
-  try {
-    jobIds = await QueueManager.enqueueFile({
-      fileId: docRecord.id as string,
-      caseId,
-      userId,
-      organizationId,
-      fileName: file.name,
-      fileType: file.type,
-      fileSize: file.size,
-      storagePath,
-      priority,
-    });
-  } catch (e) {
-    console.warn('Queue enqueue failed (non-fatal):', e);
-  }
+  if (dbError && shouldRetryDocumentInsertWithoutContentHash(dbError.message)) {
+    const { data: docRecordWithoutHash, error: dbErrorWithoutHash } = await supabase
+      .from('documents')
+      .insert(baseDocumentPayload)
+      .select('*')
+      .single();
 
+    docRecord = docRecordWithoutHash;
+    dbError = dbErrorWithoutHash;
+  }
+  
+  if (dbError) throw new Error(`DB insert failed: ${dbError.message}`);
+  
+  // 3. Enqueue for processing
+  const jobIds = await QueueManager.enqueueFile({
+    fileId: docRecord.id,
+    caseId,
+    userId,
+    organizationId,
+    fileName: file.name,
+    fileType: file.type,
+    fileSize: file.size,
+    storagePath,
+    file,
+    priority,
+  });
+  
   return {
     fileId: docRecord.id as string,
     document: docRecord,
