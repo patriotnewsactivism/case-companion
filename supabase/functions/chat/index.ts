@@ -13,7 +13,7 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    validateEnvVars(['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'OPENAI_API_KEY']);
+    validateEnvVars(['SUPABASE_URL', 'SUPABASE_ANON_KEY']);
 
     const authResult = await verifyAuth(req);
     if (!authResult.authorized || !authResult.user || !authResult.supabase) {
@@ -42,18 +42,43 @@ serve(async (req) => {
     }
 
     const { messages } = await req.json();
-    const AI_API_KEY = Deno.env.get("OPENAI_API_KEY");
 
-    const AI_GATEWAY_URL = Deno.env.get("AI_GATEWAY_URL") || "https://api.openai.com/v1/chat/completions";
+    // Determine AI provider: prefer custom gateway, then Google Gemini, then OpenAI
+    const AI_GATEWAY_URL = Deno.env.get("AI_GATEWAY_URL");
+    const GOOGLE_AI_API_KEY = Deno.env.get("GOOGLE_AI_API_KEY");
+    const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
 
-    const response = await fetch(AI_GATEWAY_URL, {
+    let apiUrl: string;
+    let apiKey: string;
+    let model: string;
+
+    if (AI_GATEWAY_URL) {
+      apiUrl = AI_GATEWAY_URL;
+      apiKey = OPENAI_API_KEY || GOOGLE_AI_API_KEY || "";
+      model = "gpt-4o-mini";
+    } else if (GOOGLE_AI_API_KEY) {
+      apiUrl = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
+      apiKey = GOOGLE_AI_API_KEY;
+      model = "gemini-2.0-flash";
+    } else if (OPENAI_API_KEY) {
+      apiUrl = "https://api.openai.com/v1/chat/completions";
+      apiKey = OPENAI_API_KEY;
+      model = "gpt-4o-mini";
+    } else {
+      return new Response(JSON.stringify({ error: "No AI API key configured" }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const response = await fetch(apiUrl, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${AI_API_KEY}`,
+        Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
+        model,
         messages: [
           { role: "system", content: "You are a legal research assistant helping attorneys analyze documents, case law, and legal issues. Provide clear, concise, and actionable analysis. Always cite relevant case law and statutes when applicable." },
           ...messages,

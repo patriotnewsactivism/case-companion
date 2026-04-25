@@ -8,10 +8,12 @@ import {
 } from '../_shared/errorHandler.ts';
 import { verifyAuth, forbiddenResponse } from '../_shared/auth.ts';
 import { validateUUID, validateInteger } from '../_shared/validation.ts';
+import { getGenerateContentCapableGeminiModels, getPreferredGeminiCandidates, rankGeminiModels } from '../_shared/gemini-model-utils.ts';
 
 const STORAGE_BUCKET = 'case-documents';
 const MAX_ATTEMPTS = 3;
 const BACKOFF_DELAYS = [60000, 300000, 900000]; // 1min, 5min, 15min
+const DEFAULT_GEMINI_MODELS = getPreferredGeminiCandidates(Deno.env.get('GOOGLE_AI_MODEL'));
 
 type OcrQueueStatus = 'pending' | 'processing' | 'completed' | 'failed';
 type QueueAction = 'process' | 'status' | 'enqueue' | 'retry';
@@ -140,6 +142,75 @@ const extractGeminiText = (payload: { candidates?: Array<{ content?: { parts?: A
   return parts.map((part) => String(part?.text || '')).join('').trim();
 };
 
+let resolvedGeminiModels: string[] | null = null;
+
+async function resolveGeminiModels(googleApiKey: string): Promise<string[]> {
+  if (resolvedGeminiModels) return resolvedGeminiModels;
+
+  try {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${googleApiKey}`);
+    if (!response.ok) {
+      resolvedGeminiModels = DEFAULT_GEMINI_MODELS;
+      return resolvedGeminiModels;
+    }
+
+    const payload = await response.json();
+    const availableModels = getGenerateContentCapableGeminiModels(payload);
+    if (availableModels.length === 0) {
+      resolvedGeminiModels = DEFAULT_GEMINI_MODELS;
+      return resolvedGeminiModels;
+    }
+
+    resolvedGeminiModels = rankGeminiModels(DEFAULT_GEMINI_MODELS, availableModels);
+    return resolvedGeminiModels;
+  } catch (_error) {
+    resolvedGeminiModels = DEFAULT_GEMINI_MODELS;
+    return resolvedGeminiModels;
+  }
+}
+
+async function invokeGeminiWithFallback(
+  googleApiKey: string,
+  body: Record<string, unknown>,
+  purpose: 'OCR' | 'analysis'
+): Promise<{ payload: { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> }; model: string }> {
+  const candidateModels = await resolveGeminiModels(googleApiKey);
+  let lastError = 'No Gemini models attempted';
+
+  for (const model of candidateModels) {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${googleApiKey}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (response.ok) {
+      const payload = await response.json();
+      return { payload, model };
+    }
+
+    const errorText = await response.text();
+    const unavailableModel =
+      (response.status === 404 || response.status === 400) &&
+      /model|not found|not supported/i.test(errorText);
+
+    if (response.status === 429) {
+      throw new Error(`Gemini ${purpose} rate limit exceeded (${model})`);
+    }
+
+    if (unavailableModel) {
+      lastError = `${model}: ${errorText}`;
+      continue;
+    }
+
+    throw new Error(`Gemini ${purpose} failed (${model}, ${response.status}): ${errorText}`);
+  }
+
+  throw new Error(`Gemini ${purpose} failed for all models: ${lastError}`);
+}
+
 async function ocrSpaceExtract(
   ocrSpaceApiKey: string,
   fileBlob: Blob,
@@ -244,12 +315,9 @@ OUTPUT FORMAT:
 
 Extract now:`;
 
-  const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${googleApiKey}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
+  const { payload: aiData } = await invokeGeminiWithFallback(
+    googleApiKey,
+    {
       contents: [
         {
           parts: [
@@ -267,18 +335,10 @@ Extract now:`;
         temperature: 0.1,
         maxOutputTokens: 65536,
       }
-    }),
-  });
+    },
+    'OCR'
+  );
 
-  if (!aiResponse.ok) {
-    const errorText = await aiResponse.text();
-    if (aiResponse.status === 429) {
-      throw new Error('Gemini rate limit exceeded');
-    }
-    throw new Error(`Gemini OCR failed: ${errorText}`);
-  }
-
-  const aiData = await aiResponse.json();
   const text = extractGeminiText(aiData);
 
   if (!text || text.trim().length === 0) {
@@ -380,12 +440,9 @@ ${extractedText.substring(0, 20000)}`;
 
   if (!content && hasGemini) {
     try {
-      const analysisResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${googleApiKey}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
+      const { payload: analysisData } = await invokeGeminiWithFallback(
+        googleApiKey,
+        {
           contents: [
             {
               parts: [{ text: analysisPrompt }]
@@ -396,13 +453,11 @@ ${extractedText.substring(0, 20000)}`;
             maxOutputTokens: 4096,
             responseMimeType: 'application/json',
           }
-        }),
-      });
+        },
+        'analysis'
+      );
 
-      if (analysisResponse.ok) {
-        const analysisData = await analysisResponse.json();
-        content = extractGeminiText(analysisData);
-      }
+      content = extractGeminiText(analysisData);
     } catch (error) {
       console.error('Gemini analysis error:', error);
     }

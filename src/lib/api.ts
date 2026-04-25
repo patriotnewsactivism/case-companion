@@ -251,7 +251,7 @@ export async function bulkUploadDocuments(input: BulkDocumentUploadInput): Promi
       );
 
       results.successful++;
-      results.documents.push(uploadResult.document);
+      results.documents.push(uploadResult.document as unknown as Document);
     } catch (error) {
       results.failed++;
       results.errors.push(`File ${file.name}: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -856,4 +856,517 @@ export async function joinVideoRoom(roomId: string, userName?: string): Promise<
 
   if (error) throw error;
   return data;
+}
+
+// Legal Briefs API
+export interface LegalBrief {
+  id: string;
+  case_id: string;
+  user_id: string;
+  title: string;
+  type: string;
+  status: string;
+  content: string;
+  court: string | null;
+  filed_date: string | null;
+  due_date: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateBriefInput {
+  case_id: string;
+  title: string;
+  type: string;
+  status?: string;
+  content?: string;
+  court?: string;
+  filed_date?: string;
+  due_date?: string;
+}
+
+export async function getBriefsByCase(caseId: string): Promise<LegalBrief[]> {
+  const { data, error } = await supabase
+    .from("legal_briefs")
+    .select("*")
+    .eq("case_id", caseId)
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
+  return (data as unknown as LegalBrief[]) || [];
+}
+
+export async function createBrief(input: CreateBriefInput): Promise<LegalBrief> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Not authenticated");
+
+  const { data, error } = await supabase
+    .from("legal_briefs")
+    .insert({ ...input, user_id: user.id } as never)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as unknown as LegalBrief;
+}
+
+export async function updateBrief(id: string, updates: Partial<CreateBriefInput>): Promise<LegalBrief> {
+  const { data, error } = await supabase
+    .from("legal_briefs")
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as unknown as LegalBrief;
+}
+
+export async function deleteBrief(id: string): Promise<void> {
+  const { error } = await supabase
+    .from("legal_briefs")
+    .delete()
+    .eq("id", id);
+
+  if (error) throw error;
+}
+
+// ──────────────────────────────────────────────────
+// Document Version History API
+// ──────────────────────────────────────────────────
+
+export interface DocumentVersion {
+  id: string;
+  document_id: string;
+  version_number: number;
+  user_id: string;
+  name: string;
+  file_url: string | null;
+  file_type: string | null;
+  file_size: number | null;
+  summary: string | null;
+  key_facts: string[] | null;
+  favorable_findings: string[] | null;
+  adverse_findings: string[] | null;
+  action_items: string[] | null;
+  ocr_text: string | null;
+  change_description: string | null;
+  change_type: string;
+  diff_summary: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export async function getDocumentVersions(documentId: string): Promise<DocumentVersion[]> {
+  const { data, error } = await supabase
+    .from("document_versions")
+    .select("*")
+    .eq("document_id", documentId)
+    .order("version_number", { ascending: false });
+
+  if (error) throw error;
+  return (data as unknown as DocumentVersion[]) || [];
+}
+
+export async function getDocumentVersion(versionId: string): Promise<DocumentVersion | null> {
+  const { data, error } = await supabase
+    .from("document_versions")
+    .select("*")
+    .eq("id", versionId)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data as unknown as DocumentVersion | null;
+}
+
+export async function rollbackDocument(documentId: string, versionId: string): Promise<Document> {
+  const version = await getDocumentVersion(versionId);
+  if (!version) throw new Error("Version not found");
+
+  const { data, error } = await supabase
+    .from("documents")
+    .update({
+      name: version.name,
+      file_url: version.file_url,
+      summary: version.summary,
+      key_facts: version.key_facts,
+      favorable_findings: version.favorable_findings,
+      adverse_findings: version.adverse_findings,
+      action_items: version.action_items,
+      ocr_text: version.ocr_text,
+    })
+    .eq("id", documentId)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as unknown as Document;
+}
+
+// ──────────────────────────────────────────────────
+// Team / Organization API
+// ──────────────────────────────────────────────────
+
+export interface Organization {
+  id: string;
+  name: string;
+  slug: string | null;
+  owner_id: string;
+  settings: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OrganizationMember {
+  id: string;
+  organization_id: string;
+  user_id: string;
+  role: "owner" | "partner" | "associate" | "paralegal" | "viewer";
+  joined_at: string;
+}
+
+export interface CaseMember {
+  id: string;
+  case_id: string;
+  user_id: string;
+  role: "owner" | "partner" | "associate" | "paralegal" | "viewer";
+  added_by: string | null;
+  added_at: string;
+  email?: string;
+  full_name?: string;
+}
+
+export async function getOrganization(): Promise<Organization | null> {
+  const { data, error } = await supabase
+    .from("organizations")
+    .select("*")
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data as unknown as Organization | null;
+}
+
+export async function createOrganization(name: string, slug?: string): Promise<Organization> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Not authenticated");
+
+  const { data, error } = await supabase
+    .from("organizations")
+    .insert({ name, slug: slug || name.toLowerCase().replace(/\s+/g, "-"), owner_id: user.id })
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  // Add owner as member
+  await supabase.from("organization_members").insert({
+    organization_id: data.id,
+    user_id: user.id,
+    role: "owner",
+    invited_by: user.id,
+  });
+
+  return data as unknown as Organization;
+}
+
+export async function getOrganizationMembers(orgId: string): Promise<OrganizationMember[]> {
+  const { data, error } = await supabase
+    .from("organization_members")
+    .select("*")
+    .eq("organization_id", orgId);
+
+  if (error) throw error;
+  return (data as unknown as OrganizationMember[]) || [];
+}
+
+export async function getCaseMembers(caseId: string): Promise<CaseMember[]> {
+  const { data, error } = await supabase
+    .from("case_members")
+    .select("*")
+    .eq("case_id", caseId);
+
+  if (error) throw error;
+  return (data as unknown as CaseMember[]) || [];
+}
+
+export async function addCaseMember(
+  caseId: string,
+  email: string,
+  role: CaseMember["role"]
+): Promise<CaseMember> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("Not authenticated");
+
+  // Look up user by email via edge function
+  const { data, error } = await supabase.functions.invoke("invite-member", {
+    body: { caseId, email, role },
+  });
+
+  if (error) throw error;
+  return data as unknown as CaseMember;
+}
+
+export async function removeCaseMember(memberId: string): Promise<void> {
+  const { error } = await supabase
+    .from("case_members")
+    .delete()
+    .eq("id", memberId);
+
+  if (error) throw error;
+}
+
+export async function updateCaseMemberRole(
+  memberId: string,
+  role: CaseMember["role"]
+): Promise<CaseMember> {
+  const { data, error } = await supabase
+    .from("case_members")
+    .update({ role })
+    .eq("id", memberId)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as unknown as CaseMember;
+}
+
+// ──────────────────────────────────────────────────
+// Export API
+// ──────────────────────────────────────────────────
+
+export interface ExportJob {
+  id: string;
+  user_id: string;
+  case_id: string;
+  export_type: "pdf_brief" | "csv_billing" | "docx_filing" | "pdf_case_summary" | "csv_documents";
+  status: "pending" | "processing" | "completed" | "failed";
+  file_url: string | null;
+  file_name: string | null;
+  file_size: number | null;
+  options: Record<string, unknown>;
+  error_message: string | null;
+  created_at: string;
+  completed_at: string | null;
+}
+
+export async function createExportJob(
+  caseId: string,
+  exportType: ExportJob["export_type"],
+  options?: Record<string, unknown>
+): Promise<ExportJob> {
+  const { data, error } = await supabase.functions.invoke("export-document", {
+    body: { caseId, exportType, options: options || {} },
+  });
+
+  if (error) throw error;
+  return data as unknown as ExportJob;
+}
+
+export async function getExportJobs(caseId: string): Promise<ExportJob[]> {
+  const { data, error } = await supabase
+    .from("export_jobs")
+    .select("*")
+    .eq("case_id", caseId)
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
+  return (data as unknown as ExportJob[]) || [];
+}
+
+// ──────────────────────────────────────────────────
+// Conflict Checking API
+// ──────────────────────────────────────────────────
+
+export interface ConflictResult {
+  case_id: string;
+  case_name: string;
+  client_name: string;
+  opposing_party: string | null;
+  match_type: "client_match" | "adverse_match";
+  match_field: string;
+  similarity_score: number;
+}
+
+export interface ConflictCheck {
+  id: string;
+  user_id: string;
+  search_terms: Record<string, unknown>;
+  results: ConflictResult[];
+  conflicts_found: number;
+  status: "clear" | "conflict" | "potential" | "waived";
+  resolution_notes: string | null;
+  created_at: string;
+}
+
+export async function runConflictCheck(params: {
+  clientName: string;
+  opposingParty?: string;
+  additionalParties?: string[];
+}): Promise<{ conflicts: ConflictResult[]; totalChecked: number; checkId: string; status: string }> {
+  const { data, error } = await supabase.functions.invoke("conflict-check", {
+    body: params,
+  });
+
+  if (error) throw error;
+  return data;
+}
+
+export async function getConflictCheckHistory(): Promise<ConflictCheck[]> {
+  const { data, error } = await supabase
+    .from("conflict_checks")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(50);
+
+  if (error) throw error;
+  return (data as unknown as ConflictCheck[]) || [];
+}
+
+export async function resolveConflict(checkId: string, notes: string): Promise<void> {
+  const { error } = await supabase
+    .from("conflict_checks")
+    .update({ status: "waived", resolution_notes: notes } as never)
+    .eq("id", checkId);
+
+  if (error) throw error;
+}
+
+// ──────────────────────────────────────────────────
+// Judicial Intelligence API
+// ──────────────────────────────────────────────────
+
+export interface JudicialProfileResult {
+  success: boolean;
+  profile: Record<string, unknown>;
+  cached: boolean;
+}
+
+export async function searchJudge(
+  judgeName: string,
+  court?: string,
+  caseType?: string
+): Promise<JudicialProfileResult> {
+  const { data, error } = await supabase.functions.invoke("judicial-research", {
+    body: { judgeName, court, caseType },
+  });
+  if (error) throw error;
+  return data as JudicialProfileResult;
+}
+
+export async function getJudicialProfiles(): Promise<unknown[]> {
+  const { data, error } = await supabase
+    .from("judicial_profiles")
+    .select("*")
+    .order("last_updated", { ascending: false });
+  if (error) throw error;
+  return data || [];
+}
+
+// ──────────────────────────────────────────────────
+// Cross-Document Intelligence API
+// ──────────────────────────────────────────────────
+
+export async function runCrossDocumentAnalysis(caseId: string): Promise<{ success: boolean; analysis: Record<string, unknown> }> {
+  const { data, error } = await supabase.functions.invoke("cross-document-analysis", {
+    body: { caseId },
+  });
+  if (error) throw error;
+  return data;
+}
+
+export async function getCrossDocumentAnalysis(caseId: string): Promise<Record<string, unknown> | null> {
+  const { data, error } = await supabase
+    .from("case_strategies")
+    .select("content, updated_at")
+    .eq("case_id", caseId)
+    .eq("strategy_type", "cross_document")
+    .maybeSingle();
+  if (error) throw error;
+  return data ? (data.content as Record<string, unknown>) : null;
+}
+
+// ──────────────────────────────────────────────────
+// Argument Strength Analyzer API
+// ──────────────────────────────────────────────────
+
+export async function analyzeBriefArguments(
+  briefId: string,
+  caseId: string
+): Promise<{ success: boolean; analysis: Record<string, unknown> }> {
+  const { data, error } = await supabase.functions.invoke("argument-analyzer", {
+    body: { briefId, caseId },
+  });
+  if (error) throw error;
+  return data;
+}
+
+// ──────────────────────────────────────────────────
+// Witness Preparation API
+// ──────────────────────────────────────────────────
+
+export async function generateWitnessPrepPack(
+  caseId: string,
+  witnessName: string,
+  witnessRole: string,
+  additionalContext?: string
+): Promise<{ success: boolean; prepPack: Record<string, unknown>; witnessDocumentCount: number }> {
+  const { data, error } = await supabase.functions.invoke("witness-prep", {
+    body: { caseId, witnessName, witnessRole, additionalContext },
+  });
+  if (error) throw error;
+  return data;
+}
+
+// ──────────────────────────────────────────────────
+// Privilege Log API
+// ──────────────────────────────────────────────────
+
+export interface PrivilegeLogEntry {
+  id?: string;
+  case_id?: string;
+  document_id?: string | null;
+  bates_number?: string;
+  date_of_document?: string;
+  author?: string;
+  recipients?: string[];
+  description: string;
+  privilege_type: string;
+  work_product_type?: string | null;
+  basis_for_privilege?: string;
+  confidence_score?: number;
+  flags_for_review?: string[];
+  reviewed_by_attorney?: boolean;
+  final_determination?: string;
+}
+
+export async function generatePrivilegeLog(
+  caseId: string,
+  documentIds?: string[]
+): Promise<{ success: boolean; entries: PrivilegeLogEntry[]; totalDocumentsReviewed: number; privilegedCount: number }> {
+  const { data, error } = await supabase.functions.invoke("privilege-log", {
+    body: { caseId, documentIds },
+  });
+  if (error) throw error;
+  return data;
+}
+
+export async function getPrivilegeLogEntries(caseId: string): Promise<PrivilegeLogEntry[]> {
+  const { data, error } = await supabase
+    .from("privilege_log_entries")
+    .select("*")
+    .eq("case_id", caseId)
+    .order("bates_number", { ascending: true });
+  if (error) throw error;
+  return (data as unknown as PrivilegeLogEntry[]) || [];
+}
+
+export async function updatePrivilegeLogEntry(
+  id: string,
+  updates: Partial<PrivilegeLogEntry>
+): Promise<void> {
+  const { error } = await supabase
+    .from("privilege_log_entries")
+    .update({ ...updates } as never)
+    .eq("id", id);
+  if (error) throw error;
 }

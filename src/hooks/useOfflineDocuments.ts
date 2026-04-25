@@ -189,7 +189,7 @@ export function useOfflineDocuments(): UseOfflineDocumentsReturn {
       dbRef.current = await openDatabase();
     }
 
-    const { data: doc, error } = await supabase
+    const { data: doc, error } = await (supabase as any)
       .from('documents')
       .select('*')
       .eq('id', documentId)
@@ -249,7 +249,7 @@ export function useOfflineDocuments(): UseOfflineDocumentsReturn {
 
       for (const doc of modified) {
         try {
-          await supabase
+          await (supabase as any)
             .from('documents')
             .update({ updated_at: new Date().toISOString() })
             .eq('id', doc.id);

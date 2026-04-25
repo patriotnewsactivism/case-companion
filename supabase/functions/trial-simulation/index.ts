@@ -407,7 +407,7 @@ function parseDepositionQuestionsFromText(rawText: string): DepositionPrepQuesti
     const trimmed = line.trim();
     if (!trimmed) continue;
 
-    if (/^(QUESTION\s*\d*[:\-]|\d+[.)]\s+)/i.test(trimmed)) {
+    if (/^(QUESTION\s*\d*[:-]|\d+[.)]\s+)/i.test(trimmed)) {
       if (current?.question) {
         questions.push({
           question: current.question,
@@ -420,7 +420,7 @@ function parseDepositionQuestionsFromText(rawText: string): DepositionPrepQuesti
       }
 
       const questionText = trimmed
-        .replace(/^(QUESTION\s*\d*[:\-]|\d+[.)]\s+)/i, '')
+        .replace(/^(QUESTION\s*\d*[:-]|\d+[.)]\s+)/i, '')
         .trim();
 
       current = questionText ? { question: questionText } : null;
@@ -520,7 +520,7 @@ async function callGemini(
   temperature: number
 ): Promise<string | null> {
   try {
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${googleApiKey}`;
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${googleApiKey}`;
     const response = await fetch(geminiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -721,6 +721,14 @@ serve(async (req) => {
       .order('event_date', { ascending: true })
       .limit(20);
 
+    // Get case_context (OCR knowledge bank)
+    const { data: caseContextRows } = await supabase
+      .from('case_context')
+      .select('context_type, content, summary, source_document, key_entities, key_dates, key_facts, confidence_score')
+      .eq('case_id', caseId)
+      .order('confidence_score', { ascending: false })
+      .limit(30);
+
     // Build rich context from case data
     const caseContext = {
       caseName: caseData.name,
@@ -747,6 +755,16 @@ serve(async (req) => {
       adverse: doc.adverse_findings || [],
       ocrPreview: doc.ocr_text?.substring(0, 500),
     })) || [];
+
+    const caseContextSummary = (caseContextRows || []).map(ctx => ({
+      contextType: ctx.context_type,
+      content: ctx.content ? String(ctx.content).substring(0, 800) : '',
+      summary: ctx.summary,
+      source: ctx.source_document,
+      keyEntities: ctx.key_entities || [],
+      keyDates: ctx.key_dates || [],
+      keyFacts: ctx.key_facts || [],
+    }));
 
     const depositionContext = depositions?.map(dep => ({
       deponent: dep.deponent_name,
@@ -812,6 +830,13 @@ ${wp.name} (${wp.type || 'Witness'}):
 ${wp.simulationNotes ? `- Simulation Notes: ${wp.simulationNotes}` : ''}
 `).join('\n')}` : ''}
 
+${caseContextSummary.length > 0 ? `=== OCR KNOWLEDGE BANK (${caseContextSummary.length} entries) ===
+${caseContextSummary.slice(0, 8).map((c, i) => `[${i+1}] ${c.contextType} | ${c.source || 'unknown'}
+Summary: ${c.summary || 'N/A'}
+Facts: ${c.keyFacts.slice(0,3).join('; ') || 'N/A'}
+Entities: ${c.keyEntities.slice(0,3).join(', ') || 'N/A'}
+Dates: ${c.keyDates.slice(0,2).join(', ') || 'N/A'}`).join('\n\n')}` : ''}
+
 ${timelineContext.length > 0 ? `=== CASE TIMELINE ===
 ${timelineContext.slice(0, 10).map(event =>
   `${event.date}: ${event.title}${event.description ? ` - ${event.description}` : ''}`
@@ -821,12 +846,25 @@ ${additionalContext ? `=== ADDITIONAL ATTORNEY CONTEXT ===
 ${additionalContext}` : ''}
 
 === INSTRUCTIONS ===
-Stay in character as ${simulationConfig.role}. Be realistic, challenging, and immersive.
+Stay in character as ${simulationConfig.role}. Be realistic, challenging, and immersive. 
+
+TACTICAL INTELLIGENCE:
+- If the attorney asks a compound question, the witness should look confused and ask for clarification.
+- If the attorney is too aggressive on cross, the witness should become more guarded and terse.
+- If the attorney asks a question that assumes a fact not in evidence (based on the CASE INFORMATION provided), point it out in character: "I never said that happened, counselor."
+- The "Skeptical Judge" should interrupt if the attorney rambles or misstates the law.
+
+VOICE CADENCE:
+- Your response will be converted to speech. Write naturally. 
+- Use short sentences for witnesses.
+- Use authoritative, well-paced sentences for judges.
+- No markdown, no bullet points, no asterisks, no headers.
+
 ${mode === 'deposition-prep'
   ? `Return ONLY valid JSON using this exact shape:
 {"questions":[{"question":"...","type":"foundational|trap|clarifying|impeachment","purpose":"...","risk":"low|medium|high","followUp":"...","targetDocument":"..."}]}
 No markdown, no code fences, and no text outside the JSON object.`
-  : 'Remember: your response will be converted to speech, so write naturally with no markdown, no bullet points, no asterisks, no headers.'}
+  : 'Response must be pure text for speech synthesis.'}
 ${mode === 'objections-practice' ? `
 When presenting questions, vary between:
 - Clearly objectionable questions
@@ -843,8 +881,8 @@ ${messages.length === 0 && mode !== 'deposition-prep'
     const googleApiKey = Deno.env.get('GOOGLE_AI_API_KEY')?.trim() || '';
     const openAiApiKey = Deno.env.get('OPENAI_API_KEY')?.trim() || '';
     const aiGatewayUrl = Deno.env.get('AI_GATEWAY_URL') || 'https://api.openai.com/v1/chat/completions';
-    const aiGatewayModel = Deno.env.get('AI_GATEWAY_MODEL') || 'google/gemini-3-flash-preview';
-    const maxOutputTokens = mode === 'deposition-prep' ? 900 : 600;
+    const aiGatewayModel = Deno.env.get('AI_GATEWAY_MODEL') || 'gpt-4o-mini';
+    const maxOutputTokens = mode === 'deposition-prep' ? 1200 : 900;
     const modelTemperature = mode === 'deposition-prep' ? 0.6 : 0.85;
     const chatPrompt = systemPrompt + '\n\n' + messages.map((m) => `${m.role}: ${m.content}`).join('\n');
 
@@ -910,7 +948,7 @@ ${messages.length === 0 && mode !== 'deposition-prep'
     // Generate coaching feedback periodically
     let coaching = null;
     const shouldProvideCoaching = mode !== 'deposition-prep' && messages.length > 0 && (
-      messages.length % 4 === 0 ||
+      messages.length % 3 === 0 ||
       mode === 'objections-practice' ||
       mode === 'opening-statement' ||
       mode === 'closing-argument'

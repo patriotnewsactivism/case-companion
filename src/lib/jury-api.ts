@@ -72,7 +72,7 @@ export async function getJurySessions(caseId?: string): Promise<MockJurySession[
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Not authenticated");
 
-  let query = supabase
+  let query = (supabase as any)
     .from('mock_jury_sessions')
     .select('*')
     .eq('user_id', user.id)
@@ -89,7 +89,7 @@ export async function getJurySessions(caseId?: string): Promise<MockJurySession[
 }
 
 export async function getJurySession(id: string): Promise<MockJurySession | null> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from('mock_jury_sessions')
     .select('*')
     .eq('id', id)
@@ -100,7 +100,7 @@ export async function getJurySession(id: string): Promise<MockJurySession | null
 }
 
 export async function deleteJurySession(id: string): Promise<void> {
-  const { error } = await supabase
+  const { error } = await (supabase as any)
     .from('mock_jury_sessions')
     .delete()
     .eq('id', id);

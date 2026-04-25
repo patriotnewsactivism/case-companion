@@ -44,12 +44,7 @@ interface SpeechRecognition extends EventTarget {
   onstart: (() => void) | null;
 }
 
-declare global {
-  interface Window {
-    SpeechRecognition: new () => SpeechRecognition;
-    webkitSpeechRecognition: new () => SpeechRecognition;
-  }
-}
+// SpeechRecognition types are already declared globally
 
 export function useVoiceCommands(): UseVoiceCommandsReturn {
   const [isListening, setIsListening] = useState(false);
