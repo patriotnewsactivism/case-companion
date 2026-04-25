@@ -83,6 +83,15 @@ const Settings = lazy(() => import("./pages/Settings"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 const Analytics = lazy(() => import("./pages/Analytics"));
 const MockJury = lazy(() => import("./pages/MockJury"));
+const Team = lazy(() => import("./pages/Team"));
+const ConflictCheck = lazy(() => import("./pages/ConflictCheck"));
+const CaseTimeline = lazy(() => import("./pages/CaseTimeline"));
+const CaseMotions = lazy(() => import("./pages/CaseMotions"));
+const CaseMotionGenerator = lazy(() => import("./pages/CaseMotionGenerator"));
+const CaseSimulator = lazy(() => import("./pages/CaseSimulator"));
+const CaseSimulatorHistory = lazy(() => import("./pages/CaseSimulatorHistory"));
+const AzureBotChatPage = lazy(() => import("./pages/AzureBotChat"));
+const JudicialIntelligence = lazy(() => import("./pages/JudicialIntelligence"));
 
 // Optimized React Query configuration for better performance
 const queryClient = new QueryClient({
@@ -214,6 +223,52 @@ const App = () => (
                       <MockJury />
                     </ProtectedRoute>
                   }
+                />
+                <Route
+                  path="/team"
+                  element={
+                    <ProtectedRoute>
+                      <Team />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/conflicts"
+                  element={
+                    <ProtectedRoute>
+                      <ConflictCheck />
+                    </ProtectedRoute>
+                  }
+                />
+
+                {/* Mission upgrade routes */}
+                <Route
+                  path="/cases/:id/timeline"
+                  element={<ProtectedRoute><CaseTimeline /></ProtectedRoute>}
+                />
+                <Route
+                  path="/cases/:id/motions"
+                  element={<ProtectedRoute><CaseMotions /></ProtectedRoute>}
+                />
+                <Route
+                  path="/cases/:id/motions/generate"
+                  element={<ProtectedRoute><CaseMotionGenerator /></ProtectedRoute>}
+                />
+                <Route
+                  path="/cases/:id/simulator"
+                  element={<ProtectedRoute><CaseSimulator /></ProtectedRoute>}
+                />
+                <Route
+                  path="/cases/:id/simulator/history"
+                  element={<ProtectedRoute><CaseSimulatorHistory /></ProtectedRoute>}
+                />
+                <Route
+                  path="/cases/:id/ai-assistant"
+                  element={<ProtectedRoute><AzureBotChatPage /></ProtectedRoute>}
+                />
+                <Route
+                  path="/judicial-intelligence"
+                  element={<ProtectedRoute><JudicialIntelligence /></ProtectedRoute>}
                 />
 
                 {/* 404 page */}

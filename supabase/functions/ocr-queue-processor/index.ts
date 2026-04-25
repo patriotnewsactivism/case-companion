@@ -8,10 +8,12 @@ import {
 } from '../_shared/errorHandler.ts';
 import { verifyAuth, forbiddenResponse } from '../_shared/auth.ts';
 import { validateUUID, validateInteger } from '../_shared/validation.ts';
+import { getGenerateContentCapableGeminiModels, getPreferredGeminiCandidates, rankGeminiModels } from '../_shared/gemini-model-utils.ts';
 
 const STORAGE_BUCKET = 'case-documents';
 const MAX_ATTEMPTS = 3;
 const BACKOFF_DELAYS = [60000, 300000, 900000]; // 1min, 5min, 15min
+const DEFAULT_GEMINI_MODELS = getPreferredGeminiCandidates(Deno.env.get('GOOGLE_AI_MODEL'));
 
 
 type TimelineImportance = 'low' | 'medium' | 'high';
@@ -177,7 +179,7 @@ const mergeChunkAnalyses = (analyses: ChunkAnalysisResult[]): ChunkAnalysisResul
 
 
 type OcrQueueStatus = 'pending' | 'processing' | 'completed' | 'failed';
-type QueueAction = 'process' | 'status' | 'enqueue';
+type QueueAction = 'process' | 'status' | 'enqueue' | 'retry';
 
 interface OcrQueueJob {
   id: string;
@@ -198,6 +200,7 @@ interface QueueRequest {
   caseId?: string;
   documentIds?: string[];
   priority?: number;
+  jobId?: string;
 }
 
 interface QueueJobResult {
@@ -222,20 +225,6 @@ interface OcrSpaceResponse {
   OCRExitCode?: number;
   ParsedResults?: OcrSpaceParsedResult[];
   ErrorMessage?: string | string[];
-}
-
-interface AzureOcrRegion {
-  lines?: Array<{ words?: Array<{ text?: string }> }>;
-}
-
-interface AzureOcrResult {
-  regions?: AzureOcrRegion[];
-}
-
-interface AzureReadResult {
-  analyzeResult?: {
-    readResults?: Array<{ lines?: Array<{ text?: string }> }>;
-  };
 }
 
 function extractStoragePath(fileUrl: string): string | null {
@@ -292,8 +281,6 @@ async function loadFileBlob(
   return { blob, contentType };
 }
 
-const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
 const arrayBufferToBase64 = (buffer: ArrayBuffer): string => {
   const bytes = new Uint8Array(buffer);
   let binary = '';
@@ -318,126 +305,73 @@ const extractGeminiText = (payload: { candidates?: Array<{ content?: { parts?: A
   return parts.map((part) => String(part?.text || '')).join('').trim();
 };
 
-const extractAzureText = (result: AzureOcrResult): string => {
-  const lines: string[] = [];
-  const regions = result.regions || [];
-  for (const region of regions) {
-    for (const line of region.lines || []) {
-      const lineText = (line.words || []).map((w) => w.text || '').join(' ');
-      if (lineText) lines.push(lineText);
+let resolvedGeminiModels: string[] | null = null;
+
+async function resolveGeminiModels(googleApiKey: string): Promise<string[]> {
+  if (resolvedGeminiModels) return resolvedGeminiModels;
+
+  try {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${googleApiKey}`);
+    if (!response.ok) {
+      resolvedGeminiModels = DEFAULT_GEMINI_MODELS;
+      return resolvedGeminiModels;
     }
+
+    const payload = await response.json();
+    const availableModels = getGenerateContentCapableGeminiModels(payload);
+    if (availableModels.length === 0) {
+      resolvedGeminiModels = DEFAULT_GEMINI_MODELS;
+      return resolvedGeminiModels;
+    }
+
+    resolvedGeminiModels = rankGeminiModels(DEFAULT_GEMINI_MODELS, availableModels);
+    return resolvedGeminiModels;
+  } catch (_error) {
+    resolvedGeminiModels = DEFAULT_GEMINI_MODELS;
+    return resolvedGeminiModels;
   }
-  return lines.join('\n');
-};
+}
 
-const extractAzureReadResult = (result: AzureReadResult): string => {
-  const pages: string[] = [];
-  const analyzeResult = result.analyzeResult || {};
-  const readResults = analyzeResult.readResults || [];
+async function invokeGeminiWithFallback(
+  googleApiKey: string,
+  body: Record<string, unknown>,
+  purpose: 'OCR' | 'analysis'
+): Promise<{ payload: { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> }; model: string }> {
+  const candidateModels = await resolveGeminiModels(googleApiKey);
+  let lastError = 'No Gemini models attempted';
 
-  for (let i = 0; i < readResults.length; i += 1) {
-    const page = readResults[i];
-    const pageLines: string[] = [];
-    for (const line of page.lines || []) {
-      if (line.text) pageLines.push(line.text);
-    }
-    if (readResults.length > 1) {
-      pages.push(`=== PAGE ${i + 1} ===\n${pageLines.join('\n')}`);
-    } else {
-      pages.push(pageLines.join('\n'));
-    }
-  }
-  return pages.join('\n\n');
-};
-
-async function azureOcr(
-  azureVisionKey: string,
-  azureVisionEndpoint: string,
-  fileBlob: Blob,
-  isImage: boolean
-): Promise<string> {
-  const endpoint = azureVisionEndpoint.endsWith('/')
-    ? azureVisionEndpoint.slice(0, -1)
-    : azureVisionEndpoint;
-
-  let allText = '';
-
-  if (isImage) {
-    const arrayBuffer = await fileBlob.arrayBuffer();
-    const response = await fetch(`${endpoint}/vision/v3.2/ocr?detectOrientation=true`, {
+  for (const model of candidateModels) {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${googleApiKey}`, {
       method: 'POST',
       headers: {
-        'Ocp-Apim-Subscription-Key': azureVisionKey,
-        'Content-Type': 'application/octet-stream',
+        'Content-Type': 'application/json',
       },
-      body: arrayBuffer,
+      body: JSON.stringify(body),
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      if (response.status === 429) {
-        throw new Error('Azure rate limit exceeded');
-      }
-      throw new Error(`Azure OCR failed: ${response.status} ${errorText}`);
+    if (response.ok) {
+      const payload = await response.json();
+      return { payload, model };
     }
 
-    const result = await response.json();
-    allText = extractAzureText(result);
-  } else {
-    const formData = new FormData();
-    formData.append('file', fileBlob, 'document.pdf');
+    const errorText = await response.text();
+    const unavailableModel =
+      (response.status === 404 || response.status === 400) &&
+      /model|not found|not supported/i.test(errorText);
 
-    const response = await fetch(`${endpoint}/vision/v3.2/read/analyze`, {
-      method: 'POST',
-      headers: {
-        'Ocp-Apim-Subscription-Key': azureVisionKey,
-      },
-      body: formData,
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      if (response.status === 429) {
-        throw new Error('Azure rate limit exceeded');
-      }
-      throw new Error(`Azure PDF OCR failed: ${response.status} ${errorText}`);
+    if (response.status === 429) {
+      throw new Error(`Gemini ${purpose} rate limit exceeded (${model})`);
     }
 
-    const operationLocation = response.headers.get('Operation-Location');
-    if (!operationLocation) {
-      throw new Error('Azure did not return Operation-Location header');
+    if (unavailableModel) {
+      lastError = `${model}: ${errorText}`;
+      continue;
     }
 
-    let attempts = 0;
-    let readResult = null;
-    while (attempts < 30) {
-      await delay(1000);
-      const statusResponse = await fetch(operationLocation, {
-        headers: { 'Ocp-Apim-Subscription-Key': azureVisionKey },
-      });
-      const statusData = await statusResponse.json();
-      if (statusData.status === 'succeeded') {
-        readResult = statusData;
-        break;
-      }
-      if (statusData.status === 'failed') {
-        throw new Error('Azure PDF OCR analysis failed');
-      }
-      attempts += 1;
-    }
-
-    if (!readResult) {
-      throw new Error('Azure PDF OCR timed out');
-    }
-
-    allText = extractAzureReadResult(readResult);
+    throw new Error(`Gemini ${purpose} failed (${model}, ${response.status}): ${errorText}`);
   }
 
-  if (!allText || allText.trim().length === 0) {
-    throw new Error('Azure returned empty text');
-  }
-
-  return allText;
+  throw new Error(`Gemini ${purpose} failed for all models: ${lastError}`);
 }
 
 async function ocrSpaceExtract(
@@ -544,12 +478,9 @@ OUTPUT FORMAT:
 
 Extract now:`;
 
-  const aiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${googleApiKey}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
+  const { payload: aiData } = await invokeGeminiWithFallback(
+    googleApiKey,
+    {
       contents: [
         {
           parts: [
@@ -567,18 +498,10 @@ Extract now:`;
         temperature: 0.1,
         maxOutputTokens: 65536,
       }
-    }),
-  });
+    },
+    'OCR'
+  );
 
-  if (!aiResponse.ok) {
-    const errorText = await aiResponse.text();
-    if (aiResponse.status === 429) {
-      throw new Error('Gemini rate limit exceeded');
-    }
-    throw new Error(`Gemini OCR failed: ${errorText}`);
-  }
-
-  const aiData = await aiResponse.json();
   const text = extractGeminiText(aiData);
 
   if (!text || text.trim().length === 0) {
@@ -751,22 +674,18 @@ ${chunk}`;
 async function processOcrJob(
   supabase: SupabaseClient,
   job: OcrQueueJob,
-  azureVisionKey: string | undefined,
-  azureVisionEndpoint: string | undefined,
   ocrSpaceApiKey: string | undefined,
   googleApiKey: string | undefined,
   openaiApiKey: string | undefined,
   aiGatewayUrl: string | undefined
 ): Promise<{ success: boolean; error?: string }> {
-  const hasAzure = !!(azureVisionKey && azureVisionEndpoint);
   const hasOcrSpace = !!ocrSpaceApiKey;
   const hasGemini = !!googleApiKey;
-  const allowFallbackProviders = Deno.env.get('OCR_ENABLE_FALLBACKS') === 'true';
 
-  if (!hasAzure) {
+  if (!hasGemini && !hasOcrSpace) {
     return {
       success: false,
-      error: 'Azure OCR is not configured. Please set AZURE_VISION_API_KEY and AZURE_VISION_ENDPOINT.',
+      error: 'No OCR providers configured. Please set GOOGLE_AI_API_KEY or OCR_SPACE_API_KEY.',
     };
   }
 
@@ -797,29 +716,7 @@ async function processOcrJob(
       const errors: string[] = [];
       const mimeType = resolvedContentType || (isImage ? 'image/jpeg' : 'application/pdf');
 
-      if (hasAzure) {
-        try {
-          extractedText = await azureOcr(azureVisionKey!, azureVisionEndpoint!, fileBlob, !!isImage);
-          console.log(`Azure extracted ${extractedText.length} characters`);
-        } catch (error) {
-          const msg = error instanceof Error ? error.message : String(error);
-          errors.push(`Azure: ${msg}`);
-          console.error('Azure OCR error:', msg);
-        }
-      }
-
-      if (!extractedText && allowFallbackProviders && hasOcrSpace) {
-        try {
-          extractedText = await ocrSpaceExtract(ocrSpaceApiKey!, fileBlob, !!isImage, mimeType);
-          console.log(`OCR.space extracted ${extractedText.length} characters`);
-        } catch (error) {
-          const msg = error instanceof Error ? error.message : String(error);
-          errors.push(`OCR.space: ${msg}`);
-          console.error('OCR.space OCR error:', msg);
-        }
-      }
-
-      if (!extractedText && allowFallbackProviders && hasGemini) {
+      if (hasGemini) {
         try {
           extractedText = await geminiOcr(googleApiKey!, fileBlob, mimeType, !!isImage);
           console.log(`Gemini extracted ${extractedText.length} characters`);
@@ -830,8 +727,19 @@ async function processOcrJob(
         }
       }
 
+      if (!extractedText && hasOcrSpace) {
+        try {
+          extractedText = await ocrSpaceExtract(ocrSpaceApiKey!, fileBlob, !!isImage, mimeType);
+          console.log(`OCR.space extracted ${extractedText.length} characters`);
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error);
+          errors.push(`OCR.space: ${msg}`);
+          console.error('OCR.space OCR error:', msg);
+        }
+      }
+
       if (!extractedText) {
-        const modePrefix = allowFallbackProviders ? 'All OCR providers failed.' : 'Azure OCR failed.';
+        const modePrefix = 'All OCR providers failed.';
         return { success: false, error: `${modePrefix} ${errors.join('; ')}`.trim() };
       }
     } else if (resolvedContentType.includes('text') || doc.file_url.match(/\.(txt|doc|docx)$/i)) {
@@ -948,8 +856,6 @@ async function processOcrJob(
 
 async function handleProcessAction(
   supabase: SupabaseClient,
-  azureVisionKey: string | undefined,
-  azureVisionEndpoint: string | undefined,
   ocrSpaceApiKey: string | undefined,
   googleApiKey: string | undefined,
   openaiApiKey: string | undefined,
@@ -1000,8 +906,6 @@ async function handleProcessAction(
     const result = await processOcrJob(
       supabase,
       job,
-      azureVisionKey,
-      azureVisionEndpoint,
       ocrSpaceApiKey,
       googleApiKey,
       openaiApiKey,
@@ -1121,6 +1025,74 @@ async function handleStatusAction(
   };
 }
 
+async function handleRetryAction(
+  supabase: SupabaseClient,
+  userId: string,
+  caseId: string,
+  jobId: string
+): Promise<QueueResponse> {
+  const { data: caseData, error: caseError } = await supabase
+    .from('cases')
+    .select('user_id')
+    .eq('id', caseId)
+    .single();
+
+  if (caseError || !caseData) {
+    throw new Error('Case not found');
+  }
+
+  if ((caseData as { user_id: string }).user_id !== userId) {
+    throw new Error('You do not have access to this case');
+  }
+
+  const { data: jobData, error: jobError } = await supabase
+    .from('ocr_queue')
+    .select('id, document_id, status, case_id, user_id')
+    .eq('id', jobId)
+    .eq('case_id', caseId)
+    .eq('user_id', userId)
+    .single();
+
+  if (jobError || !jobData) {
+    throw new Error('Queue job not found');
+  }
+
+  if ((jobData as { status: OcrQueueStatus }).status !== 'failed') {
+    throw new Error('Only failed jobs can be retried');
+  }
+
+  const now = new Date().toISOString();
+  const { error: updateError } = await supabase
+    .from('ocr_queue')
+    .update({
+      status: 'pending',
+      attempts: 0,
+      retry_after: null,
+      error_message: null,
+      updated_at: now,
+      started_at: null,
+      completed_at: null
+    })
+    .eq('id', jobId)
+    .eq('case_id', caseId)
+    .eq('user_id', userId);
+
+  if (updateError) {
+    throw new Error(`Failed to retry queue job: ${updateError.message}`);
+  }
+
+  return {
+    processed: 0,
+    remaining: 1,
+    failed: 0,
+    jobs: [{
+      id: (jobData as { id: string }).id,
+      documentId: (jobData as { document_id: string }).document_id,
+      status: 'pending'
+    }]
+  };
+}
+
 async function handleEnqueueAction(
   supabase: SupabaseClient,
   userId: string,
@@ -1227,8 +1199,6 @@ serve(async (req) => {
   try {
     validateEnvVars(['SUPABASE_URL', 'SUPABASE_ANON_KEY']);
 
-    const azureVisionKey = Deno.env.get('AZURE_VISION_API_KEY');
-    const azureVisionEndpoint = Deno.env.get('AZURE_VISION_ENDPOINT');
     const ocrSpaceApiKey = Deno.env.get('OCR_SPACE_API_KEY');
     const googleApiKey = Deno.env.get('GOOGLE_AI_API_KEY');
     const openaiApiKey = Deno.env.get('OPENAI_API_KEY');
@@ -1262,7 +1232,7 @@ serve(async (req) => {
     }
 
     if (!isServiceRole) {
-      const rateLimitCheck = checkRateLimit(`ocr-queue:${userId}`, 20, 60000);
+      const rateLimitCheck = checkRateLimit(`ocr-queue:${userId}`, 60, 60000);
       if (!rateLimitCheck.allowed) {
         return new Response(
           JSON.stringify({
@@ -1292,8 +1262,6 @@ serve(async (req) => {
 
       const result = await handleProcessAction(
         supabase,
-        azureVisionKey,
-        azureVisionEndpoint,
         ocrSpaceApiKey,
         googleApiKey,
         openaiApiKey,
@@ -1335,6 +1303,30 @@ serve(async (req) => {
         validatedCaseId,
         validatedDocIds,
         priority
+      );
+
+      return new Response(
+        JSON.stringify(result),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (action === 'retry') {
+      if (!requestBody.caseId) {
+        throw new Error('Missing required field: caseId');
+      }
+      if (!requestBody.jobId) {
+        throw new Error('Missing required field: jobId');
+      }
+
+      const validatedCaseId = validateUUID(requestBody.caseId, 'caseId');
+      const validatedJobId = validateUUID(requestBody.jobId, 'jobId');
+
+      const result = await handleRetryAction(
+        supabase,
+        userId,
+        validatedCaseId,
+        validatedJobId
       );
 
       return new Response(

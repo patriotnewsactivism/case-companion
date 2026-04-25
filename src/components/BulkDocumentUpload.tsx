@@ -25,6 +25,9 @@ export function BulkDocumentUpload({ caseId, onUploadComplete }: BulkDocumentUpl
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [generateBates, setGenerateBates] = useState(true);
+  const [chunkedMode, setChunkedMode] = useState(false);
+  const [perFileProgress, setPerFileProgress] = useState<Record<string, number>>({});
+  const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB
   const [batesPrefix, setBatesPrefix] = useState("DOC");
   const { toast } = useToast();
 
@@ -56,72 +59,68 @@ export function BulkDocumentUpload({ caseId, onUploadComplete }: BulkDocumentUpl
 
   const handleUpload = async () => {
     if (files.length === 0) {
-      toast({
-        title: "No files selected",
-        description: "Please select files to upload.",
-        variant: "destructive",
-      });
+      toast({ title: "No files selected", description: "Please select files to upload.", variant: "destructive" });
       return;
     }
-
     setIsUploading(true);
     setUploadProgress(0);
-
-    try {
-      const fileList = files.map(f => f.file);
-      const result = await bulkUploadDocuments({
-        files: fileList,
-        case_id: caseId,
-        generate_bates: generateBates,
-        bates_prefix: batesPrefix,
-      });
-
-      // Update file statuses based on result
-      const updatedFiles = [...files];
-      result.documents.forEach((doc, index) => {
-        if (updatedFiles[index]) {
-          updatedFiles[index] = {
-            ...updatedFiles[index],
-            status: "success",
-            batesNumber: doc.bates_number || undefined,
-          };
+    setPerFileProgress({});
+    const updatedFiles = [...files];
+    let successCount = 0;
+    let failCount = 0;
+    const uploadedDocs: Document[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const uf = files[i];
+      updatedFiles[i] = { ...uf, status: "uploading" };
+      setFiles([...updatedFiles]);
+      try {
+        if (chunkedMode && uf.file.size > CHUNK_SIZE) {
+          const { supabase } = await import("@/integrations/supabase/client");
+          const { data: { user } } = await (supabase as any).auth.getUser();
+          if (!user) throw new Error("Not authenticated");
+          const totalChunks = Math.ceil(uf.file.size / CHUNK_SIZE);
+          const storagePath = `${user.id}/${caseId}/${Date.now()}-${uf.file.name}`;
+          for (let c = 0; c < totalChunks; c++) {
+            const start = c * CHUNK_SIZE;
+            const chunk = uf.file.slice(start, Math.min(start + CHUNK_SIZE, uf.file.size));
+            const { error } = await (supabase as any).storage.from("case-documents").upload(
+              c === 0 ? storagePath : `${storagePath}.part${c}`, chunk, { upsert: true });
+            if (error) throw new Error(error.message);
+            setPerFileProgress(prev => ({ ...prev, [uf.file.name]: Math.round(((c + 1) / totalChunks) * 100) }));
+          }
+          const { data: pub } = (supabase as any).storage.from("case-documents").getPublicUrl(storagePath);
+          const { data: doc, error: dbErr } = await (supabase as any).from("documents").insert({
+            case_id: caseId, user_id: user.id, name: uf.file.name,
+            file_type: uf.file.type, file_size: uf.file.size, file_url: pub.publicUrl,
+            ...(generateBates ? { bates_number: `${batesPrefix}-${String(i + 1).padStart(4, "0")}` } : {}),
+          }).select("*").single();
+          if (dbErr) throw new Error(dbErr.message);
+          uploadedDocs.push(doc);
+          updatedFiles[i] = { ...updatedFiles[i], status: "success", batesNumber: doc.bates_number };
+        } else {
+          const result = await bulkUploadDocuments({
+            files: [uf.file], case_id: caseId, generate_bates: generateBates, bates_prefix: batesPrefix,
+          });
+          if (result.failed > 0) throw new Error(result.errors[0] || "Upload failed");
+          uploadedDocs.push(...result.documents);
+          updatedFiles[i] = { ...updatedFiles[i], status: "success", batesNumber: result.documents[0]?.bates_number };
+          setPerFileProgress(prev => ({ ...prev, [uf.file.name]: 100 }));
         }
-      });
-
-      // Mark failed files
-      result.errors.forEach((error, index) => {
-        const fileIndex = files.findIndex(f => f.file.name === error.split(": ")[0]?.replace("File ", ""));
-        if (fileIndex !== -1) {
-          updatedFiles[fileIndex] = {
-            ...updatedFiles[fileIndex],
-            status: "error",
-            error: error.split(": ")[1] || "Upload failed",
-          };
-        }
-      });
-
-      setFiles(updatedFiles);
-      setUploadProgress(100);
-
-      toast({
-        title: "Upload complete",
-        description: `Successfully uploaded ${result.successful} of ${result.total} files.${result.failed > 0 ? ` ${result.failed} failed.` : ""}`,
-        variant: result.failed > 0 ? "destructive" : "default",
-      });
-
-      if (onUploadComplete && result.successful > 0) {
-        onUploadComplete(result.documents);
+        successCount++;
+      } catch (err) {
+        updatedFiles[i] = { ...updatedFiles[i], status: "error", error: err instanceof Error ? err.message : "Failed" };
+        failCount++;
       }
-    } catch (error) {
-      console.error("Bulk upload failed:", error);
-      toast({
-        title: "Upload failed",
-        description: error instanceof Error ? error.message : "An unexpected error occurred",
-        variant: "destructive",
-      });
-    } finally {
-      setIsUploading(false);
+      setFiles([...updatedFiles]);
+      setUploadProgress(Math.round(((i + 1) / files.length) * 100));
     }
+    setIsUploading(false);
+    toast({
+      title: "Upload complete",
+      description: `${successCount} uploaded${failCount > 0 ? `, ${failCount} failed` : ""}.`,
+      variant: failCount > 0 ? "destructive" : "default",
+    });
+    if (onUploadComplete && successCount > 0) onUploadComplete(uploadedDocs);
   };
 
   const totalFiles = files.length;
@@ -162,6 +161,14 @@ export function BulkDocumentUpload({ caseId, onUploadComplete }: BulkDocumentUpl
             <p className="text-xs text-muted-foreground mt-2">
               Max 50MB per file • Max 100 files at once
             </p>
+            <div className="flex items-center gap-2 mt-2">
+              <input type="checkbox" id="bulk-chunked" checked={chunkedMode}
+                onChange={e => setChunkedMode(e.target.checked)}
+                className="h-4 w-4 rounded border-gray-300" />
+              <label htmlFor="bulk-chunked" className="text-xs text-muted-foreground cursor-pointer">
+                📱 Low-memory mode — upload in 5MB chunks (recommended on mobile)
+              </label>
+            </div>
           </div>
 
           {/* Bates numbering options */}

@@ -12,25 +12,13 @@ import { validateUUID } from '../_shared/validation.ts';
 const STORAGE_BUCKET = 'case-documents';
 
 function extractStoragePath(fileUrl: string): string | null {
-  if (!fileUrl || typeof fileUrl !== 'string') {
-    return null;
-  }
-
-  if (!fileUrl.startsWith('http')) {
-    return fileUrl.replace(/^\/+/, '');
-  }
-
+  if (!fileUrl || typeof fileUrl !== 'string') return null;
+  if (!fileUrl.startsWith('http')) return fileUrl.replace(/^\/+/, '');
   const lower = fileUrl.toLowerCase();
-  if (!lower.includes('/storage/v1/object/')) {
-    return null;
-  }
-
+  if (!lower.includes('/storage/v1/object/')) return null;
   const marker = `/${STORAGE_BUCKET}/`;
   const markerIndex = lower.indexOf(marker);
-  if (markerIndex === -1) {
-    return null;
-  }
-
+  if (markerIndex === -1) return null;
   const pathWithQuery = fileUrl.slice(markerIndex + marker.length);
   return pathWithQuery.split('?')[0];
 }
@@ -42,10 +30,9 @@ function inferMediaType(
   if (fileType?.startsWith('audio/')) return 'audio';
   if (fileType?.startsWith('video/')) return 'video';
   if (!fileUrl) return null;
-
   const lower = fileUrl.toLowerCase();
-  if (lower.match(/\.(mp3|wav|m4a|aac|ogg|flac|webm)$/)) return 'audio';
-  if (lower.match(/\.(mp4|mpeg|mpg|mov|avi|webm|mkv|3gp|flv)$/)) return 'video';
+  if (lower.match(/\.(mp3|wav|m4a|aac|ogg|flac|wma)$/)) return 'audio';
+  if (lower.match(/\.(mp4|mpeg|mpg|mov|avi|webm|mkv|3gp|flv|wmv)$/)) return 'video';
   return null;
 }
 
@@ -68,53 +55,135 @@ interface AssemblyAiTranscript {
   confidence?: number;
 }
 
+/**
+ * Extract audio from video using ffmpeg to reduce upload size.
+ * Converts to mono 16kHz WAV for optimal transcription quality.
+ * Falls back to original file if ffmpeg is unavailable.
+ */
+async function extractAudioFromVideo(videoBlob: Blob, fileName: string): Promise<{ blob: Blob; wasConverted: boolean }> {
+  try {
+    // Write video to temp file
+    const tempDir = '/tmp';
+    const inputPath = `${tempDir}/input_${Date.now()}_${fileName}`;
+    const outputPath = `${tempDir}/audio_${Date.now()}.wav`;
+
+    const videoBuffer = await videoBlob.arrayBuffer();
+    await Deno.writeFile(inputPath, new Uint8Array(videoBuffer));
+
+    console.log(`Extracting audio from video (${(videoBlob.size / 1024 / 1024).toFixed(2)}MB) using ffmpeg...`);
+
+    // Use ffmpeg to extract audio: mono, 16kHz, WAV format for best transcription
+    const process = new Deno.Command('ffmpeg', {
+      args: [
+        '-i', inputPath,
+        '-vn',                    // No video
+        '-acodec', 'pcm_s16le',   // 16-bit PCM
+        '-ar', '16000',           // 16kHz sample rate
+        '-ac', '1',               // Mono
+        '-y',                     // Overwrite output
+        outputPath,
+      ],
+      stdout: 'piped',
+      stderr: 'piped',
+    });
+
+    const { code, stderr } = await process.output();
+
+    // Clean up input file
+    try { await Deno.remove(inputPath); } catch { /* ignore */ }
+
+    if (code !== 0) {
+      const errorText = new TextDecoder().decode(stderr);
+      console.warn(`ffmpeg extraction failed (code ${code}): ${errorText.slice(-200)}`);
+      // Try simpler extraction as fallback
+      return await extractAudioSimple(videoBlob, fileName);
+    }
+
+    // Read the extracted audio
+    const audioData = await Deno.readFile(outputPath);
+    const audioBlob = new Blob([audioData], { type: 'audio/wav' });
+
+    // Clean up output file
+    try { await Deno.remove(outputPath); } catch { /* ignore */ }
+
+    const reduction = ((1 - audioBlob.size / videoBlob.size) * 100).toFixed(1);
+    console.log(`Audio extracted: ${(audioBlob.size / 1024 / 1024).toFixed(2)}MB (${reduction}% size reduction)`);
+
+    return { blob: audioBlob, wasConverted: true };
+  } catch (error) {
+    console.warn('ffmpeg not available, falling back to direct upload:', error instanceof Error ? error.message : error);
+    return { blob: videoBlob, wasConverted: false };
+  }
+}
+
+/**
+ * Simpler audio extraction fallback - just strip video, keep original audio codec
+ */
+async function extractAudioSimple(videoBlob: Blob, fileName: string): Promise<{ blob: Blob; wasConverted: boolean }> {
+  try {
+    const tempDir = '/tmp';
+    const inputPath = `${tempDir}/input2_${Date.now()}_${fileName}`;
+    const outputPath = `${tempDir}/audio2_${Date.now()}.mp3`;
+
+    const videoBuffer = await videoBlob.arrayBuffer();
+    await Deno.writeFile(inputPath, new Uint8Array(videoBuffer));
+
+    const process = new Deno.Command('ffmpeg', {
+      args: ['-i', inputPath, '-vn', '-acodec', 'libmp3lame', '-q:a', '4', '-y', outputPath],
+      stdout: 'piped',
+      stderr: 'piped',
+    });
+
+    const { code } = await process.output();
+    try { await Deno.remove(inputPath); } catch { /* ignore */ }
+
+    if (code !== 0) {
+      console.warn('Simple ffmpeg extraction also failed');
+      return { blob: videoBlob, wasConverted: false };
+    }
+
+    const audioData = await Deno.readFile(outputPath);
+    const audioBlob = new Blob([audioData], { type: 'audio/mpeg' });
+    try { await Deno.remove(outputPath); } catch { /* ignore */ }
+
+    console.log(`Simple audio extraction: ${(audioBlob.size / 1024 / 1024).toFixed(2)}MB`);
+    return { blob: audioBlob, wasConverted: true };
+  } catch {
+    return { blob: videoBlob, wasConverted: false };
+  }
+}
+
 serve(async (req) => {
   const corsHeaders = getCorsHeaders(req);
 
-  // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
 
   try {
-    // Validate environment variables
     validateEnvVars(['SUPABASE_URL', 'SUPABASE_ANON_KEY']);
 
-    // Verify authentication
     const authResult = await verifyAuth(req);
     if (!authResult.authorized || !authResult.user || !authResult.supabase) {
-      return createErrorResponse(
-        new Error(authResult.error || 'Unauthorized'),
-        401,
-        'transcribe-media',
-        corsHeaders
-      );
+      return createErrorResponse(new Error(authResult.error || 'Unauthorized'), 401, 'transcribe-media', corsHeaders);
     }
 
     const { user, supabase } = authResult;
 
-    // Rate limiting: 5 transcriptions per minute per user (transcription is resource-intensive)
-    const rateLimitCheck = checkRateLimit(`transcribe:${user.id}`, 5, 60000);
+    // Higher rate limit: 15 per minute (was 5)
+    const rateLimitCheck = checkRateLimit(`transcribe:${user.id}`, 15, 60000);
     if (!rateLimitCheck.allowed) {
       return new Response(
-        JSON.stringify({
-          error: 'Rate limit exceeded',
-          resetAt: new Date(rateLimitCheck.resetAt).toISOString(),
-        }),
-        {
-          status: 429,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        }
+        JSON.stringify({ error: 'Rate limit exceeded', resetAt: new Date(rateLimitCheck.resetAt).toISOString() }),
+        { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Parse and validate request body
     const requestBody = (await req.json()) as Record<string, unknown>;
     validateRequestBody<TranscribeRequest>(requestBody, ['documentId']);
-
     const documentId = validateUUID(requestBody.documentId, 'documentId');
 
-    // Get document record and verify ownership
+    // Get document and verify ownership
     const { data: document, error: docError } = await supabase
       .from('documents')
       .select('*, cases!inner(user_id)')
@@ -122,108 +191,79 @@ serve(async (req) => {
       .single();
 
     if (docError || !document) {
-      console.error('Document not found:', docError);
-      return createErrorResponse(
-        new Error('Document not found'),
-        404,
-        'transcribe-media',
-        corsHeaders
-      );
+      return createErrorResponse(new Error('Document not found'), 404, 'transcribe-media', corsHeaders);
     }
 
-    // Check if user owns the case
     const ownerId = (document as { cases?: { user_id?: string } }).cases?.user_id;
     if (ownerId !== user.id) {
-      console.error('User does not own this document');
-      return forbiddenResponse(
-        'You do not have access to this document',
-        corsHeaders
-      );
+      return forbiddenResponse('You do not have access to this document', corsHeaders);
     }
-
-    console.log(`User verified as owner of document ${documentId}`);
 
     const mediaType = document.media_type || inferMediaType(document.file_type, document.file_url);
 
-    // Check if document is audio or video
     if (!mediaType || !['audio', 'video'].includes(mediaType)) {
       return new Response(
         JSON.stringify({ error: 'Document is not audio or video' }),
-        {
-          status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        }
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    console.log(`Transcribing ${mediaType} file: ${document.name} using AssemblyAI Universal-3 Pro`);
+    console.log(`Transcribing ${mediaType} file: ${document.name}`);
 
-    // Download file from storage
     const fileUrl = document.file_url;
-    if (!fileUrl) {
-      throw new Error('File URL not found');
-    }
+    if (!fileUrl) throw new Error('File URL not found');
 
     const storagePath = extractStoragePath(fileUrl);
-
     let fileBlob: Blob | null = null;
-    if (storagePath) {
-      const { data, error: downloadError } = await supabase.storage
-        .from(STORAGE_BUCKET)
-        .download(storagePath);
 
-      if (!downloadError && data) {
-        fileBlob = data;
-      }
+    if (storagePath) {
+      const { data, error: downloadError } = await supabase.storage.from(STORAGE_BUCKET).download(storagePath);
+      if (!downloadError && data) fileBlob = data;
     }
 
     if (!fileBlob) {
-      if (!fileUrl.startsWith('http')) {
-        throw new Error('File URL is not a valid URL');
-      }
-
+      if (!fileUrl.startsWith('http')) throw new Error('File URL is not a valid URL');
       const response = await fetch(fileUrl);
-      if (!response.ok) {
-        throw new Error(`Failed to download file: ${response.status} ${response.statusText}`);
-      }
+      if (!response.ok) throw new Error(`Failed to download file: ${response.status}`);
       fileBlob = await response.blob();
     }
 
-    console.log(`Downloaded file, size: ${(fileBlob.size / 1024 / 1024).toFixed(2)} MB`);
+    console.log(`Downloaded file, size: ${(fileBlob.size / 1024 / 1024).toFixed(2)}MB`);
+
+    // For video files: extract audio using ffmpeg to reduce upload size dramatically
+    let uploadBlob = fileBlob;
+    let audioExtracted = false;
+
+    if (mediaType === 'video') {
+      const { blob: audioBlob, wasConverted } = await extractAudioFromVideo(fileBlob, document.name || 'video');
+      uploadBlob = audioBlob;
+      audioExtracted = wasConverted;
+    }
 
     const assemblyAiApiKey = Deno.env.get('ASSEMBLYAI_API_KEY');
     if (!assemblyAiApiKey) {
-      return createErrorResponse(
-        new Error('ASSEMBLYAI_API_KEY is not configured'),
-        500,
-        'transcribe-media',
-        corsHeaders
-      );
+      return createErrorResponse(new Error('ASSEMBLYAI_API_KEY is not configured'), 500, 'transcribe-media', corsHeaders);
     }
 
-    // Step 1: Upload file to AssemblyAI
-    console.log('Uploading file to AssemblyAI...');
+    // Upload to AssemblyAI
+    console.log(`Uploading ${audioExtracted ? 'extracted audio' : 'file'} to AssemblyAI (${(uploadBlob.size / 1024 / 1024).toFixed(2)}MB)...`);
     const uploadResponse = await fetch('https://api.assemblyai.com/v2/upload', {
       method: 'POST',
-      headers: {
-        'authorization': assemblyAiApiKey,
-      },
-      body: fileBlob,
+      headers: { 'authorization': assemblyAiApiKey },
+      body: uploadBlob,
     });
 
     if (!uploadResponse.ok) {
       const errorText = await uploadResponse.text();
-      console.error('AssemblyAI upload error:', errorText);
-      throw new Error(`Failed to upload file to AssemblyAI: ${errorText}`);
+      throw new Error(`AssemblyAI upload failed: ${errorText}`);
     }
 
     const uploadData = await uploadResponse.json();
     const audioUrl = uploadData.upload_url;
 
-    console.log('File uploaded successfully, starting transcription...');
+    console.log('File uploaded, starting transcription with Universal-3 Pro...');
 
-    // Step 2: Submit transcription request with prioritized speech models.
-    // AssemblyAI now expects `speech_models` instead of deprecated `speech_model`.
+    // Submit transcription with best settings
     const transcriptResponse = await fetch('https://api.assemblyai.com/v2/transcript', {
       method: 'POST',
       headers: {
@@ -233,85 +273,69 @@ serve(async (req) => {
       body: JSON.stringify({
         audio_url: audioUrl,
         speech_models: ['universal-3-pro', 'universal-2'],
-        language_detection: true, // Auto-detect language
+        language_detection: true,
         punctuate: true,
         format_text: true,
-        speaker_labels: true, // Enable speaker diarization
-        auto_highlights: true, // Extract key phrases
-        entity_detection: true, // Detect names, dates, etc.
+        speaker_labels: true,
+        auto_highlights: true,
+        entity_detection: true,
       }),
     });
 
     if (!transcriptResponse.ok) {
       const errorText = await transcriptResponse.text();
-      console.error('AssemblyAI transcription submission error:', errorText);
-      throw new Error(`Failed to submit transcription: ${errorText}`);
+      throw new Error(`AssemblyAI transcription submission failed: ${errorText}`);
     }
 
     const transcriptData = (await transcriptResponse.json()) as AssemblyAiTranscript;
     const transcriptId = transcriptData.id;
 
-    console.log(`Transcription submitted with ID: ${transcriptId}, polling for results...`);
+    console.log(`Transcription ID: ${transcriptId}, polling...`);
 
-    // Step 3: Poll for transcription completion (max 10 minutes)
-    let attempts = 0;
-    const maxAttempts = 120; // 120 attempts * 5 seconds = 10 minutes
+    // Poll for completion (max 15 minutes for large files)
     let transcript: AssemblyAiTranscript | null = null;
+    const maxAttempts = 180; // 15 minutes
 
-    while (attempts < maxAttempts) {
-      await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds
-      attempts++;
+    for (let attempts = 0; attempts < maxAttempts; attempts++) {
+      await new Promise(resolve => setTimeout(resolve, 5000));
 
       const pollingResponse = await fetch(`https://api.assemblyai.com/v2/transcript/${transcriptId}`, {
-        headers: {
-          'authorization': assemblyAiApiKey,
-        },
+        headers: { 'authorization': assemblyAiApiKey },
       });
 
-      if (!pollingResponse.ok) {
-        throw new Error(`Failed to poll transcription status: ${pollingResponse.status}`);
-      }
+      if (!pollingResponse.ok) throw new Error(`Poll failed: ${pollingResponse.status}`);
 
       transcript = (await pollingResponse.json()) as AssemblyAiTranscript;
 
       if (transcript.status === 'completed') {
-        console.log(`Transcription completed in ${attempts * 5} seconds`);
+        console.log(`Transcription completed in ${(attempts + 1) * 5}s`);
         break;
-      } else if (transcript.status === 'error') {
-        throw new Error(`Transcription failed: ${transcript.error}`);
       }
+      if (transcript.status === 'error') throw new Error(`Transcription failed: ${transcript.error}`);
 
-      // Status is still "queued" or "processing", continue polling
-      if (attempts % 12 === 0) {
-        console.log(`Still processing... (${attempts * 5}s elapsed, status: ${transcript.status})`);
+      if ((attempts + 1) % 12 === 0) {
+        console.log(`Still processing... (${(attempts + 1) * 5}s, status: ${transcript.status})`);
       }
     }
 
     if (!transcript || transcript.status !== 'completed') {
-      throw new Error('Transcription timed out after 10 minutes');
+      throw new Error('Transcription timed out after 15 minutes');
     }
 
     const transcriptionText = transcript.text;
-    const duration = transcript.audio_duration; // Duration in seconds
+    const duration = transcript.audio_duration || 0;
 
-    if (!transcriptionText || transcriptionText.trim().length === 0) {
+    if (!transcriptionText?.trim()) {
       throw new Error('AssemblyAI returned empty transcription');
     }
 
-    console.log(
-      `Transcription completed. Duration: ${duration}s, Text length: ${transcriptionText.length} characters, Model used: ${transcript.speech_model_used || 'unknown'}`
-    );
+    console.log(`Done. Duration: ${duration}s, Text: ${transcriptionText.length} chars, Model: ${transcript.speech_model_used}`);
 
-    // Extract additional insights from AssemblyAI
     const speakers = transcript.utterances || [];
     const highlights = transcript.auto_highlights_result?.results || [];
     const entities = transcript.entities || [];
 
-    console.log(`Extracted ${speakers.length} speaker segments, ${highlights.length} highlights, ${entities.length} entities`);
-
-    // Update document with transcription and metadata.
-    // Support both modern schema (transcription_text/transcription_processed_at)
-    // and legacy schema (transcription).
+    // Update document
     const { error: updateError } = await supabase
       .from('documents')
       .update({
@@ -322,19 +346,12 @@ serve(async (req) => {
       .eq('id', documentId);
 
     if (updateError) {
-      console.warn('Primary transcription update failed. Trying legacy-compatible update...', updateError);
-
-      const { error: legacyUpdateError } = await supabase
+      console.warn('Primary update failed, trying legacy...', updateError);
+      const { error: legacyError } = await supabase
         .from('documents')
-        .update({
-          transcription: transcriptionText,
-          updated_at: new Date().toISOString(),
-        })
+        .update({ transcription: transcriptionText, updated_at: new Date().toISOString() })
         .eq('id', documentId);
-
-      if (legacyUpdateError) {
-        throw legacyUpdateError;
-      }
+      if (legacyError) throw legacyError;
     }
 
     return new Response(
@@ -348,13 +365,14 @@ serve(async (req) => {
         entities: entities.length,
         confidence: transcript.confidence,
         speechModelUsed: transcript.speech_model_used,
+        audioExtracted,
+        originalSize: fileBlob.size,
+        uploadSize: uploadBlob.size,
       }),
-      {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      }
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (error) {
-    console.error('Error in transcribe-media function:', error);
+    console.error('Error in transcribe-media:', error);
     return createErrorResponse(error, 500, 'transcribe-media', corsHeaders);
   }
 });

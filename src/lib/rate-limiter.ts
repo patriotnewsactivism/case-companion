@@ -24,14 +24,14 @@ interface RateLimitStats {
 }
 
 const DEFAULT_GLOBAL_LIMIT: RateLimiterConfig = {
-  maxTokens: 100,
-  refillRate: 10,
+  maxTokens: 200,
+  refillRate: 30,
   refillInterval: 60000,
 };
 
 const DEFAULT_USER_LIMIT: RateLimiterConfig = {
-  maxTokens: 20,
-  refillRate: 5,
+  maxTokens: 60,
+  refillRate: 20,
   refillInterval: 60000,
 };
 
@@ -39,8 +39,8 @@ const MODEL_LIMITS: Record<string, RateLimiterConfig> = {
   'gpt-4o': { maxTokens: 50, refillRate: 10, refillInterval: 60000 },
   'gpt-4-turbo': { maxTokens: 50, refillRate: 10, refillInterval: 60000 },
   'gpt-3.5-turbo': { maxTokens: 100, refillRate: 20, refillInterval: 60000 },
-  'azure-doc-intelligence': { maxTokens: 30, refillRate: 10, refillInterval: 60000 },
-  'ocr': { maxTokens: 50, refillRate: 10, refillInterval: 60000 },
+  'gemini-ocr': { maxTokens: 80, refillRate: 30, refillInterval: 60000 },
+  'ocr': { maxTokens: 120, refillRate: 40, refillInterval: 60000 },
 };
 
 export class TokenBucketRateLimiter {

@@ -85,7 +85,7 @@ export async function createSettlementAnalysis(caseId: string): Promise<Settleme
     negotiation_strategy: '',
   };
 
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("settlement_analyses")
     .insert(payload)
     .select()
@@ -96,7 +96,7 @@ export async function createSettlementAnalysis(caseId: string): Promise<Settleme
 }
 
 export async function getSettlementAnalysis(id: string): Promise<SettlementAnalysis | null> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("settlement_analyses")
     .select("*")
     .eq("id", id)
@@ -107,7 +107,7 @@ export async function getSettlementAnalysis(id: string): Promise<SettlementAnaly
 }
 
 export async function getSettlementAnalyses(caseId: string): Promise<SettlementAnalysis[]> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("settlement_analyses")
     .select("*")
     .eq("case_id", caseId)
@@ -130,7 +130,7 @@ export async function updateSettlementAnalysis(id: string, updates: Partial<Sett
   if (updates.factors) dbUpdates.factors = updates.factors;
   if (updates.negotiationStrategy) dbUpdates.negotiation_strategy = updates.negotiationStrategy;
 
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from("settlement_analyses")
     .update(dbUpdates)
     .eq("id", id)
@@ -142,7 +142,7 @@ export async function updateSettlementAnalysis(id: string, updates: Partial<Sett
 }
 
 export async function deleteSettlementAnalysis(id: string): Promise<void> {
-  const { error } = await supabase
+  const { error } = await (supabase as any)
     .from("settlement_analyses")
     .delete()
     .eq("id", id);

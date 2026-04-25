@@ -294,6 +294,9 @@ export function VoiceCourtroom({ caseId, caseName, mode, modeName, onEnd }: Voic
   const [coaching, setCoaching] = useState<string | null>(null);
   const [performanceHints, setPerformanceHints] = useState<string[]>([]);
   const [aiRole, setAiRole] = useState<string>("");
+  // Real-time trial assistant
+  const [assistantPanel, setAssistantPanel] = useState<Record<string, unknown> | null>(null);
+  const [showAssistant, setShowAssistant] = useState(true);
   const [sessionStartTime] = useState(new Date());
   const [exchangeCount, setExchangeCount] = useState(0);
   const [showTranscript, setShowTranscript] = useState(false);
@@ -443,6 +446,24 @@ export function VoiceCourtroom({ caseId, caseName, mode, modeName, onEnd }: Voic
 
       if (data.coaching) setCoaching(data.coaching);
       if (data.performanceHints?.length) setPerformanceHints(data.performanceHints);
+
+      // Real-time trial assistant — runs in parallel, non-blocking
+      const conversationHistory = messages
+        .filter(m => m.role !== "system")
+        .map(m => ({ role: m.role, content: m.content }));
+      supabase.functions.invoke("trial-assistant", {
+        body: {
+          caseId,
+          mode,
+          lastQuestion: userMessage,
+          lastAnswer: data.message,
+          recentHistory: conversationHistory.slice(-6),
+        },
+      }).then(({ data: assistantData }) => {
+        if (assistantData && !assistantData.error) {
+          setAssistantPanel(assistantData as Record<string, unknown>);
+        }
+      }).catch(() => { /* non-fatal */ });
 
       const normalizedUserMessage = userMessage.toLowerCase();
       const usedOpenQuestion = /\b(what|how|why|when|where|who)\b/.test(normalizedUserMessage);
@@ -797,6 +818,97 @@ export function VoiceCourtroom({ caseId, caseName, mode, modeName, onEnd }: Voic
           <div ref={messagesEndRef} />
         </div>
       </ScrollArea>
+
+      {/* Real-Time Trial Assistant Panel */}
+      {assistantPanel && showAssistant && (
+        <div className="border-t border-slate-700/50 bg-slate-900/80 px-4 py-3 space-y-2">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+              <Lightbulb className="h-3 w-3 text-amber-400" />
+              Trial Assistant
+            </span>
+            <button
+              onClick={() => setShowAssistant(false)}
+              className="text-slate-500 hover:text-slate-300 text-xs"
+            >
+              ×
+            </button>
+          </div>
+
+          {/* Objection Alert */}
+          {(() => {
+            const obj = assistantPanel.objectionAlert as Record<string, unknown> | undefined;
+            if (obj?.isObjectionable) {
+              return (
+                <div className="flex items-start gap-2 p-2 bg-red-950/50 rounded border border-red-700/30">
+                  <span className="text-red-400 font-bold text-xs shrink-0">OBJ</span>
+                  <div className="text-xs">
+                    <span className="text-red-300 font-medium">{obj.objectionType as string}</span>
+                    {obj.grounds && <span className="text-red-400/80"> — {obj.grounds as string}</span>}
+                  </div>
+                </div>
+              );
+            }
+            return null;
+          })()}
+
+          {/* Evasion / Trap Alert */}
+          {(() => {
+            const ans = assistantPanel.answerAnalysis as Record<string, unknown> | undefined;
+            if (ans?.isEvasive || ans?.trapAlert) {
+              return (
+                <div className="flex items-start gap-2 p-2 bg-amber-950/50 rounded border border-amber-700/30">
+                  <AlertTriangle className="h-3 w-3 text-amber-400 mt-0.5 shrink-0" />
+                  <p className="text-xs text-amber-300">{(ans.trapAlert || ans.evasionTactic) as string}</p>
+                </div>
+              );
+            }
+            return null;
+          })()}
+
+          {/* Evidence Reference */}
+          {(() => {
+            const evRef = assistantPanel.evidenceReference as Record<string, unknown> | undefined;
+            if (evRef?.relevantDoc) {
+              return (
+                <div className="flex items-start gap-2 p-2 bg-blue-950/50 rounded border border-blue-700/30">
+                  <span className="text-blue-400 text-xs font-bold shrink-0">DOC</span>
+                  <div className="text-xs">
+                    <span className="text-blue-300 font-medium">{evRef.relevantDoc as string}</span>
+                    {evRef.howToUse && <p className="text-blue-400/80 mt-0.5">{evRef.howToUse as string}</p>}
+                  </div>
+                </div>
+              );
+            }
+            return null;
+          })()}
+
+          {/* Suggested Follow-ups */}
+          {Array.isArray(assistantPanel.suggestedFollowUps) && (assistantPanel.suggestedFollowUps as string[]).length > 0 && (
+            <div>
+              <p className="text-[10px] text-slate-500 uppercase font-semibold mb-1">Ask next:</p>
+              <div className="space-y-1">
+                {(assistantPanel.suggestedFollowUps as string[]).slice(0, 3).map((q, i) => (
+                  <button
+                    key={i}
+                    onClick={() => setCurrentInput(q)}
+                    className="w-full text-left text-xs p-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
+                  >
+                    {q}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Coaching Note */}
+          {assistantPanel.coachingNote && (
+            <p className="text-xs text-slate-400 italic border-t border-slate-700/50 pt-2">
+              {assistantPanel.coachingNote as string}
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Performance Hints */}
       <AnimatePresence>

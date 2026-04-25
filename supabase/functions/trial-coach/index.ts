@@ -143,7 +143,12 @@ serve(async (req) => {
 
     const authResult = await verifyAuth(req);
     if (!authResult.authorized || !authResult.user || !authResult.supabase) {
-      return createErrorResponse(new Error(authResult.error || "Unauthorized"), 401, "trial-coach");
+      return createErrorResponse(
+        new Error(authResult.error || "Unauthorized"),
+        401,
+        "trial-coach",
+        corsHeaders
+      );
     }
 
     const { user, supabase } = authResult;
@@ -171,7 +176,7 @@ serve(async (req) => {
       .single();
 
     if (caseError || !caseData) {
-      return createErrorResponse(new Error("Case not found"), 404, "trial-coach");
+      return createErrorResponse(new Error("Case not found"), 404, "trial-coach", corsHeaders);
     }
 
     if ((caseData as CaseData).user_id !== user.id) {
@@ -299,6 +304,6 @@ JSON schema:
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error) {
-    return createErrorResponse(error, 500, "trial-coach");
+    return createErrorResponse(error, 500, "trial-coach", corsHeaders);
   }
 });

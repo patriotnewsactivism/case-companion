@@ -102,7 +102,7 @@ export async function createTrialSession(input: CreateSessionInput): Promise<Tri
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Not authenticated");
 
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from('trial_simulation_sessions')
     .insert({
       user_id: user.id,
@@ -123,7 +123,7 @@ export async function createTrialSession(input: CreateSessionInput): Promise<Tri
 }
 
 export async function updateTrialSession(sessionId: string, updates: UpdateSessionInput): Promise<TrialSimulationSession> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from('trial_simulation_sessions')
     .update(updates)
     .eq('id', sessionId)
@@ -135,7 +135,7 @@ export async function updateTrialSession(sessionId: string, updates: UpdateSessi
 }
 
 export async function endTrialSession(sessionId: string, metrics: PerformanceMetrics): Promise<TrialSimulationSession> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from('trial_simulation_sessions')
     .update({
       ended_at: new Date().toISOString(),
@@ -153,7 +153,7 @@ export async function endTrialSession(sessionId: string, metrics: PerformanceMet
 }
 
 export async function getTrialSessions(caseId?: string): Promise<TrialSimulationSession[]> {
-  let query = supabase
+  let query = (supabase as any)
     .from('trial_simulation_sessions')
     .select('*')
     .order('started_at', { ascending: false });
@@ -169,7 +169,7 @@ export async function getTrialSessions(caseId?: string): Promise<TrialSimulation
 }
 
 export async function getTrialSessionById(sessionId: string): Promise<TrialSimulationSession | null> {
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from('trial_simulation_sessions')
     .select('*')
     .eq('id', sessionId)
@@ -180,7 +180,7 @@ export async function getTrialSessionById(sessionId: string): Promise<TrialSimul
 }
 
 export async function getSessionWithAnalytics(sessionId: string): Promise<SessionWithAnalytics | null> {
-  const { data: session, error: sessionError } = await supabase
+  const { data: session, error: sessionError } = await (supabase as any)
     .from('trial_simulation_sessions')
     .select('*')
     .eq('id', sessionId)
@@ -189,7 +189,7 @@ export async function getSessionWithAnalytics(sessionId: string): Promise<Sessio
   if (sessionError) throw sessionError;
   if (!session) return null;
 
-  const { data: analytics, error: analyticsError } = await supabase
+  const { data: analytics, error: analyticsError } = await (supabase as any)
     .from('trial_session_analytics')
     .select('*')
     .eq('session_id', sessionId)
@@ -204,7 +204,7 @@ export async function getSessionWithAnalytics(sessionId: string): Promise<Sessio
 }
 
 export async function deleteTrialSession(sessionId: string): Promise<void> {
-  const { error } = await supabase
+  const { error } = await (supabase as any)
     .from('trial_simulation_sessions')
     .delete()
     .eq('id', sessionId);
@@ -238,7 +238,7 @@ export async function createSessionAnalytics(sessionId: string, metrics: Perform
     improvementAreas.push("Improve objection timing and recognition");
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await (supabase as any)
     .from('trial_session_analytics')
     .insert({
       user_id: user.id,
@@ -272,7 +272,7 @@ export async function getUserAnalytics(userId?: string): Promise<{
   const targetUserId = userId || user?.id;
   if (!targetUserId) throw new Error("No user ID provided");
 
-  const { data: analytics, error } = await supabase
+  const { data: analytics, error } = await (supabase as any)
     .from('trial_session_analytics')
     .select('*')
     .eq('user_id', targetUserId)
@@ -321,7 +321,7 @@ export async function addTranscriptMessage(
   sessionId: string,
   message: Omit<TranscriptMessage, 'id'>
 ): Promise<void> {
-  const { data: session, error: fetchError } = await supabase
+  const { data: session, error: fetchError } = await (supabase as any)
     .from('trial_simulation_sessions')
     .select('transcript')
     .eq('id', sessionId)
@@ -335,7 +335,7 @@ export async function addTranscriptMessage(
     id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
   };
 
-  const { error: updateError } = await supabase
+  const { error: updateError } = await (supabase as any)
     .from('trial_simulation_sessions')
     .update({ transcript: [...transcript, newMessage] })
     .eq('id', sessionId);
@@ -347,7 +347,7 @@ export async function addObjectionRecord(
   sessionId: string,
   objection: Omit<ObjectionRecord, 'timestamp'>
 ): Promise<void> {
-  const { data: session, error: fetchError } = await supabase
+  const { data: session, error: fetchError } = await (supabase as any)
     .from('trial_simulation_sessions')
     .select('objections_made')
     .eq('id', sessionId)
@@ -361,7 +361,7 @@ export async function addObjectionRecord(
     timestamp: new Date().toISOString(),
   };
 
-  const { error: updateError } = await supabase
+  const { error: updateError } = await (supabase as any)
     .from('trial_simulation_sessions')
     .update({ objections_made: [...objections, newObjection] })
     .eq('id', sessionId);
@@ -373,7 +373,7 @@ export async function addExhibitShown(
   sessionId: string,
   exhibit: Omit<ExhibitShown, 'shownAt'>
 ): Promise<void> {
-  const { data: session, error: fetchError } = await supabase
+  const { data: session, error: fetchError } = await (supabase as any)
     .from('trial_simulation_sessions')
     .select('exhibits_shown')
     .eq('id', sessionId)
@@ -387,7 +387,7 @@ export async function addExhibitShown(
     shownAt: new Date().toISOString(),
   };
 
-  const { error: updateError } = await supabase
+  const { error: updateError } = await (supabase as any)
     .from('trial_simulation_sessions')
     .update({ exhibits_shown: [...exhibits, newExhibit] })
     .eq('id', sessionId);
@@ -396,7 +396,7 @@ export async function addExhibitShown(
 }
 
 export async function addCoachingTip(sessionId: string, tip: string): Promise<void> {
-  const { data: session, error: fetchError } = await supabase
+  const { data: session, error: fetchError } = await (supabase as any)
     .from('trial_simulation_sessions')
     .select('ai_coaching')
     .eq('id', sessionId)
@@ -406,7 +406,7 @@ export async function addCoachingTip(sessionId: string, tip: string): Promise<vo
 
   const coaching = (session?.ai_coaching as string[]) || [];
 
-  const { error: updateError } = await supabase
+  const { error: updateError } = await (supabase as any)
     .from('trial_simulation_sessions')
     .update({ ai_coaching: [...coaching, tip] })
     .eq('id', sessionId);

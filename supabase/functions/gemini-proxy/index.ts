@@ -1,11 +1,9 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-}
+import { getCorsHeaders, createErrorResponse } from '../_shared/errorHandler.ts'
 
 serve(async (req) => {
+  const corsHeaders = getCorsHeaders(req)
+
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -17,9 +15,9 @@ serve(async (req) => {
       throw new Error('GOOGLE_AI_API_KEY is not set')
     }
 
-    const { model = 'gemini-2.0-flash', contents, system_instruction, generationConfig } = await req.json()
+    const { model = Deno.env.get('GOOGLE_AI_MODEL') || 'gemini-2.0-flash', contents, system_instruction, generationConfig } = await req.json()
 
-    // Default to gemini-2.0-flash if not specified
+    // Default to GOOGLE_AI_MODEL or gemini-2.0-flash if not specified
     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${googleApiKey}`
 
     const response = await fetch(apiUrl, {
@@ -41,9 +39,6 @@ serve(async (req) => {
       status: response.status,
     })
   } catch (error) {
-    return new Response(JSON.stringify({ error: error.message }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 400,
-    })
+    return createErrorResponse(error, 400, 'gemini-proxy', corsHeaders)
   }
 })

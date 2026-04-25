@@ -1,6 +1,7 @@
-project_id = "rerbrlrxptnusypzpghj"
+project_id = "jpzkumgndqsdwimbvjku"
 
 [db]
+port = 54323
 shadow_port = 54420
 
 [functions.create-video-room]
@@ -31,4 +32,13 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.trial-simulation]
+verify_jwt = false
+
+[functions.settlement-analysis]
+verify_jwt = false
+
+[functions.export-document]
+verify_jwt = false
+
+[functions.conflict-check]
 verify_jwt = false

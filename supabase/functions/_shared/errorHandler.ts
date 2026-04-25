@@ -14,6 +14,7 @@ const BASE_ALLOWED_ORIGINS = [
   'https://casebuddy.live', // Production custom domain
   'https://casebuddypro.com', // Production domain
   'http://localhost:8080', // Development
+  'http://localhost:8082', // Development (fallback when 8080 is in use)
   'http://localhost:5173', // Vite dev server alternative port
 ];
 
@@ -34,22 +35,34 @@ export function getCorsHeaders(req: Request): Record<string, string> {
   const origin = req.headers.get('Origin') || '';
   const environment = Deno.env.get('ENVIRONMENT') || 'production';
 
-  // In development, allow localhost
+  // Normalize origin checks
+  const isLocalhost = origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1');
+  const isCaseBuddy = origin.includes('casebuddy.live') || origin.includes('casebuddypro.com') || origin.endsWith('.casebuddy.live');
+  const isAllowedUrl = ALLOWED_ORIGINS.includes(origin);
+
   const isAllowedOrigin = !!origin && (
-    ALLOWED_ORIGINS.includes(origin) ||
-    (environment === 'development' && origin.startsWith('http://localhost')) ||
-    origin.includes('casebuddy.live') || // Allow CaseBuddy production domains
-    origin.includes('casebuddypro.com') // Allow CaseBuddy domains
+    isAllowedUrl ||
+    isCaseBuddy ||
+    (environment === 'development' && isLocalhost)
   );
 
-  const allowOrigin = isAllowedOrigin ? origin : (origin ? 'null' : '*');
+  // If allowed, return the exact origin. If not, return '*' (or 'null' if we want to be strict, but '*' is common fallback without credentials)
+  // CRITICAL: When Access-Control-Allow-Credentials is true, Origin cannot be '*'
+  const allowOrigin = isAllowedOrigin ? origin : '*';
+  
+  // Only allow credentials if we have a specific trusted origin
+  const allowCredentials = isAllowedOrigin ? 'true' : 'false';
+
+  // Fallback for when we must return '*' but credentials were requested (invalid state, but we try to be safe)
+  // If we return '*', we MUST NOT return Access-Control-Allow-Credentials: true
+  const finalCredentials = allowOrigin === '*' ? 'false' : allowCredentials;
 
   return {
     'Access-Control-Allow-Origin': allowOrigin,
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-    'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
+    'Access-Control-Allow-Methods': 'POST, GET, OPTIONS, PUT, DELETE',
     'Access-Control-Max-Age': '86400', // 24 hours
-    'Access-Control-Allow-Credentials': isAllowedOrigin ? 'true' : 'false',
+    'Access-Control-Allow-Credentials': finalCredentials,
     'Vary': 'Origin',
   };
 }
