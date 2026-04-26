@@ -44,6 +44,7 @@ import { generateMotionDraft } from "@/services/documentGenerator";
 import { uploadAndProcessFile } from "@/lib/upload/unified-upload-handler";
 import { ProcessingStatusBar } from "@/components/processing/ProcessingStatusBar";
 import { useAuth } from "@/hooks/useAuth";
+import { useAutoAnalysis } from "@/hooks/useAutoAnalysis";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import {
@@ -352,6 +353,7 @@ export default function CaseDetail() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  const { enqueueForAnalysis, isProcessing: isAutoAnalyzing, pendingCount: autoAnalysisPending } = useAutoAnalysis(id);
 
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [isLinkImportOpen, setIsLinkImportOpen] = useState(false);
@@ -1054,16 +1056,25 @@ export default function CaseDetail() {
         setUploadProgress(100);
       } else {
         // ── Standard upload path ───────────────────────────────────────────
-        await uploadAndProcessFile(
+        const uploadResult = await uploadAndProcessFile(
           file,
           id,
           user.id,
           undefined,
           { bates_number: batesNumber, name: docForm.name || file.name }
         );
+
+        // Auto-trigger OCR + AI analysis + timeline extraction
+        if (uploadResult?.fileId && uploadResult?.document) {
+          const doc = uploadResult.document as any;
+          const fileUrl = doc.file_url || doc.storage_path;
+          if (fileUrl) {
+            enqueueForAnalysis(uploadResult.fileId, file.name, fileUrl);
+          }
+        }
       }
 
-      toast.success("Document uploaded and queued for processing.");
+      toast.success("Document uploaded — OCR & AI analysis starting automatically.");
       invalidateDocumentDerivedQueries();
       setIsUploadOpen(false);
       setDocForm({ name: "", bates_number: "", file: null });
@@ -1420,9 +1431,17 @@ export default function CaseDetail() {
                         <BulkDocumentUpload 
                           caseId={id!}
                           onUploadComplete={(uploadedDocs) => {
-                            toast.success(`Successfully uploaded ${uploadedDocs.length} documents.`);
+                            toast.success(`${uploadedDocs.length} documents uploaded — auto-analyzing with OCR & AI...`);
                             invalidateDocumentDerivedQueries();
                             setIsBulkUploadOpen(false);
+                            // Auto-trigger OCR + AI analysis for each uploaded doc
+                            for (const doc of uploadedDocs) {
+                              const d = doc as any;
+                              const fileUrl = d.file_url || d.storage_path;
+                              if (d.id && fileUrl) {
+                                enqueueForAnalysis(d.id, d.name || d.file_name || 'document', fileUrl);
+                              }
+                            }
                           }}
                         />
                       </DialogContent>
@@ -2744,6 +2763,12 @@ export default function CaseDetail() {
       )}
       
       {id && <ProcessingStatusBar caseId={id} />}
+      {isAutoAnalyzing && (
+        <div className="fixed bottom-4 right-4 z-50 flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm text-white shadow-lg animate-pulse">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Analyzing {autoAnalysisPending} document{autoAnalysisPending !== 1 ? 's' : ''} with OCR &amp; AI…
+        </div>
+      )}
     </Layout>
   );
 }
