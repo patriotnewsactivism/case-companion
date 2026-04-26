@@ -16,7 +16,6 @@ import { Document } from "@/lib/api";
 import { supabase } from "@/integrations/supabase/client";
 import { useCaseFactsStore } from "@/store/useCaseFactsStore";
 import { useDeepgram } from "@/hooks/useDeepgram";
-import { useAzureTTS } from "@/hooks/useAzureTTS";
 
 interface CaseData {
   id: string;
@@ -324,10 +323,42 @@ export function TrialSimulator({ caseData, documents = [] }: TrialSimulatorProps
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const { toast } = useToast();
 
-  const azureTTS = useAzureTTS({
-    apiKey: "your-azureTTS-api-key",
-    region: "eastus"
-  });
+  // Browser-native TTS — replaces Azure TTS placeholder
+  const ttsRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const [isTTSSpeaking, setIsTTSSpeaking] = useState(false);
+
+  const VOICE_ROLES: Record<string, { pitch: number; rate: number; voiceKeyword: string }> = {
+    judge: { pitch: 0.85, rate: 0.92, voiceKeyword: "male" },
+    witness: { pitch: 1.1, rate: 1.0, voiceKeyword: "female" },
+    "opposing counsel": { pitch: 0.9, rate: 1.05, voiceKeyword: "male" },
+    deponent: { pitch: 1.05, rate: 0.95, voiceKeyword: "female" },
+    default: { pitch: 1.0, rate: 0.95, voiceKeyword: "male" },
+  };
+
+  const browserTTSSpeak = useCallback((text: string, role: string = "default") => {
+    if (!window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    const utter = new SpeechSynthesisUtterance(text);
+    const config = VOICE_ROLES[role.toLowerCase()] || VOICE_ROLES.default;
+    utter.pitch = config.pitch;
+    utter.rate = config.rate;
+    // Try to match a voice by keyword
+    const voices = window.speechSynthesis.getVoices();
+    const match = voices.find(v =>
+      v.lang.startsWith("en") && v.name.toLowerCase().includes(config.voiceKeyword)
+    ) || voices.find(v => v.lang.startsWith("en"));
+    if (match) utter.voice = match;
+    utter.onstart = () => setIsTTSSpeaking(true);
+    utter.onend = () => setIsTTSSpeaking(false);
+    utter.onerror = () => setIsTTSSpeaking(false);
+    ttsRef.current = utter;
+    window.speechSynthesis.speak(utter);
+  }, []);
+
+  const browserTTSStop = useCallback(() => {
+    window.speechSynthesis?.cancel();
+    setIsTTSSpeaking(false);
+  }, []);
 
   const deepgram = useDeepgram({
     onTranscript: (text, isFinal) => {
@@ -499,7 +530,7 @@ export function TrialSimulator({ caseData, documents = [] }: TrialSimulatorProps
       setExchangeCount((n) => n + 1);
 
       if (isTTSEnabled && aiMsg.content) {
-        azureTTS.speak(aiMsg.content, selectedMode.persona);
+        browserTTSSpeak(aiMsg.content, selectedMode.persona);
       }
     } catch (err) {
       console.error(err);
@@ -510,7 +541,7 @@ export function TrialSimulator({ caseData, documents = [] }: TrialSimulatorProps
       setIsLoading(false);
       setTimeout(() => inputRef.current?.focus(), 50);
     }
-  }, [userInput, caseData, isLoading, messages, selectedMode, documents, toast, isTTSEnabled, azureTTS]);
+  }, [userInput, caseData, isLoading, messages, selectedMode, documents, toast, isTTSEnabled, browserTTSSpeak]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
