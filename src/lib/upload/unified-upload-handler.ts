@@ -55,6 +55,9 @@ export async function uploadAndProcessFile(
   const safeName = sanitizeFileName(file.name);
   const storagePath = `${userId}/${caseId}/${Date.now()}-${safeName}`;
 
+  // Compute content hash for dedup (non-blocking — null if unavailable)
+  const contentHash = await computeContentHash(file);
+
   // 1. Upload to Supabase Storage (bucket is public; public URL works)
   const { error: uploadError } = await supabase.storage
     .from('case-documents')
