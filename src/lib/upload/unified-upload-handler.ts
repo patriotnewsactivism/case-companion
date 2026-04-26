@@ -66,11 +66,13 @@ export async function uploadAndProcessFile(
   if (uploadError) throw new Error(`Upload failed: ${uploadError.message}`);
   
   // 2. Create document record in database
+  // NOTE: The `documents` table uses `name` (not `file_name`) and has no
+  // `organization_id` column.  Spreading unknown metadata last so callers
+  // can still override individual fields when needed.
   const baseDocumentPayload = {
     case_id: caseId,
     user_id: userId,
-    organization_id: organizationId,
-    file_name: file.name,
+    name: file.name,
     file_type: file.type,
     file_size: file.size,
     storage_path: storagePath,
