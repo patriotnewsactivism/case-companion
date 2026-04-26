@@ -65,7 +65,12 @@ export async function uploadAndProcessFile(
   
   if (uploadError) throw new Error(`Upload failed: ${uploadError.message}`);
   
-  // 2. Create document record in database
+  // 2. Get public URL for the uploaded file (needed for OCR/AI analysis)
+  const { data: publicUrlData } = supabase.storage
+    .from('case-documents')
+    .getPublicUrl(storagePath);
+
+  // 3. Create document record in database
   // NOTE: The `documents` table uses `name` (not `file_name`) and has no
   // `organization_id` column.  Spreading unknown metadata last so callers
   // can still override individual fields when needed.
@@ -76,6 +81,7 @@ export async function uploadAndProcessFile(
     file_type: file.type,
     file_size: file.size,
     storage_path: storagePath,
+    file_url: publicUrlData?.publicUrl || null,
     status: 'queued',
     ...metadata,
   };
