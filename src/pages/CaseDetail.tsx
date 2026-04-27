@@ -615,7 +615,7 @@ export default function CaseDetail() {
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${session.access_token}`,
-          'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+          'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
         },
         body: JSON.stringify({ documentId, fileUrl }),
       });
@@ -1070,11 +1070,20 @@ export default function CaseDetail() {
         );
 
         // Auto-trigger OCR + AI analysis + timeline extraction
-        if (uploadResult?.fileId && uploadResult?.document) {
-          const doc = uploadResult.document as any;
-          const fileUrl = doc.file_url || doc.storage_path;
+        if (uploadResult?.fileId) {
+          const doc = (uploadResult?.document || {}) as any;
+          // Build public URL: prefer file_url, fall back to constructing from storage_path
+          const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
+          const storageFallback = doc.storage_path
+            ? `${supabaseUrl}/storage/v1/object/public/case-documents/${doc.storage_path}`
+            : null;
+          const fileUrl = doc.file_url || uploadResult.storagePath 
+            ? `${supabaseUrl}/storage/v1/object/public/case-documents/${uploadResult.storagePath}`
+            : storageFallback;
           if (fileUrl) {
             enqueueForAnalysis(uploadResult.fileId, file.name, fileUrl);
+          } else {
+            console.warn('[Upload] Could not determine fileUrl for analysis — will need manual OCR trigger');
           }
         }
       }
@@ -1440,9 +1449,13 @@ export default function CaseDetail() {
                             invalidateDocumentDerivedQueries();
                             setIsBulkUploadOpen(false);
                             // Auto-trigger OCR + AI analysis for each uploaded doc
+                            const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
                             for (const doc of uploadedDocs) {
                               const d = doc as any;
-                              const fileUrl = d.file_url || d.storage_path;
+                              const storageFallback = d.storage_path
+                                ? `${supabaseUrl}/storage/v1/object/public/case-documents/${d.storage_path}`
+                                : null;
+                              const fileUrl = d.file_url || storageFallback;
                               if (d.id && fileUrl) {
                                 enqueueForAnalysis(d.id, d.name || d.file_name || 'document', fileUrl);
                               }
