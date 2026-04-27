@@ -176,25 +176,29 @@ const DocumentRow = memo(({ index, style, data }: ListChildComponentProps<Docume
   return (
     <div
       style={style}
-      className="sm:grid sm:grid-cols-12 sm:gap-4 flex flex-col gap-1 px-4 py-3 hover:bg-muted/30 transition-colors border-b border-border"
+      className="flex items-start gap-3 px-4 py-3 hover:bg-muted/30 transition-colors border-b border-border sm:grid sm:grid-cols-12 sm:gap-4 sm:items-center"
     >
-      <div className="col-span-1">
+      {/* Type icon */}
+      <div className="shrink-0 sm:col-span-1">
         <div className="rounded bg-muted p-1.5 w-8 h-8 flex items-center justify-center">
           <FileText className="h-4 w-4 text-muted-foreground" />
         </div>
       </div>
 
-      <div className="col-span-2">
-        {doc.bates_number ? (
-          <span className="font-mono text-xs bg-muted px-2 py-1 rounded">
-            {doc.bates_number}
-          </span>
-        ) : (
-          <span className="text-xs text-muted-foreground">-</span>
-        )}
+      {/* Mobile: main content block | Desktop: bates col */}
+      <div className="flex-1 min-w-0 sm:contents">
+        {/* Bates number */}
+        <div className="sm:col-span-2 mb-0.5 sm:mb-0">
+          {doc.bates_number ? (
+            <span className="font-mono text-xs bg-muted px-2 py-1 rounded">
+              {doc.bates_number}
+            </span>
+          ) : (
+            <span className="text-xs text-muted-foreground">-</span>
+          )}
       </div>
 
-      <div className="col-span-4 min-w-0">
+      <div className="sm:col-span-4 min-w-0">
         <p className="text-sm font-medium truncate">{doc.name}</p>
         {doc.summary && (
           <p className="text-xs text-muted-foreground truncate mt-0.5">
@@ -203,13 +207,13 @@ const DocumentRow = memo(({ index, style, data }: ListChildComponentProps<Docume
         )}
       </div>
 
-      <div className="col-span-2">
+      <div className="hidden sm:block sm:col-span-2">
         <span className="text-xs text-muted-foreground">
           {doc.file_type?.split('/')[1]?.toUpperCase() || "File"}
         </span>
       </div>
 
-      <div className="col-span-1 flex flex-col gap-0.5">
+      <div className="hidden sm:flex sm:col-span-1 flex-col gap-0.5">
         {doc.ai_analyzed && (
                 <Badge className="text-[10px] px-1.5 py-0 bg-green-50 text-green-700 border-green-200">
             AI
@@ -227,7 +231,8 @@ const DocumentRow = memo(({ index, style, data }: ListChildComponentProps<Docume
         )}
       </div>
 
-      <div className="col-span-2 flex items-center justify-end gap-1">
+      </div>{/* end mobile flex-1 */}
+      <div className="shrink-0 flex items-center justify-end gap-1 sm:col-span-2">
         {/* OCR Button for PDF/Image files */}
         {doc.file_url && (doc.file_type?.includes('pdf') || doc.file_type?.includes('image')) && (
           <Button
