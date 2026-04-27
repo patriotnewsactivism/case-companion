@@ -176,7 +176,7 @@ const DocumentRow = memo(({ index, style, data }: ListChildComponentProps<Docume
   return (
     <div
       style={style}
-      className="grid grid-cols-12 gap-4 px-4 py-3 items-center hover:bg-muted/30 transition-colors border-b border-border"
+      className="sm:grid sm:grid-cols-12 sm:gap-4 flex flex-col gap-1 px-4 py-3 hover:bg-muted/30 transition-colors border-b border-border"
     >
       <div className="col-span-1">
         <div className="rounded bg-muted p-1.5 w-8 h-8 flex items-center justify-center">
@@ -1252,32 +1252,32 @@ export default function CaseDetail() {
           {/* Tabs for Discovery, Timeline, Trial Prep, Briefs, AI */}
           <motion.div variants={item}>
             <Tabs defaultValue="discovery" className="w-full">
-              <TabsList className="mb-4 bg-transparent border-b border-border rounded-none w-full justify-start h-auto p-0 gap-0">
-                <TabsTrigger value="discovery" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none px-4 pb-3 gap-2">
+              <TabsList className="mb-4 bg-transparent border-b border-border rounded-none w-full justify-start h-auto p-0 gap-0 overflow-x-auto flex-nowrap scrollbar-none">
+                <TabsTrigger value="discovery" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none px-3 pb-3 gap-1.5 text-xs whitespace-nowrap flex-shrink-0">
                   <Search className="h-4 w-4" />
                   Discovery
                 </TabsTrigger>
-                <TabsTrigger value="timeline" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none px-4 pb-3 gap-2">
+                <TabsTrigger value="timeline" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none px-3 pb-3 gap-1.5 text-xs whitespace-nowrap flex-shrink-0">
                   <Calendar className="h-4 w-4" />
                   Timeline
                 </TabsTrigger>
-                <TabsTrigger value="trial-prep" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none px-4 pb-3 gap-2">
+                <TabsTrigger value="trial-prep" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none px-3 pb-3 gap-1.5 text-xs whitespace-nowrap flex-shrink-0">
                   <Gavel className="h-4 w-4" />
                   Trial Prep
                 </TabsTrigger>
-                <TabsTrigger value="briefs" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none px-4 pb-3 gap-2">
+                <TabsTrigger value="briefs" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none px-3 pb-3 gap-1.5 text-xs whitespace-nowrap flex-shrink-0">
                   <FileText className="h-4 w-4" />
                   Briefs
                 </TabsTrigger>
-                <TabsTrigger value="witnesses" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none px-4 pb-3 gap-2">
+                <TabsTrigger value="witnesses" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none px-3 pb-3 gap-1.5 text-xs whitespace-nowrap flex-shrink-0">
                   <Users className="h-4 w-4" />
                   Witnesses
                 </TabsTrigger>
-                <TabsTrigger value="intelligence" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none px-4 pb-3 gap-2">
+                <TabsTrigger value="intelligence" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none px-3 pb-3 gap-1.5 text-xs whitespace-nowrap flex-shrink-0">
                   <Brain className="h-4 w-4" />
                   Intelligence
                 </TabsTrigger>
-                <TabsTrigger value="ai" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none px-4 pb-3 gap-2">
+                <TabsTrigger value="ai" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none px-3 pb-3 gap-1.5 text-xs whitespace-nowrap flex-shrink-0">
                   <Sparkles className="h-4 w-4" />
                   AI Chat
                 </TabsTrigger>
@@ -1661,10 +1661,11 @@ export default function CaseDetail() {
                 ) : (
                   <Card className="glass-card overflow-hidden">
                     {/* Table Header */}
-                    <div className="grid grid-cols-12 gap-4 px-4 py-3 border-b border-border bg-muted/30 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    {/* Desktop table header — hidden on mobile */}
+                    <div className="hidden sm:grid grid-cols-12 gap-4 px-4 py-3 border-b border-border bg-muted/30 text-xs font-medium text-muted-foreground uppercase tracking-wider">
                       <div className="col-span-1">Type</div>
-                      <div className="col-span-2">Bates Number</div>
-                      <div className="col-span-4">File Name / Summary</div>
+                      <div className="col-span-2">Bates #</div>
+                      <div className="col-span-4">File / Summary</div>
                       <div className="col-span-2">Source</div>
                       <div className="col-span-1">Tags</div>
                       <div className="col-span-2 text-right">Actions</div>
