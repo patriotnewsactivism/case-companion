@@ -85,6 +85,19 @@ interface HeuristicAnalysisResult {
   timelineEvents: TimelineEventCandidate[];
 }
 
+interface StructuredChunkAnalysis {
+  summary: string;
+  keyFacts: string[];
+  favorableFindings: string[];
+  adverseFindings: string[];
+  actionItems: string[];
+  timelineEvents: TimelineEventCandidate[];
+  entities: unknown[];
+}
+
+const ANALYSIS_CHUNK_CHAR_LIMIT = 12000;
+const ANALYSIS_CHUNK_OVERLAP = 500;
+
 function extractStoragePath(fileUrl: string): string | null {
   if (!fileUrl || typeof fileUrl !== 'string') return null;
   if (!fileUrl.startsWith('http')) return fileUrl.replace(/^\/+/, '');
@@ -153,34 +166,129 @@ const normalizeImportance = (value: string | undefined): TimelineImportance => {
   return 'medium';
 };
 
-const normalizePhase = (value: string | undefined, fallbackContent: string): TimelinePhase => {
-  const normalized = (value || '').trim().toLowerCase();
-  if (['pre-suit', 'pleadings', 'discovery', 'dispositive', 'trial', 'post-trial'].includes(normalized)) return normalized as TimelinePhase;
-  if (/\b(incident|accident|injury|demand|notice of claim|retainer|investigation|preservation)\b/i.test(fallbackContent)) return 'pre-suit';
-  if (/\b(complaint|answer|counterclaim|service|summons|amended complaint|pleading)\b/i.test(fallbackContent)) return 'pleadings';
-  if (/\b(interrogator|request for production|request for admission|deposition|subpoena|expert disclosure|discovery)\b/i.test(fallbackContent)) return 'discovery';
-  if (/\b(summary judgment|dismiss|dispositive|daubert|in limine|motion to strike|motion for judgment)\b/i.test(fallbackContent)) return 'dispositive';
-  if (/\b(trial|voir dire|jury|verdict|testimony|exhibit list|pretrial conference)\b/i.test(fallbackContent)) return 'trial';
-  if (/\b(appeal|post-trial|new trial|remittitur|enforcement|collection|satisfaction of judgment)\b/i.test(fallbackContent)) return 'post-trial';
-  return 'discovery';
+const importanceRank: Record<TimelineImportance, number> = {
+  low: 1,
+  medium: 2,
+  high: 3,
 };
 
-const inferNextRequiredAction = (phase: TimelinePhase, content: string): string => {
-  if (phase === 'pre-suit') return /\b(statute|limitations)\b/i.test(content) ? 'Confirm statute of limitations and file suit before deadline.' : 'Collect foundational records and preserve evidence relevant to claims.';
-  if (phase === 'pleadings') return 'Calendar responsive pleading and service deadlines for all parties.';
-  if (phase === 'discovery') return /\b(deposition)\b/i.test(content) ? 'Prepare deposition outlines and circulate witness document sets.' : 'Track discovery responses and schedule follow-up meet-and-confer items.';
-  if (phase === 'dispositive') return 'Assemble evidentiary record and briefing schedule for dispositive motions.';
-  if (phase === 'trial') return 'Finalize trial preparation checklist: exhibits, witnesses, and motions in limine.';
-  return 'Evaluate post-trial motions, appellate deadlines, and enforcement strategy.';
+const normalizeTitleKey = (value: string | undefined): string =>
+  (value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const buildTextChunks = (text: string, maxChars: number, overlapChars: number): string[] => {
+  const cleaned = text.trim();
+  if (!cleaned) return [];
+
+  const chunks: string[] = [];
+  let cursor = 0;
+
+  while (cursor < cleaned.length) {
+    let end = Math.min(cursor + maxChars, cleaned.length);
+    if (end < cleaned.length) {
+      const breakIdx = cleaned.lastIndexOf('\n\n', end);
+      if (breakIdx > cursor + Math.floor(maxChars * 0.6)) {
+        end = breakIdx;
+      }
+    }
+
+    const chunk = cleaned.slice(cursor, end).trim();
+    if (chunk) {
+      chunks.push(chunk);
+    }
+
+    if (end >= cleaned.length) break;
+    cursor = Math.max(end - overlapChars, cursor + 1);
+  }
+
+  return chunks;
 };
 
-const isTitleOcrJunk = (title: string): boolean => {
-  const t = title.trim();
-  if (/^(PAGE\s+\d+|=== PAGE)/i.test(t)) return true;
-  if (/^(Case\s+)?\d+[:\-]\d+[-\w]*\s*(Document|cv|cr)/i.test(t)) return true;
-  if (/^PAGE\s+\d+\s+Case/i.test(t)) return true;
-  if (t.replace(/[\d\s:\-\/cvCVPage]+/g, '').length < 5) return true;
-  return false;
+const mergeChunkAnalyses = (analyses: StructuredChunkAnalysis[]): StructuredChunkAnalysis => {
+  const timelineMap = new Map<string, TimelineEventCandidate>();
+  const summaryParts: string[] = [];
+
+  for (const analysis of analyses) {
+    if (analysis.summary.trim()) {
+      summaryParts.push(analysis.summary.trim());
+    }
+
+    for (const event of analysis.timelineEvents || []) {
+      const normalizedDate = toDateOnlyString(event.date);
+      const normalizedTitle = normalizeTitleKey(event.event_title);
+      if (!normalizedDate || !normalizedTitle) {
+        continue;
+      }
+
+      const key = `${normalizedDate}|${normalizedTitle}`;
+      const existing = timelineMap.get(key);
+      if (!existing) {
+        timelineMap.set(key, {
+          ...event,
+          date: normalizedDate,
+          event_title: event.event_title?.trim() || 'Untitled Event',
+          description: (event.description || '').trim(),
+          importance: normalizeImportance(event.importance),
+          entities: uniqueTrimmed(Array.isArray(event.entities) ? event.entities : [], 15),
+        });
+        continue;
+      }
+
+      const existingImportance = normalizeImportance(existing.importance);
+      const candidateImportance = normalizeImportance(event.importance);
+      const strongerImportance =
+        importanceRank[candidateImportance] > importanceRank[existingImportance]
+          ? candidateImportance
+          : existingImportance;
+
+      const mergedDescription =
+        (event.description || '').length > (existing.description || '').length
+          ? (event.description || '').trim()
+          : (existing.description || '').trim();
+
+      timelineMap.set(key, {
+        ...existing,
+        importance: strongerImportance,
+        description: mergedDescription,
+        entities: uniqueTrimmed(
+          [
+            ...(Array.isArray(existing.entities) ? existing.entities : []),
+            ...(Array.isArray(event.entities) ? event.entities : []),
+          ],
+          15
+        ),
+      });
+    }
+  }
+
+  return {
+    summary: uniqueTrimmed(summaryParts, 3).join(' '),
+    keyFacts: uniqueTrimmed(analyses.flatMap((analysis) => analysis.keyFacts || []), 12),
+    favorableFindings: uniqueTrimmed(
+      analyses.flatMap((analysis) => analysis.favorableFindings || []),
+      8
+    ),
+    adverseFindings: uniqueTrimmed(analyses.flatMap((analysis) => analysis.adverseFindings || []), 8),
+    actionItems: uniqueTrimmed(analyses.flatMap((analysis) => analysis.actionItems || []), 8),
+    timelineEvents: Array.from(timelineMap.values()).sort((a, b) =>
+      (toDateOnlyString(a.date) || '9999-12-31').localeCompare(toDateOnlyString(b.date) || '9999-12-31')
+    ),
+    entities: uniqueTrimmed(
+      analyses.flatMap((analysis) =>
+        (analysis.entities || []).map((entity) => JSON.stringify(entity))
+      ),
+      25
+    ).map((entity) => {
+      try {
+        return JSON.parse(entity);
+      } catch {
+        return entity;
+      }
+    }),
+  };
 };
 
 const normalizeTimelineEvent = (
@@ -330,16 +438,11 @@ const buildHeuristicAnalysis = (text: string): HeuristicAnalysisResult => {
   const favorableCandidates = sentences.filter((s) => /\b(admit|confirmed|supports|favorable|complied|approved|paid|received|signed)\b/i.test(s));
   const adverseCandidates = sentences.filter((s) => /\b(deny|denied|dispute|late|overdue|breach|damaging|adverse|inconsistent|liability|default|failed)\b/i.test(s));
   return {
-    summary: uniqueTrimmed(sentences.slice(0, 3), 3).join(' '),
-    keyFacts: uniqueTrimmed(factCandidates, 10),
-    favorableFindings: uniqueTrimmed(favorableCandidates, 5),
-    adverseFindings: uniqueTrimmed(adverseCandidates, 5),
-    actionItems: uniqueTrimmed([
-      timelineEvents.length > 0 ? 'Validate timeline events against the source document and related exhibits.' : '',
-      adverseCandidates.length > 0 ? 'Address adverse statements with corroborating evidence and witness preparation.' : '',
-      factCandidates.length > 0 ? 'Link key factual statements to Bates-numbered exhibits for trial use.' : '',
-      'Review OCR output for any transcription issues before filing or strategy use.',
-    ], 4),
+    summary,
+    keyFacts,
+    favorableFindings,
+    adverseFindings,
+    actionItems,
     timelineEvents: timelineEvents.sort((a, b) => {
       const aDate = toDateOnlyString(a.date) || '9999-12-31';
       const bDate = toDateOnlyString(b.date) || '9999-12-31';
@@ -921,66 +1024,177 @@ serve(async (req) => {
     const hasSubstantialText = Boolean(
       extractedText &&
       extractedText.length > 50 &&
-      !extractedText.startsWith('[File type')
-    );
+      !extractedText.startsWith('[File type') &&
+      (hasOpenAI || hasGemini)
+    ) {
+      console.log('Analyzing extracted text with AI (chunked)...');
+      const textChunks = buildTextChunks(
+        extractedText,
+        ANALYSIS_CHUNK_CHAR_LIMIT,
+        ANALYSIS_CHUNK_OVERLAP
+      );
 
-    if (hasSubstantialText && hasGemini) {
-      console.log('Analyzing extracted text with Gemini...');
+      const chunkResults: StructuredChunkAnalysis[] = [];
 
-      // Send the FULL document text to the best available Gemini model
-      const analysisContext = buildAnalysisDocumentContext(extractedText);
+      for (let index = 0; index < textChunks.length; index += 1) {
+        const textChunk = textChunks[index];
+        const analysisPrompt = `You are an expert legal document analyst specializing in litigation support. Analyze documents with precision and identify strategic insights for case preparation.
 
-      // Format extracted tables for inclusion in analysis
-      const tableContext = extractedTables.length > 0
-        ? extractedTables.map((t, i) => `Table ${i + 1}:\n${formatTableAsMarkdown(t)}`).join('\n\n')
-        : '';
+Analyze this legal document CHUNK and provide a JSON response with comprehensive legal analysis for this chunk only.
 
-      if (tableContext) {
-        console.log(`Including ${extractedTables.length} extracted tables in analysis context`);
-      }
+ANALYSIS REQUIREMENTS:
+1. SUMMARY: 1-2 sentence summary of this chunk's significance
+2. KEY_FACTS: up to 6 specific factual findings from this chunk
+3. FAVORABLE_FINDINGS: up to 4 findings that could support the case
+4. ADVERSE_FINDINGS: up to 4 findings that could hurt the case
+5. ACTION_ITEMS: up to 4 specific follow-up actions from this chunk
+6. TIMELINE_EVENTS: Extract chronological events in this chunk. For each event provide:
+   - "date": YYYY-MM-DD format (if approximate, use first of month/year)
+   - "event_title": Short title (5-10 words)
+   - "description": Detailed description (1-2 sentences)
+   - "source_doc_id": Use "${validatedDocumentId}" for all events
+   - "importance": "high", "medium", or "low"
+   - "event_type": e.g., "communication", "filing", "incident", "meeting"
+   - "entities": Array of key people/orgs involved in THIS specific event
+   - Include ONLY major case milestones found in this chunk.
 
-      const analysisPrompt = buildAnalysisPrompt(analysisContext, tableContext, MAX_TIMELINE_EVENTS);
-      let content = '';
+7. ENTITIES: Extract key entities (people, organizations, locations) with role.
 
-      try {
-        const { payload: analysisData, model } = await invokeGeminiWithFallback(
-          {
-            contents: [{ parts: [{ text: analysisPrompt }] }],
-            generationConfig: {
-              temperature: 0.15,
-              maxOutputTokens: 16384,
-              responseMimeType: 'application/json',
-            },
-          },
-          'analysis'
-        );
+Respond ONLY with valid JSON in this exact format:
+{
+  "summary": "string",
+  "key_facts": ["fact1", "fact2"],
+  "favorable_findings": ["finding1", "finding2"],
+  "adverse_findings": ["finding1", "finding2"],
+  "action_items": ["action1", "action2"],
+  "timeline_events": [
+    {
+      "date": "2023-01-01",
+      "event_title": "...",
+      "description": "...",
+      "source_doc_id": "${validatedDocumentId}",
+      "importance": "high",
+      "event_type": "...",
+      "entities": ["Person A", "Company B"]
+    }
+  ],
+  "entities": [
+    { "name": "...", "type": "person/organization/location", "role": "..." }
+  ]
+}
 
-        content = extractGeminiText(analysisData);
-        if (content) analysisProvider = 'gemini';
-        console.log(`Gemini analysis completed with model: ${model}`);
-      } catch (geminiError) {
-        console.error('Gemini analysis error:', geminiError);
-      }
+Chunk ${index + 1} of ${textChunks.length}:
+${textChunk}`;
 
-      // Parse JSON analysis result
-      if (content) {
-        try {
-          const jsonMatch = content.match(/{[\s\S]*}/);
-          if (jsonMatch) {
-            const analysis = JSON.parse(jsonMatch[0]);
-            summary = analysis.summary || '';
-            keyFacts = Array.isArray(analysis.key_facts) ? analysis.key_facts : [];
-            favorableFindings = Array.isArray(analysis.favorable_findings) ? analysis.favorable_findings : [];
-            adverseFindings = Array.isArray(analysis.adverse_findings) ? analysis.adverse_findings : [];
-            actionItems = Array.isArray(analysis.action_items) ? analysis.action_items : [];
-            timelineEvents = Array.isArray(analysis.timeline_events) ? analysis.timeline_events : [];
-            extractedEntities = Array.isArray(analysis.entities) ? analysis.entities : [];
-            console.log(`Analysis parsed: ${keyFacts.length} facts, ${timelineEvents.length} events, ${extractedEntities.length} entities`);
+        let content = '';
+
+        if (hasOpenAI) {
+          try {
+            const apiUrl = aiGatewayUrl || 'https://api.openai.com/v1/chat/completions';
+            const analysisResponse = await fetch(apiUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${openaiApiKey}`,
+              },
+              body: JSON.stringify({
+                model: 'gpt-4o',
+                messages: [{ role: 'user', content: analysisPrompt }],
+                temperature: 0.1,
+                max_tokens: 2500,
+                response_format: { type: 'json_object' },
+              }),
+            });
+
+            if (analysisResponse.ok) {
+              const analysisData = await analysisResponse.json();
+              content = analysisData.choices?.[0]?.message?.content || '';
+              if (content) {
+                analysisProvider = 'openai';
+              }
+            } else {
+              console.error(`OpenAI chunk analysis failed (${index + 1}):`, await analysisResponse.text());
+            }
+          } catch (openaiError) {
+            console.error(`OpenAI chunk analysis error (${index + 1}):`, openaiError);
           }
-        } catch (parseError) {
-          console.error('Failed to parse analysis JSON:', parseError);
-          summary = content.substring(0, 500);
         }
+
+        if (!content && hasGemini) {
+          try {
+            const analysisResponse = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${googleApiKey}`,
+              {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  contents: [
+                    {
+                      parts: [{ text: analysisPrompt }],
+                    },
+                  ],
+                  generationConfig: {
+                    temperature: 0.1,
+                    maxOutputTokens: 2500,
+                    responseMimeType: 'application/json',
+                  },
+                }),
+              }
+            );
+
+            if (analysisResponse.ok) {
+              const analysisData = (await analysisResponse.json()) as GeminiResponse;
+              content = extractGeminiText(analysisData);
+              if (content) {
+                analysisProvider = 'gemini';
+              }
+            } else {
+              console.error(`Gemini chunk analysis failed (${index + 1}):`, await analysisResponse.text());
+            }
+          } catch (geminiError) {
+            console.error(`Gemini chunk analysis error (${index + 1}):`, geminiError);
+          }
+        }
+
+        if (!content) continue;
+
+        try {
+          const jsonMatch = content.match(/\{[\s\S]*\}/);
+          if (!jsonMatch) continue;
+          const parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
+          chunkResults.push({
+            summary: String(parsed.summary || ''),
+            keyFacts: Array.isArray(parsed.key_facts) ? parsed.key_facts.map((item) => String(item)) : [],
+            favorableFindings: Array.isArray(parsed.favorable_findings)
+              ? parsed.favorable_findings.map((item) => String(item))
+              : [],
+            adverseFindings: Array.isArray(parsed.adverse_findings)
+              ? parsed.adverse_findings.map((item) => String(item))
+              : [],
+            actionItems: Array.isArray(parsed.action_items)
+              ? parsed.action_items.map((item) => String(item))
+              : [],
+            timelineEvents: Array.isArray(parsed.timeline_events)
+              ? (parsed.timeline_events as TimelineEventCandidate[])
+              : [],
+            entities: Array.isArray(parsed.entities) ? parsed.entities : [],
+          });
+        } catch (parseError) {
+          console.error(`Failed to parse chunk analysis JSON (${index + 1}):`, parseError);
+        }
+      }
+
+      if (chunkResults.length > 0) {
+        const merged = mergeChunkAnalyses(chunkResults);
+        summary = merged.summary;
+        keyFacts = merged.keyFacts;
+        favorableFindings = merged.favorableFindings;
+        adverseFindings = merged.adverseFindings;
+        actionItems = merged.actionItems;
+        timelineEvents = merged.timelineEvents;
+        extractedEntities = merged.entities;
       }
     }
 
