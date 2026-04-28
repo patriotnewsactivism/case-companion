@@ -15,7 +15,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Document } from "@/lib/api";
 import { supabase } from "@/integrations/supabase/client";
 import { useCaseFactsStore } from "@/store/useCaseFactsStore";
-import { useDeepgram } from "@/hooks/useDeepgram";
+import { useVoiceEngine } from "@/hooks/useVoiceEngine";
 
 interface CaseData {
   id: string;
@@ -360,7 +360,7 @@ export function TrialSimulator({ caseData, documents = [] }: TrialSimulatorProps
     setIsTTSSpeaking(false);
   }, []);
 
-  const deepgram = useDeepgram({
+  const voice = useVoiceEngine({
     onTranscript: (text, isFinal) => {
       if (isFinal) {
         setUserInput(prev => {
@@ -376,14 +376,14 @@ export function TrialSimulator({ caseData, documents = [] }: TrialSimulatorProps
       toast({ title: "Voice Recognition Error", description: err, variant: "destructive" });
       setIsVoiceEnabled(false);
     },
-    apiKey: "your-deepgram-api-key" // User will need to provide this
+    initialVoiceMode: "push-to-talk",
   });
 
   useEffect(() => {
     if (isVoiceEnabled) {
-      deepgram.startListening();
+      voice.startListening();
     } else {
-      deepgram.stopListening();
+      voice.stopListening();
     }
   }, [isVoiceEnabled]);
 
@@ -647,7 +647,13 @@ export function TrialSimulator({ caseData, documents = [] }: TrialSimulatorProps
                 <Button
                   size="sm"
                   variant={isVoiceEnabled ? "destructive" : "outline"}
-                  onClick={() => setIsVoiceEnabled(!isVoiceEnabled)}
+                  onClick={() => {
+                    if (!voice.speechSupported) {
+                      toast({ title: "Voice Not Available", description: "Use Chrome or Edge with microphone permission enabled.", variant: "destructive" });
+                      return;
+                    }
+                    setIsVoiceEnabled(!isVoiceEnabled);
+                  }}
                   className="h-8 px-2"
                   title={isVoiceEnabled ? "Stop Voice Recognition" : "Start Voice Recognition"}
                 >
