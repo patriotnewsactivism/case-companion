@@ -696,10 +696,7 @@ serve(async (req) => {
     const authHeader = req.headers.get('Authorization') || '';
     const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : authHeader.trim();
 
-    type AuthUser = { id: string };
-    type DocumentOwner = { cases?: { user_id?: string } | Array<{ user_id?: string }> };
-
-    let user: AuthUser;
+    let user: { id: string };
     let supabase: SupabaseClient;
     let isServiceRole = false;
 
@@ -746,7 +743,7 @@ serve(async (req) => {
       return createErrorResponse(new Error('Document not found'), 404, 'ocr-document', corsHeaders);
     }
 
-    const caseRelation = (documentData as DocumentOwner).cases;
+    const caseRelation = (documentData as any).cases;
     const ownerId = Array.isArray(caseRelation) ? caseRelation[0]?.user_id : caseRelation?.user_id;
 
     if (!ownerId) {
@@ -768,7 +765,7 @@ serve(async (req) => {
     // ===== OCR EXTRACTION - Triple-tier with Azure as primary =====
     let resolvedGeminiModels: string[] | null = null;
 
-    const resolveGeminiModels = async (): Promise<string[]> => {
+    const resolveGeminiModels = async () => {
       if (resolvedGeminiModels) return resolvedGeminiModels;
 
       const preferredModels = geminiModelCandidates;
@@ -804,7 +801,7 @@ serve(async (req) => {
     const invokeGeminiWithFallback = async (
       body: Record<string, unknown>,
       purpose: 'OCR' | 'analysis'
-    ): Promise<{ payload: GeminiResponse; model: string }> => {
+    ) => {
       if (!googleApiKey) throw new Error('Google AI API key not configured');
 
       let lastError = 'No Gemini models attempted';
@@ -847,7 +844,7 @@ serve(async (req) => {
       throw new Error(`Gemini ${purpose} failed for all models: ${lastError}`);
     };
 
-    const geminiOcr = async (fileBlob: Blob, mimeType: string, isImage: boolean): Promise<string> => {
+    const geminiOcr = async (fileBlob, mimeType, isImage) => {
       const arrayBuffer = await fileBlob.arrayBuffer();
       const base64 = arrayBufferToBase64(arrayBuffer);
 
@@ -869,7 +866,7 @@ serve(async (req) => {
       return text;
     };
 
-    const ocrSpaceExtract = async (blob: Blob, isImage: boolean, ct?: string): Promise<string> => {
+    const ocrSpaceExtract = async (blob, isImage, ct) => {
       if (!ocrSpaceApiKey) throw new Error('OCR.space API key not configured');
       console.log('Using OCR.space fallback...');
       const extension = isImage ? 'jpg' : 'pdf';
@@ -895,7 +892,7 @@ serve(async (req) => {
       }
 
       const extracted = result.ParsedResults
-        .map((page, idx: number) => {
+        .map((page, idx) => {
           const pageText = page.ParsedText || '';
           return result.ParsedResults!.length > 1 ? `=== PAGE ${idx + 1} ===\n${pageText}` : pageText;
         })
@@ -1029,7 +1026,9 @@ serve(async (req) => {
       extractedText.length > 50 &&
       !extractedText.startsWith('[File type') &&
       (hasOpenAI || hasGemini)
-    ) {
+    );
+
+    if (hasSubstantialText) {
       console.log('Analyzing extracted text with AI (chunked)...');
       const textChunks = buildTextChunks(
         extractedText,
@@ -1198,7 +1197,7 @@ ${textChunk}`;
               ? parsed.action_items.map((item) => String(item))
               : [],
             timelineEvents: Array.isArray(parsed.timeline_events)
-              ? (parsed.timeline_events as TimelineEventCandidate[])
+              ? (parsed.timeline_events as any[])
               : [],
             entities: Array.isArray(parsed.entities) ? parsed.entities : [],
           });
@@ -1275,12 +1274,12 @@ ${textChunk}`;
 
     if (timelineEvents.length > 0) {
       console.log(`Inserting ${timelineEvents.length} timeline events...`);
-      const caseId = (documentData as { case_id: string }).case_id;
+      const caseId = (documentData as any).case_id;
 
       const dedupedEvents = new Map<string, TimelineEventInsertRow[]>();
       const normalizedEvents = (timelineEvents as TimelineEventCandidate[])
         .map((event) => normalizeTimelineEvent(event, caseId, validatedDocumentId, ownerId))
-        .filter((event): event is TimelineEventInsertRow => !!event)
+        .filter((event) => !!event)
         .sort((a, b) => a.event_date.localeCompare(b.event_date))
         .filter((event) => {
           const dedupeKey = `${event.event_date.slice(0, 10)}|${event.title.trim().toLowerCase()}`;
@@ -1328,7 +1327,7 @@ ${textChunk}`;
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
-  } catch (error: unknown) {
+  } catch (error) {
     console.error('OCR Error:', error);
     return createErrorResponse(error instanceof Error ? error : new Error('An unknown error occurred'), 500, 'ocr-document', getCorsHeaders(req));
   }
