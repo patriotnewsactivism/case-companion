@@ -286,19 +286,44 @@ Format the motion professionally with proper legal citation style. Be concise bu
 };
 
 const callAI = async (prompt: string, maxTokens: number = 3000): Promise<string> => {
-  const openaiApiKey = Deno.env.get("OPENAI_API_KEY");
-  const aiGatewayUrl = Deno.env.get("AI_GATEWAY_URL") || "https://api.openai.com/v1/chat/completions";
+  const AI_GATEWAY_URL = Deno.env.get("AI_GATEWAY_URL");
+  const GOOGLE_AI_API_KEY = Deno.env.get("GOOGLE_AI_API_KEY");
+  const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
+  const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
+  const AI_GATEWAY_MODEL = Deno.env.get("AI_GATEWAY_MODEL");
+
+  let apiUrl: string, apiKey: string, model: string;
+
+  if (AI_GATEWAY_URL) {
+    apiUrl = AI_GATEWAY_URL;
+    apiKey = OPENAI_API_KEY || OPENROUTER_API_KEY || GOOGLE_AI_API_KEY || "";
+    model = AI_GATEWAY_MODEL || "openai/gpt-oss-120b:free";
+  } else if (GOOGLE_AI_API_KEY) {
+    apiUrl = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
+    apiKey = GOOGLE_AI_API_KEY;
+    model = "gemini-2.0-flash";
+  } else if (OPENROUTER_API_KEY) {
+    apiUrl = "https://openrouter.ai/api/v1/chat/completions";
+    apiKey = OPENROUTER_API_KEY;
+    model = AI_GATEWAY_MODEL || "openai/gpt-oss-120b:free";
+  } else if (OPENAI_API_KEY) {
+    apiUrl = "https://api.openai.com/v1/chat/completions";
+    apiKey = OPENAI_API_KEY;
+    model = "gpt-4o-mini";
+  } else {
+    throw new Error("No AI API key configured");
+  }
 
   let lastError = "";
   for (let attempt = 1; attempt <= 3; attempt += 1) {
-    const response = await fetch(aiGatewayUrl, {
+    const response = await fetch(apiUrl, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${openaiApiKey}`,
+        Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
+        model,
         messages: [{ role: "user", content: prompt }],
         temperature: 0.2,
         max_tokens: maxTokens,
@@ -543,7 +568,7 @@ serve(async (req) => {
   }
 
   try {
-    validateEnvVars(["SUPABASE_URL", "SUPABASE_ANON_KEY", "OPENAI_API_KEY"]);
+    validateEnvVars(["SUPABASE_URL", "SUPABASE_ANON_KEY"]);
 
     const authResult = await verifyAuth(req);
     if (!authResult.authorized || !authResult.user || !authResult.supabase) {

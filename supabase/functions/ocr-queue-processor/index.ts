@@ -515,7 +515,8 @@ async function analyzeWithAI(
   extractedText: string,
   openaiApiKey: string | undefined,
   aiGatewayUrl: string | undefined,
-  googleApiKey: string | undefined
+  googleApiKey: string | undefined,
+  openrouterApiKey?: string | undefined
 ): Promise<{
   summary: string;
   keyFacts: string[];
@@ -524,8 +525,9 @@ async function analyzeWithAI(
   actionItems: string[];
   timelineEvents: TimelineEventCandidate[];
 }> {
-  const hasOpenAI = !!openaiApiKey;
+  const hasOpenAI = !!(aiGatewayUrl || openrouterApiKey || openaiApiKey);
   const hasGemini = !!googleApiKey;
+  const aiGatewayModel = Deno.env.get('AI_GATEWAY_MODEL') || 'openai/gpt-oss-120b:free';
 
   const emptyResult: ChunkAnalysisResult = {
     summary: '',
@@ -581,15 +583,33 @@ ${chunk}`;
 
     if (hasOpenAI) {
       try {
-        const apiUrl = aiGatewayUrl || 'https://api.openai.com/v1/chat/completions';
-        const analysisResponse = await fetch(apiUrl, {
+        // Resolve AI provider: gateway → OpenRouter → OpenAI direct
+        let analysisApiUrl: string;
+        let analysisApiKey: string;
+        let analysisModel: string;
+
+        if (aiGatewayUrl) {
+          analysisApiUrl = aiGatewayUrl;
+          analysisApiKey = openaiApiKey || openrouterApiKey || '';
+          analysisModel = aiGatewayModel;
+        } else if (openrouterApiKey) {
+          analysisApiUrl = 'https://openrouter.ai/api/v1/chat/completions';
+          analysisApiKey = openrouterApiKey;
+          analysisModel = aiGatewayModel;
+        } else {
+          analysisApiUrl = 'https://api.openai.com/v1/chat/completions';
+          analysisApiKey = openaiApiKey || '';
+          analysisModel = 'gpt-4o-mini';
+        }
+
+        const analysisResponse = await fetch(analysisApiUrl, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${openaiApiKey}`,
+            'Authorization': `Bearer ${analysisApiKey}`,
           },
           body: JSON.stringify({
-            model: 'gpt-4o',
+            model: analysisModel,
             messages: [{ role: 'user', content: analysisPrompt }],
             temperature: 0.1,
             max_tokens: 2500,
@@ -602,7 +622,7 @@ ${chunk}`;
           content = analysisData.choices?.[0]?.message?.content || '';
         }
       } catch (error) {
-        console.error(`OpenAI analysis error (chunk ${index + 1}):`, error);
+        console.error(`AI analysis error (chunk ${index + 1}):`, error);
       }
     }
 
@@ -677,7 +697,8 @@ async function processOcrJob(
   ocrSpaceApiKey: string | undefined,
   googleApiKey: string | undefined,
   openaiApiKey: string | undefined,
-  aiGatewayUrl: string | undefined
+  aiGatewayUrl: string | undefined,
+  openrouterApiKey?: string | undefined
 ): Promise<{ success: boolean; error?: string }> {
   const hasOcrSpace = !!ocrSpaceApiKey;
   const hasGemini = !!googleApiKey;
@@ -756,7 +777,7 @@ async function processOcrJob(
     }
 
     const { summary, keyFacts, favorableFindings, adverseFindings, actionItems, timelineEvents } =
-      await analyzeWithAI(extractedText, openaiApiKey, aiGatewayUrl, googleApiKey);
+      await analyzeWithAI(extractedText, openaiApiKey, aiGatewayUrl, googleApiKey, openrouterApiKey);
 
     const hasAnalysis =
       summary.length > 0 ||
@@ -859,7 +880,8 @@ async function handleProcessAction(
   ocrSpaceApiKey: string | undefined,
   googleApiKey: string | undefined,
   openaiApiKey: string | undefined,
-  aiGatewayUrl: string | undefined
+  aiGatewayUrl: string | undefined,
+  openrouterApiKey?: string | undefined
 ): Promise<QueueResponse> {
   const now = new Date().toISOString();
 
@@ -909,7 +931,8 @@ async function handleProcessAction(
       ocrSpaceApiKey,
       googleApiKey,
       openaiApiKey,
-      aiGatewayUrl
+      aiGatewayUrl,
+      openrouterApiKey
     );
 
     if (result.success) {
@@ -1203,6 +1226,7 @@ serve(async (req) => {
     const googleApiKey = Deno.env.get('GOOGLE_AI_API_KEY');
     const openaiApiKey = Deno.env.get('OPENAI_API_KEY');
     const aiGatewayUrl = Deno.env.get('AI_GATEWAY_URL');
+    const openrouterApiKey = Deno.env.get('OPENROUTER_API_KEY');
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
@@ -1265,7 +1289,8 @@ serve(async (req) => {
         ocrSpaceApiKey,
         googleApiKey,
         openaiApiKey,
-        aiGatewayUrl
+        aiGatewayUrl,
+        openrouterApiKey
       );
 
       return new Response(

@@ -1,8 +1,7 @@
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, Navigate } from "react-router-dom";
 import { Layout } from "@/components/Layout";
-import { AzureBotChat } from "@/components/AzureBotChat";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, Bot } from "lucide-react";
+import { ChevronLeft, Bot, MessageSquare } from "lucide-react";
 
 export default function AzureBotChatPage() {
   const { id } = useParams<{ id: string }>();
@@ -29,33 +28,38 @@ export default function AzureBotChatPage() {
               <Bot className="h-6 w-6 text-blue-600" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-foreground">GLM-5 AI Assistant</h1>
+              <h1 className="text-2xl font-bold text-foreground">AI Assistant</h1>
               <p className="text-muted-foreground mt-1">
-                Your legal AI assistant powered by Azure AI Foundry. Get help with legal research, document analysis, and trial preparation.
+                Your legal AI assistant. Use the Document-Aware Chat for legal research, analysis, and trial preparation.
               </p>
             </div>
           </div>
         </div>
 
-        {/* Chat Container */}
-        <div className="bg-card rounded-xl shadow-sm border overflow-hidden">
-          <div className="bg-muted/50 px-4 py-3 border-b">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-foreground">Active Session</span>
-                <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-              </div>
-              <div className="text-xs text-muted-foreground">
-                GLM-5 Bot Service
-              </div>
+        {/* Redirect to Document-Aware Chat */}
+        <div className="bg-card rounded-xl shadow-sm border overflow-hidden p-8">
+          <div className="flex flex-col items-center justify-center gap-6 text-center min-h-[400px]">
+            <div className="p-4 bg-blue-100 rounded-full">
+              <MessageSquare className="h-10 w-10 text-blue-600" />
             </div>
-          </div>
-          <div className="h-[calc(100vh-300px)] min-h-[600px]">
-            <AzureBotChat
-              directLineSecret={import.meta.env.VITE_AZURE_BOT_DIRECT_LINE_SECRET}
-              botAvatarInitials="GLM"
-              userAvatarInitials="ME"
-            />
+            <div>
+              <h3 className="text-xl font-semibold text-foreground mb-2">
+                AI Chat Has Moved
+              </h3>
+              <p className="text-muted-foreground max-w-md">
+                The AI assistant is now powered by Gemini and integrated directly into your case workflow. 
+                Use the <strong>Document-Aware Chat</strong> on your case page for the best experience — 
+                it can analyze your uploaded documents and provide context-aware legal insights.
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <Button asChild>
+                <Link to={`/cases/${id}`}>
+                  <ChevronLeft className="h-4 w-4 mr-2" />
+                  Back to Case
+                </Link>
+              </Button>
+            </div>
           </div>
         </div>
 

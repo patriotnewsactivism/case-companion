@@ -674,11 +674,14 @@ serve(async (req) => {
     const googleApiKey = Deno.env.get('GOOGLE_AI_API_KEY');
     const azureEndpoint = Deno.env.get('AZURE_DOC_INTELLIGENCE_ENDPOINT') || Deno.env.get('AZURE_VISION_ENDPOINT');
     const azureKey = Deno.env.get('AZURE_DOC_INTELLIGENCE_KEY') || Deno.env.get('AZURE_VISION_API_KEY');
-    const hasAzureOpenAI = !!(
-      Deno.env.get('AZURE_OPENAI_API_KEY') &&
-      Deno.env.get('AZURE_OPENAI_ENDPOINT') &&
-      Deno.env.get('AZURE_OPENAI_DEPLOYMENT_NAME')
-    );
+    const hasAzureOpenAI = false; // Azure removed — using OpenRouter/Gemini instead
+
+    // AI provider for analysis (OpenRouter free → Gemini → OpenAI)
+    const openrouterApiKey = Deno.env.get('OPENROUTER_API_KEY');
+    const openaiApiKey = Deno.env.get('OPENAI_API_KEY');
+    const aiGatewayUrl = Deno.env.get('AI_GATEWAY_URL');
+    const aiGatewayModel = Deno.env.get('AI_GATEWAY_MODEL') || 'openai/gpt-oss-120b:free';
+    const hasOpenAI = !!(aiGatewayUrl || openrouterApiKey || openaiApiKey);
 
     const hasAzure = !!(azureEndpoint && azureKey);
     const hasOcrSpace = !!ocrSpaceApiKey;
@@ -686,7 +689,7 @@ serve(async (req) => {
     const geminiModelCandidates = getPreferredGeminiCandidates(Deno.env.get('GOOGLE_AI_MODEL'));
 
     console.log(`OCR providers: Gemini=${hasGemini}, AzureDI=${hasAzure}, Tesseract=true, OCR.space=${hasOcrSpace}`);
-    console.log(`Analysis providers: AzureOpenAI=${hasAzureOpenAI}, Gemini=${hasGemini}`);
+    console.log(`Analysis providers: OpenAI/OpenRouter=${hasOpenAI}, Gemini=${hasGemini}`);
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || Deno.env.get('SERVICE_ROLE_KEY');
@@ -1090,15 +1093,33 @@ ${textChunk}`;
 
         if (hasOpenAI) {
           try {
-            const apiUrl = aiGatewayUrl || 'https://api.openai.com/v1/chat/completions';
-            const analysisResponse = await fetch(apiUrl, {
+            // Resolve AI provider: gateway → OpenRouter → OpenAI direct
+            let analysisApiUrl: string;
+            let analysisApiKey: string;
+            let analysisModel: string;
+
+            if (aiGatewayUrl) {
+              analysisApiUrl = aiGatewayUrl;
+              analysisApiKey = openaiApiKey || openrouterApiKey || '';
+              analysisModel = aiGatewayModel;
+            } else if (openrouterApiKey) {
+              analysisApiUrl = 'https://openrouter.ai/api/v1/chat/completions';
+              analysisApiKey = openrouterApiKey;
+              analysisModel = aiGatewayModel;
+            } else {
+              analysisApiUrl = 'https://api.openai.com/v1/chat/completions';
+              analysisApiKey = openaiApiKey || '';
+              analysisModel = 'gpt-4o-mini';
+            }
+
+            const analysisResponse = await fetch(analysisApiUrl, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${openaiApiKey}`,
+                'Authorization': `Bearer ${analysisApiKey}`,
               },
               body: JSON.stringify({
-                model: 'gpt-4o',
+                model: analysisModel,
                 messages: [{ role: 'user', content: analysisPrompt }],
                 temperature: 0.1,
                 max_tokens: 2500,
@@ -1113,10 +1134,10 @@ ${textChunk}`;
                 analysisProvider = 'openai';
               }
             } else {
-              console.error(`OpenAI chunk analysis failed (${index + 1}):`, await analysisResponse.text());
+              console.error(`AI chunk analysis failed (${index + 1}):`, await analysisResponse.text());
             }
           } catch (openaiError) {
-            console.error(`OpenAI chunk analysis error (${index + 1}):`, openaiError);
+            console.error(`AI chunk analysis error (${index + 1}):`, openaiError);
           }
         }
 

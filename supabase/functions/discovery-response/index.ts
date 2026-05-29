@@ -36,7 +36,7 @@ serve(async (req) => {
   }
 
   try {
-    validateEnvVars(['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'OPENAI_API_KEY']);
+    validateEnvVars(['SUPABASE_URL', 'SUPABASE_ANON_KEY']);
 
     const authResult = await verifyAuth(req);
     if (!authResult.authorized || !authResult.user || !authResult.supabase) {
@@ -95,7 +95,34 @@ serve(async (req) => {
       throw new Error("No question provided");
     }
 
-    const openaiApiKey = Deno.env.get("OPENAI_API_KEY");
+    // AI provider selection — supports multiple free providers
+    const AI_GATEWAY_URL = Deno.env.get("AI_GATEWAY_URL");
+    const GOOGLE_AI_API_KEY = Deno.env.get("GOOGLE_AI_API_KEY");
+    const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
+    const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
+    const AI_GATEWAY_MODEL = Deno.env.get("AI_GATEWAY_MODEL");
+
+    let aiApiUrl: string, aiApiKey: string, aiModel: string;
+
+    if (AI_GATEWAY_URL) {
+      aiApiUrl = AI_GATEWAY_URL;
+      aiApiKey = OPENAI_API_KEY || OPENROUTER_API_KEY || GOOGLE_AI_API_KEY || "";
+      aiModel = AI_GATEWAY_MODEL || "openai/gpt-oss-120b:free";
+    } else if (GOOGLE_AI_API_KEY) {
+      aiApiUrl = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
+      aiApiKey = GOOGLE_AI_API_KEY;
+      aiModel = "gemini-2.0-flash";
+    } else if (OPENROUTER_API_KEY) {
+      aiApiUrl = "https://openrouter.ai/api/v1/chat/completions";
+      aiApiKey = OPENROUTER_API_KEY;
+      aiModel = AI_GATEWAY_MODEL || "openai/gpt-oss-120b:free";
+    } else if (OPENAI_API_KEY) {
+      aiApiUrl = "https://api.openai.com/v1/chat/completions";
+      aiApiKey = OPENAI_API_KEY;
+      aiModel = "gpt-4o-mini";
+    } else {
+      return createErrorResponse(new Error("No AI API key configured"), 500, 'discovery-response', corsHeaders);
+    }
 
     const typeInstructions: Record<string, string> = {
       interrogatory: `This is an interrogatory question. Draft a formal, legally compliant response.
@@ -136,16 +163,14 @@ Guidelines:
 - Suggest potential objections when appropriate
 - Keep responses professional and court-ready`;
 
-    const aiGatewayUrl = Deno.env.get("AI_GATEWAY_URL") || "https://api.openai.com/v1/chat/completions";
-
-    const aiResponse = await fetch(aiGatewayUrl, {
+    const aiResponse = await fetch(aiApiUrl, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${openaiApiKey}`,
+        Authorization: `Bearer ${aiApiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
+        model: aiModel,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: `Please draft a response to the following discovery request:\n\n${actualQuestion}` },
