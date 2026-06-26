@@ -38,11 +38,13 @@ export function getCorsHeaders(req: Request): Record<string, string> {
   // Normalize origin checks
   const isLocalhost = origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1');
   const isCaseBuddy = origin.includes('casebuddy.live') || origin.includes('casebuddypro.com') || origin.endsWith('.casebuddy.live');
+  const isVercel = origin.endsWith('.vercel.app');
   const isAllowedUrl = ALLOWED_ORIGINS.includes(origin);
 
   const isAllowedOrigin = !!origin && (
     isAllowedUrl ||
     isCaseBuddy ||
+    isVercel ||
     (environment === 'development' && isLocalhost)
   );
 

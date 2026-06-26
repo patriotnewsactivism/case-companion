@@ -76,20 +76,20 @@ export function BulkDocumentUpload({ caseId, onUploadComplete }: BulkDocumentUpl
       try {
         if (chunkedMode && uf.file.size > CHUNK_SIZE) {
           const { supabase } = await import("@/integrations/supabase/client");
-          const { data: { user } } = await (supabase as any).auth.getUser();
+          const { data: { user } } = await supabase.auth.getUser();
           if (!user) throw new Error("Not authenticated");
           const totalChunks = Math.ceil(uf.file.size / CHUNK_SIZE);
           const storagePath = `${user.id}/${caseId}/${Date.now()}-${uf.file.name}`;
           for (let c = 0; c < totalChunks; c++) {
             const start = c * CHUNK_SIZE;
             const chunk = uf.file.slice(start, Math.min(start + CHUNK_SIZE, uf.file.size));
-            const { error } = await (supabase as any).storage.from("case-documents").upload(
+            const { error } = await supabase.storage.from("case-documents").upload(
               c === 0 ? storagePath : `${storagePath}.part${c}`, chunk, { upsert: true });
             if (error) throw new Error(error.message);
             setPerFileProgress(prev => ({ ...prev, [uf.file.name]: Math.round(((c + 1) / totalChunks) * 100) }));
           }
-          const { data: pub } = (supabase as any).storage.from("case-documents").getPublicUrl(storagePath);
-          const { data: doc, error: dbErr } = await (supabase as any).from("documents").insert({
+          const { data: pub } = supabase.storage.from("case-documents").getPublicUrl(storagePath);
+          const { data: doc, error: dbErr } = await supabase.from("documents").insert({
             case_id: caseId, user_id: user.id, name: uf.file.name,
             file_type: uf.file.type, file_size: uf.file.size, file_url: pub.publicUrl,
             ...(generateBates ? { bates_number: `${batesPrefix}-${String(i + 1).padStart(4, "0")}` } : {}),

@@ -296,7 +296,7 @@ export async function triggerDocumentAnalysis(documentId: string, fileUrl: strin
   const response = await fetch(functionUrl, {
     method: 'POST',
     mode: 'cors',
-    credentials: 'include',
+    credentials: 'omit',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${session.access_token}`,
@@ -537,7 +537,7 @@ export async function analyzeDocument(
   const response = await fetch(functionUrl, {
     method: 'POST',
     mode: 'cors',
-    credentials: 'include',
+    credentials: 'omit',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${session.access_token}`,
@@ -567,7 +567,7 @@ export async function extractDocumentTables(
   const response = await fetch(functionUrl, {
     method: 'POST',
     mode: 'cors',
-    credentials: 'include',
+    credentials: 'omit',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${session.access_token}`,
@@ -733,7 +733,7 @@ export async function batchAnalyzeDocuments(
       fetch(functionUrl, {
         method: 'POST',
         mode: 'cors',
-        credentials: 'include',
+        credentials: 'omit',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${session.access_token}`,

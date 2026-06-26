@@ -148,14 +148,14 @@ async function callGPT4oMini(text: string, context?: string): Promise<any> {
 
 // Reuse rate limit helpers from OCR pipeline
 async function isProviderAvailable(provider: string): Promise<boolean> {
-  const { data } = await (supabase as any)
+  const { data } = await supabase
     .from('rate_limit_status')
     .select('*')
     .eq('provider', provider)
     .single();
   if (!data) return false;
   if (new Date((data as any).reset_at) <= new Date()) {
-    await (supabase as any)
+    await supabase
       .from('rate_limit_status')
       .update({ requests_used: 0, is_available: true })
       .eq('provider', provider);
@@ -165,5 +165,5 @@ async function isProviderAvailable(provider: string): Promise<boolean> {
 }
 
 async function incrementUsage(provider: string): Promise<void> {
-  await (supabase as any).rpc('increment_rate_limit_usage', { provider_name: provider });
+  await supabase.rpc('increment_rate_limit_usage', { provider_name: provider });
 }

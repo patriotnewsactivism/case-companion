@@ -257,7 +257,7 @@ export default function CaseMotionGenerator() {
   const { data: caseData } = useQuery({
     queryKey: ["case", id],
     queryFn: async () => {
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from("cases")
         .select("*")
         .eq("id", id!)

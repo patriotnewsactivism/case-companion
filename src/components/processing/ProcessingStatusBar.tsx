@@ -41,7 +41,7 @@ export function ProcessingStatusBar({ caseId }: ProcessingStatusBarProps) {
 
   async function fetchStatus() {
     try {
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from('processing_queue')
         .select('status')
         .eq('case_id', caseId)

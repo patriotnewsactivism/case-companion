@@ -36,7 +36,7 @@ export interface FillerWordStats {
 }
 
 export async function getPerformanceSummary(): Promise<PerformanceSummary> {
-  const { data, error } = await (supabase as any)
+  const { data, error } = await supabase
     .from("trial_sessions")
     .select("score, duration_seconds, metrics, created_at")
     .order("created_at", { ascending: false });
@@ -131,7 +131,7 @@ export async function getPerformanceSummary(): Promise<PerformanceSummary> {
 }
 
 export async function getPhaseStats(): Promise<PhaseStats[]> {
-  const { data, error } = await (supabase as any)
+  const { data, error } = await supabase
     .from("trial_sessions")
     .select("phase, score, duration_seconds, created_at")
     .order("created_at", { ascending: true });
@@ -204,7 +204,7 @@ export async function getWeeklyStats(weeks: number): Promise<WeeklyStats[]> {
   const startDate = new Date();
   startDate.setDate(startDate.getDate() - weeks * 7);
 
-  const { data, error } = await (supabase as any)
+  const { data, error } = await supabase
     .from("trial_sessions")
     .select("score, duration_seconds, created_at")
     .gte("created_at", startDate.toISOString())
@@ -260,7 +260,7 @@ export async function getWeeklyStats(weeks: number): Promise<WeeklyStats[]> {
 }
 
 export async function getRecentSessions(limit: number): Promise<TrialSession[]> {
-  const { data, error } = await (supabase as any)
+  const { data, error } = await supabase
     .from("trial_sessions")
     .select("*")
     .order("created_at", { ascending: false })
@@ -274,7 +274,7 @@ export async function getScoreTrend(days: number): Promise<{ date: string; score
   const startDate = new Date();
   startDate.setDate(startDate.getDate() - days);
 
-  const { data, error } = await (supabase as any)
+  const { data, error } = await supabase
     .from("trial_sessions")
     .select("score, created_at")
     .gte("created_at", startDate.toISOString())
@@ -316,7 +316,7 @@ export async function getFillerWordStats(): Promise<FillerWordStats[]> {
   const twoWeeksAgo = new Date();
   twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
 
-  const { data, error } = await (supabase as any)
+  const { data, error } = await supabase
     .from("trial_sessions")
     .select("metrics, created_at")
     .order("created_at", { ascending: false });

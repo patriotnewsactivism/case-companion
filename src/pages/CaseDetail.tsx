@@ -398,6 +398,9 @@ export default function CaseDetail() {
     due_date: "",
   });
 
+  // Tab state
+  const [activeTab, setActiveTab] = useState("discovery");
+
   // AI Chat state
   const [chatMessages, setChatMessages] = useState<{ role: "user" | "assistant"; content: string }[]>([]);
   const [chatInput, setChatInput] = useState("");
@@ -451,7 +454,7 @@ export default function CaseDetail() {
   const { data: caseData, isLoading: caseLoading } = useQuery({
     queryKey: ["case", id],
     queryFn: async () => {
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from("cases")
         .select("*")
         .eq("id", id)
@@ -466,7 +469,7 @@ export default function CaseDetail() {
   const { data: documents = [], isLoading: docsLoading } = useQuery({
     queryKey: ["documents", id],
     queryFn: async () => {
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from("documents")
         .select("*")
         .eq("case_id", id)
@@ -481,7 +484,7 @@ export default function CaseDetail() {
   const { data: timelineEvents = [], isLoading: eventsLoading } = useQuery({
     queryKey: ["timeline_events", id],
     queryFn: async () => {
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from("timeline_events")
         .select("*")
         .eq("case_id", id)
@@ -552,7 +555,7 @@ export default function CaseDetail() {
       file_size?: number;
     }) => {
       if (!user || !id) throw new Error("Not authenticated");
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from("documents")
         .insert({
           case_id: id,
@@ -611,7 +614,7 @@ export default function CaseDetail() {
       const response = await fetch(functionUrl, {
         method: 'POST',
         mode: 'cors',
-        credentials: 'include',
+        credentials: 'omit',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${session.access_token}`,
@@ -928,7 +931,7 @@ export default function CaseDetail() {
   // Delete document mutation
   const deleteDocMutation = useMutation({
     mutationFn: async (docId: string) => {
-      const { data: doc, error: fetchError } = await (supabase as any)
+      const { data: doc, error: fetchError } = await supabase
         .from("documents")
         .select("file_url")
         .eq("id", docId)
@@ -941,11 +944,11 @@ export default function CaseDetail() {
         const bucketIndex = urlParts.findIndex(part => part === 'case-documents');
         if (bucketIndex !== -1) {
           const filePath = urlParts.slice(bucketIndex + 1).join('/');
-          await (supabase as any).storage.from('case-documents').remove([filePath]);
+          await supabase.storage.from('case-documents').remove([filePath]);
         }
       }
 
-      const { error } = await (supabase as any).from("documents").delete().eq("id", docId);
+      const { error } = await supabase.from("documents").delete().eq("id", docId);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -962,7 +965,7 @@ export default function CaseDetail() {
   const createEventMutation = useMutation({
     mutationFn: async (input: typeof eventForm) => {
       if (!user || !id) throw new Error("Not authenticated");
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from("timeline_events")
         .insert({
           case_id: id,
@@ -1015,7 +1018,7 @@ export default function CaseDetail() {
 
       if (chunkedUpload && file.size > CHUNK_SIZE) {
         // ── Chunked upload path ────────────────────────────────────────────
-        const { data: { session } } = await (supabase as any).auth.getSession();
+        const { data: { session } } = await supabase.auth.getSession();
         const accessToken = session?.access_token;
         const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
         const uploadId = `${user.id}-${Date.now()}`;
@@ -1026,7 +1029,7 @@ export default function CaseDetail() {
           const end = Math.min(start + CHUNK_SIZE, file.size);
           const chunk = file.slice(start, end);
 
-          const { error: chunkError } = await (supabase as any).storage
+          const { error: chunkError } = await supabase.storage
             .from('case-documents')
             .upload(
               i === 0 ? storagePath : `${storagePath}.part${i}`,
@@ -1040,13 +1043,13 @@ export default function CaseDetail() {
 
         // For chunked we just upload the first chunk as the real file
         // and record the doc — OCR queue will handle the rest
-        const { data: publicData } = (supabase as any).storage
+        const { data: publicData } = supabase.storage
           .from('case-documents')
           .getPublicUrl(storagePath);
 
         setUploadProgress(90);
         const docName = docForm.name || file.name;
-        const { error: dbError } = await (supabase as any)
+        const { error: dbError } = await supabase
           .from('documents')
           .insert({
             case_id: id,
@@ -1224,7 +1227,7 @@ export default function CaseDetail() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" className="gap-2" onClick={() => navigate(`/cases/${id}/ai-assistant`)}>
+                <Button variant="outline" size="sm" className="gap-2" onClick={() => setActiveTab("ai")}>
                   <MessageSquare className="h-4 w-4" />
                   Chat
                 </Button>
@@ -1265,7 +1268,7 @@ export default function CaseDetail() {
 
           {/* Tabs for Discovery, Timeline, Trial Prep, Briefs, AI */}
           <motion.div variants={item}>
-            <Tabs defaultValue="discovery" className="w-full">
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
               <TabsList className="mb-4 bg-transparent border-b border-border rounded-none w-full justify-start h-auto p-0 gap-0 overflow-x-auto flex-nowrap scrollbar-none">
                 <TabsTrigger value="discovery" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none px-3 pb-3 gap-1.5 text-xs whitespace-nowrap flex-shrink-0">
                   <Search className="h-4 w-4" />

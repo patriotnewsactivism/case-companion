@@ -94,7 +94,7 @@ export function useAutoAnalysis(caseId: string | undefined): UseAutoAnalysisRetu
         const response = await fetch(functionUrl, {
           method: "POST",
           mode: "cors",
-          credentials: "include",
+          credentials: "omit",
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${session.access_token}`,
@@ -124,7 +124,7 @@ export function useAutoAnalysis(caseId: string | undefined): UseAutoAnalysisRetu
 
         try {
           // Get the OCR text from the document (it was just saved by the edge function)
-          const { data: docData } = await (supabase as any)
+          const { data: docData } = await supabase
             .from("documents")
             .select("ocr_text, summary, key_facts, entities")
             .eq("id", item.documentId)

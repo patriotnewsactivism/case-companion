@@ -17,7 +17,7 @@ export default function CaseSimulator() {
   } = useQuery({
     queryKey: ['case', id],
     queryFn: async () => {
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from('cases')
         .select('id, name, case_type, case_theory, key_issues, winning_factors')
         .eq('id', id!)
@@ -31,7 +31,7 @@ export default function CaseSimulator() {
   const { data: documents = [] } = useQuery({
     queryKey: ['documents', id],
     queryFn: async () => {
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from('documents')
         .select('id, name, summary')
         .eq('case_id', id!)

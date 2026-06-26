@@ -141,7 +141,7 @@ export function ExportDialog({
       const response = await fetch(functionUrl, {
         method: "POST",
         mode: "cors",
-        credentials: "include",
+        credentials: "omit",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${session.access_token}`,

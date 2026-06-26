@@ -333,7 +333,7 @@ export async function runDocumentIntelligence(
     updateFields.document_date = documentDate;
   }
 
-  const { error } = await (supabase as any)
+  const { error } = await supabase
     .from("documents")
     .update(updateFields)
     .eq("id", documentId);
@@ -342,7 +342,7 @@ export async function runDocumentIntelligence(
     console.warn("Failed to persist document intelligence:", error.message);
     // Try without new columns (they may not exist yet)
     try {
-      await (supabase as any)
+      await supabase
         .from("documents")
         .update({ ai_suggested_name: suggestedName })
         .eq("id", documentId);
@@ -392,7 +392,7 @@ export async function reorderBatesChronologically(
   const warnings: string[] = [];
 
   // Fetch all documents for the case
-  const { data: documents, error } = await (supabase as any)
+  const { data: documents, error } = await supabase
     .from("documents")
     .select("id, name, bates_number, document_date, document_type, created_at, ai_suggested_name")
     .eq("case_id", caseId)
@@ -472,7 +472,7 @@ export async function reorderBatesChronologically(
 
   // Persist all changes
   for (const update of updates) {
-    const { error: updateError } = await (supabase as any)
+    const { error: updateError } = await supabase
       .from("documents")
       .update({ bates_number: update.bates_number })
       .eq("id", update.id);
@@ -496,7 +496,7 @@ export async function getNextBatesNumber(
   caseId: string,
   prefix: string = "DOC"
 ): Promise<string> {
-  const { data, error } = await (supabase as any)
+  const { data, error } = await supabase
     .from("documents")
     .select("bates_number")
     .eq("case_id", caseId)

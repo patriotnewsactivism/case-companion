@@ -207,7 +207,7 @@ export function VideoConference({ defaultCaseId }: VideoConferenceProps) {
     const joinUrl = generateInviteLink();
     
     try {
-      const res = await (supabase as any).functions.invoke("send-email", {
+      const res = await supabase.functions.invoke("send-email", {
         body: {
           to: inviteEmail.trim(),
           subject: `Video Conference Invitation: ${currentRoom.roomName}`,
@@ -302,7 +302,7 @@ export function VideoConference({ defaultCaseId }: VideoConferenceProps) {
           room_name: currentRoom?.roomName,
           timestamp: note.timestamp,
         },
-      }).then(({ error }) => {
+      } as any).then(({ error }) => {
         if (error) console.warn("Failed to save note to case events:", error.message);
       });
     }
@@ -349,7 +349,7 @@ export function VideoConference({ defaultCaseId }: VideoConferenceProps) {
           notes_count: meetingNotes.length,
           duration_started: recordingStartTime?.toISOString(),
         },
-      });
+      } as any);
     }
     setInCallView(false);
     setCurrentRoom(null);

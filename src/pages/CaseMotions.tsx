@@ -238,7 +238,7 @@ export default function CaseMotions() {
   const { data: caseData } = useQuery({
     queryKey: ["case", id],
     queryFn: async () => {
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from("cases")
         .select("name, case_type")
         .eq("id", id!)

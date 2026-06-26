@@ -148,7 +148,7 @@ export async function processDocumentOCR(
 
 // Helper: Check if a provider has remaining quota
 async function isProviderAvailable(provider: string): Promise<boolean> {
-  const { data } = await (supabase as any)
+  const { data } = await supabase
     .from('rate_limit_status')
     .select('*')
     .eq('provider', provider)
@@ -158,7 +158,7 @@ async function isProviderAvailable(provider: string): Promise<boolean> {
   
   // Reset counter if past reset time
   if (new Date(data.reset_at) <= new Date()) {
-    await (supabase as any)
+    await supabase
       .from('rate_limit_status')
       .update({ requests_used: 0, is_available: true, reset_at: getNextReset(provider) })
       .eq('provider', provider);
@@ -169,11 +169,11 @@ async function isProviderAvailable(provider: string): Promise<boolean> {
 }
 
 async function incrementUsage(provider: string): Promise<void> {
-  await (supabase as any).rpc('increment_rate_limit_usage', { provider_name: provider });
+  await supabase.rpc('increment_rate_limit_usage', { provider_name: provider });
 }
 
 async function logAPIUsage(provider: string, endpoint: string, status: string, error?: string): Promise<void> {
-  await (supabase as any).from('api_usage_log').insert({
+  await supabase.from('api_usage_log').insert({
     provider,
     endpoint,
     status,

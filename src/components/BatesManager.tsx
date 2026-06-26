@@ -47,18 +47,19 @@ export function BatesManager({ caseId }: BatesManagerProps) {
   const fetchDocuments = useCallback(async () => {
     setIsLoading(true);
     try {
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from("documents")
         .select("id, name, bates_number, document_date, document_type, created_at, ai_suggested_name")
         .eq("case_id", caseId)
         .order("created_at", { ascending: true });
 
       if (error) throw error;
-      setDocuments(data || []);
+      setDocuments((data as unknown as BatesDocument[]) || []);
 
       // Detect existing prefix
       if (data && data.length > 0) {
-        const firstBates = data.find((d: any) => d.bates_number)?.bates_number;
+        const castData = data as unknown as BatesDocument[];
+        const firstBates = castData.find((d) => d.bates_number)?.bates_number;
         if (firstBates) {
           const prefix = firstBates.replace(/-\d+$/, "");
           if (prefix) setBatesPrefix(prefix);

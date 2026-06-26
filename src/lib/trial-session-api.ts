@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import type { Json } from "@/integrations/supabase/types";
 
 export interface TrialSimulationSession {
   id: string;
@@ -102,18 +103,18 @@ export async function createTrialSession(input: CreateSessionInput): Promise<Tri
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Not authenticated");
 
-  const { data, error } = await (supabase as any)
+  const { data, error } = await supabase
     .from('trial_simulation_sessions')
     .insert({
       user_id: user.id,
       case_id: input.case_id || null,
       mode: input.mode,
       scenario: input.scenario || null,
-      witness_profile: input.witness_profile || null,
-      transcript: [],
-      exhibits_shown: [],
-      objections_made: [],
-      ai_coaching: [],
+      witness_profile: (input.witness_profile as unknown as Json) || null,
+      transcript: [] as unknown as Json,
+      exhibits_shown: [] as unknown as Json,
+      objections_made: [] as unknown as Json,
+      ai_coaching: [] as unknown as Json,
     })
     .select()
     .single();
@@ -123,9 +124,16 @@ export async function createTrialSession(input: CreateSessionInput): Promise<Tri
 }
 
 export async function updateTrialSession(sessionId: string, updates: UpdateSessionInput): Promise<TrialSimulationSession> {
-  const { data, error } = await (supabase as any)
+  const dbUpdates: any = { ...updates };
+  if (updates.transcript) dbUpdates.transcript = updates.transcript as unknown as Json;
+  if (updates.exhibits_shown) dbUpdates.exhibits_shown = updates.exhibits_shown as unknown as Json;
+  if (updates.objections_made) dbUpdates.objections_made = updates.objections_made as unknown as Json;
+  if (updates.performance_metrics) dbUpdates.performance_metrics = updates.performance_metrics as unknown as Json;
+  if (updates.ai_coaching) dbUpdates.ai_coaching = updates.ai_coaching as unknown as Json;
+
+  const { data, error } = await supabase
     .from('trial_simulation_sessions')
-    .update(updates)
+    .update(dbUpdates)
     .eq('id', sessionId)
     .select()
     .single();
@@ -135,11 +143,11 @@ export async function updateTrialSession(sessionId: string, updates: UpdateSessi
 }
 
 export async function endTrialSession(sessionId: string, metrics: PerformanceMetrics): Promise<TrialSimulationSession> {
-  const { data, error } = await (supabase as any)
+  const { data, error } = await supabase
     .from('trial_simulation_sessions')
     .update({
       ended_at: new Date().toISOString(),
-      performance_metrics: metrics,
+      performance_metrics: metrics as unknown as Json,
     })
     .eq('id', sessionId)
     .select()
@@ -153,7 +161,7 @@ export async function endTrialSession(sessionId: string, metrics: PerformanceMet
 }
 
 export async function getTrialSessions(caseId?: string): Promise<TrialSimulationSession[]> {
-  let query = (supabase as any)
+  let query = supabase
     .from('trial_simulation_sessions')
     .select('*')
     .order('started_at', { ascending: false });
@@ -169,7 +177,7 @@ export async function getTrialSessions(caseId?: string): Promise<TrialSimulation
 }
 
 export async function getTrialSessionById(sessionId: string): Promise<TrialSimulationSession | null> {
-  const { data, error } = await (supabase as any)
+  const { data, error } = await supabase
     .from('trial_simulation_sessions')
     .select('*')
     .eq('id', sessionId)
@@ -180,7 +188,7 @@ export async function getTrialSessionById(sessionId: string): Promise<TrialSimul
 }
 
 export async function getSessionWithAnalytics(sessionId: string): Promise<SessionWithAnalytics | null> {
-  const { data: session, error: sessionError } = await (supabase as any)
+  const { data: session, error: sessionError } = await supabase
     .from('trial_simulation_sessions')
     .select('*')
     .eq('id', sessionId)
@@ -189,7 +197,7 @@ export async function getSessionWithAnalytics(sessionId: string): Promise<Sessio
   if (sessionError) throw sessionError;
   if (!session) return null;
 
-  const { data: analytics, error: analyticsError } = await (supabase as any)
+  const { data: analytics, error: analyticsError } = await supabase
     .from('trial_session_analytics')
     .select('*')
     .eq('session_id', sessionId)
@@ -204,7 +212,7 @@ export async function getSessionWithAnalytics(sessionId: string): Promise<Sessio
 }
 
 export async function deleteTrialSession(sessionId: string): Promise<void> {
-  const { error } = await (supabase as any)
+  const { error } = await supabase
     .from('trial_simulation_sessions')
     .delete()
     .eq('id', sessionId);
@@ -238,7 +246,7 @@ export async function createSessionAnalytics(sessionId: string, metrics: Perform
     improvementAreas.push("Improve objection timing and recognition");
   }
 
-  const { data, error } = await (supabase as any)
+  const { data, error } = await supabase
     .from('trial_session_analytics')
     .insert({
       user_id: user.id,
@@ -272,7 +280,7 @@ export async function getUserAnalytics(userId?: string): Promise<{
   const targetUserId = userId || user?.id;
   if (!targetUserId) throw new Error("No user ID provided");
 
-  const { data: analytics, error } = await (supabase as any)
+  const { data: analytics, error } = await supabase
     .from('trial_session_analytics')
     .select('*')
     .eq('user_id', targetUserId)
@@ -321,7 +329,7 @@ export async function addTranscriptMessage(
   sessionId: string,
   message: Omit<TranscriptMessage, 'id'>
 ): Promise<void> {
-  const { data: session, error: fetchError } = await (supabase as any)
+  const { data: session, error: fetchError } = await supabase
     .from('trial_simulation_sessions')
     .select('transcript')
     .eq('id', sessionId)
@@ -329,15 +337,15 @@ export async function addTranscriptMessage(
 
   if (fetchError) throw fetchError;
 
-  const transcript = (session?.transcript as TranscriptMessage[]) || [];
+  const transcript = (session?.transcript as unknown as TranscriptMessage[]) || [];
   const newMessage: TranscriptMessage = {
     ...message,
     id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
   };
 
-  const { error: updateError } = await (supabase as any)
+  const { error: updateError } = await supabase
     .from('trial_simulation_sessions')
-    .update({ transcript: [...transcript, newMessage] })
+    .update({ transcript: [...transcript, newMessage] as unknown as Json })
     .eq('id', sessionId);
 
   if (updateError) throw updateError;
@@ -347,7 +355,7 @@ export async function addObjectionRecord(
   sessionId: string,
   objection: Omit<ObjectionRecord, 'timestamp'>
 ): Promise<void> {
-  const { data: session, error: fetchError } = await (supabase as any)
+  const { data: session, error: fetchError } = await supabase
     .from('trial_simulation_sessions')
     .select('objections_made')
     .eq('id', sessionId)
@@ -355,15 +363,15 @@ export async function addObjectionRecord(
 
   if (fetchError) throw fetchError;
 
-  const objections = (session?.objections_made as ObjectionRecord[]) || [];
+  const objections = (session?.objections_made as unknown as ObjectionRecord[]) || [];
   const newObjection: ObjectionRecord = {
     ...objection,
     timestamp: new Date().toISOString(),
   };
 
-  const { error: updateError } = await (supabase as any)
+  const { error: updateError } = await supabase
     .from('trial_simulation_sessions')
-    .update({ objections_made: [...objections, newObjection] })
+    .update({ objections_made: [...objections, newObjection] as unknown as Json })
     .eq('id', sessionId);
 
   if (updateError) throw updateError;
@@ -373,7 +381,7 @@ export async function addExhibitShown(
   sessionId: string,
   exhibit: Omit<ExhibitShown, 'shownAt'>
 ): Promise<void> {
-  const { data: session, error: fetchError } = await (supabase as any)
+  const { data: session, error: fetchError } = await supabase
     .from('trial_simulation_sessions')
     .select('exhibits_shown')
     .eq('id', sessionId)
@@ -381,22 +389,22 @@ export async function addExhibitShown(
 
   if (fetchError) throw fetchError;
 
-  const exhibits = (session?.exhibits_shown as ExhibitShown[]) || [];
+  const exhibits = (session?.exhibits_shown as unknown as ExhibitShown[]) || [];
   const newExhibit: ExhibitShown = {
     ...exhibit,
     shownAt: new Date().toISOString(),
   };
 
-  const { error: updateError } = await (supabase as any)
+  const { error: updateError } = await supabase
     .from('trial_simulation_sessions')
-    .update({ exhibits_shown: [...exhibits, newExhibit] })
+    .update({ exhibits_shown: [...exhibits, newExhibit] as unknown as Json })
     .eq('id', sessionId);
 
   if (updateError) throw updateError;
 }
 
 export async function addCoachingTip(sessionId: string, tip: string): Promise<void> {
-  const { data: session, error: fetchError } = await (supabase as any)
+  const { data: session, error: fetchError } = await supabase
     .from('trial_simulation_sessions')
     .select('ai_coaching')
     .eq('id', sessionId)
@@ -406,7 +414,7 @@ export async function addCoachingTip(sessionId: string, tip: string): Promise<vo
 
   const coaching = (session?.ai_coaching as string[]) || [];
 
-  const { error: updateError } = await (supabase as any)
+  const { error: updateError } = await supabase
     .from('trial_simulation_sessions')
     .update({ ai_coaching: [...coaching, tip] })
     .eq('id', sessionId);

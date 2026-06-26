@@ -81,7 +81,7 @@ export interface CaseKnowledge {
  */
 export async function buildCaseKnowledge(caseId: string): Promise<CaseKnowledge> {
   // Fetch case metadata
-  const { data: caseData, error: caseError } = await (supabase as any)
+  const { data: caseData, error: caseError } = await supabase
     .from("cases")
     .select("id, name, case_type, case_theory, key_issues, winning_factors")
     .eq("id", caseId)
@@ -90,7 +90,7 @@ export async function buildCaseKnowledge(caseId: string): Promise<CaseKnowledge>
   if (caseError) throw new Error(`Failed to fetch case: ${caseError.message}`);
 
   // Fetch all documents with their analysis
-  const { data: documents, error: docError } = await (supabase as any)
+  const { data: documents, error: docError } = await supabase
     .from("documents")
     .select(
       "id, name, ai_suggested_name, document_type, document_date, bates_number, " +
@@ -103,7 +103,7 @@ export async function buildCaseKnowledge(caseId: string): Promise<CaseKnowledge>
   if (docError) throw new Error(`Failed to fetch documents: ${docError.message}`);
 
   // Fetch timeline events
-  const { data: timelineData, error: timelineError } = await (supabase as any)
+  const { data: timelineData, error: timelineError } = await supabase
     .from("timeline_events")
     .select("id, event_date, title, description, importance, event_type, linked_document_id")
     .eq("case_id", caseId)
