@@ -284,10 +284,10 @@ async function loadFileBlob(
 const arrayBufferToBase64 = (buffer: ArrayBuffer): string => {
   const bytes = new Uint8Array(buffer);
   let binary = '';
-  const chunkSize = 8192;
+  const chunkSize = 16384; // 16kb chunks - fast and safe
   for (let i = 0; i < bytes.length; i += chunkSize) {
-    const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.length));
-    binary += String.fromCharCode.apply(null, Array.from(chunk));
+    const chunk = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode(...chunk);
   }
   return btoa(binary);
 };
@@ -581,7 +581,37 @@ ${chunk}`;
 
     let content = '';
 
-    if (hasOpenAI) {
+    if (hasGemini) {
+      try {
+        const analysisResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${googleApiKey}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            contents: [
+              {
+                parts: [{ text: analysisPrompt }]
+              }
+            ],
+            generationConfig: {
+              temperature: 0.1,
+              maxOutputTokens: 2500,
+              responseMimeType: 'application/json',
+            }
+          }),
+        });
+
+        if (analysisResponse.ok) {
+          const analysisData = await analysisResponse.json();
+          content = extractGeminiText(analysisData);
+        }
+      } catch (error) {
+        console.error(`Gemini analysis error (chunk ${index + 1}):`, error);
+      }
+    }
+
+    if (!content && hasOpenAI) {
       try {
         // Resolve AI provider: gateway → OpenRouter → OpenAI direct
         let analysisApiUrl: string;
@@ -623,36 +653,6 @@ ${chunk}`;
         }
       } catch (error) {
         console.error(`AI analysis error (chunk ${index + 1}):`, error);
-      }
-    }
-
-    if (!content && hasGemini) {
-      try {
-        const analysisResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${googleApiKey}`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            contents: [
-              {
-                parts: [{ text: analysisPrompt }]
-              }
-            ],
-            generationConfig: {
-              temperature: 0.1,
-              maxOutputTokens: 2500,
-              responseMimeType: 'application/json',
-            }
-          }),
-        });
-
-        if (analysisResponse.ok) {
-          const analysisData = await analysisResponse.json();
-          content = extractGeminiText(analysisData);
-        }
-      } catch (error) {
-        console.error(`Gemini analysis error (chunk ${index + 1}):`, error);
       }
     }
 

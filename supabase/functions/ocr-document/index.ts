@@ -132,10 +132,10 @@ const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const arrayBufferToBase64 = (buffer: ArrayBuffer): string => {
   const bytes = new Uint8Array(buffer);
   let binary = '';
-  const chunkSize = 8192;
+  const chunkSize = 16384; // 16kb chunks - fast and safe
   for (let i = 0; i < bytes.length; i += chunkSize) {
-    const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.length));
-    binary += String.fromCharCode.apply(null, Array.from(chunk));
+    const chunk = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode(...chunk);
   }
   return btoa(binary);
 };
@@ -581,36 +581,7 @@ async function extractPdfEmbeddedText(blob: Blob): Promise<string> {
   return result;
 }
 
-// ===== Tesseract.js OCR (free offline fallback for scanned documents) =====
-async function tesseractOcr(blob: Blob, isImage: boolean): Promise<string> {
-  console.log('Attempting Tesseract.js OCR...');
-
-  // Dynamic import to avoid loading unless needed
-  const { createWorker } = await import('https://esm.sh/tesseract.js@5?target=deno');
-  const worker = await createWorker('eng', 1, {
-    workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/worker.min.js',
-    corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5/tesseract-core-simd-lstm.wasm.js',
-  });
-
-  try {
-    if (isImage) {
-      // Direct image OCR
-      const arrayBuffer = await blob.arrayBuffer();
-      const uint8 = new Uint8Array(arrayBuffer);
-      const { data } = await worker.recognize(uint8);
-      console.log(`Tesseract OCR: ${data.text.length} chars, confidence: ${data.confidence}%`);
-      if (data.confidence < 20) {
-        throw new Error(`Tesseract confidence too low (${data.confidence}%)`);
-      }
-      return data.text;
-    } else {
-      // For PDFs, we can't use Tesseract directly — it needs images
-      throw new Error('Tesseract.js requires image input; PDF must be converted to images first');
-    }
-  } finally {
-    await worker.terminate();
-  }
-}
+// ===== Tesseract.js OCR (removed to conserve memory and prevent serverless timeouts) =====
 
 // ===== Build the AI analysis prompt (shared between Azure OpenAI and Gemini) =====
 function buildAnalysisPrompt(documentContext: string, tableContext: string, maxEvents: number): string {
@@ -672,9 +643,6 @@ serve(async (req) => {
 
     const ocrSpaceApiKey = Deno.env.get('OCR_SPACE_API_KEY');
     const googleApiKey = Deno.env.get('GOOGLE_AI_API_KEY');
-    const azureEndpoint = Deno.env.get('AZURE_DOC_INTELLIGENCE_ENDPOINT') || Deno.env.get('AZURE_VISION_ENDPOINT');
-    const azureKey = Deno.env.get('AZURE_DOC_INTELLIGENCE_KEY') || Deno.env.get('AZURE_VISION_API_KEY');
-    const hasAzureOpenAI = false; // Azure removed — using OpenRouter/Gemini instead
 
     // AI provider for analysis (OpenRouter free → Gemini → OpenAI)
     const openrouterApiKey = Deno.env.get('OPENROUTER_API_KEY');
@@ -683,12 +651,11 @@ serve(async (req) => {
     const aiGatewayModel = Deno.env.get('AI_GATEWAY_MODEL') || 'openai/gpt-oss-120b:free';
     const hasOpenAI = !!(aiGatewayUrl || openrouterApiKey || openaiApiKey);
 
-    const hasAzure = !!(azureEndpoint && azureKey);
     const hasOcrSpace = !!ocrSpaceApiKey;
     const hasGemini = !!googleApiKey;
     const geminiModelCandidates = getPreferredGeminiCandidates(Deno.env.get('GOOGLE_AI_MODEL'));
 
-    console.log(`OCR providers: Gemini=${hasGemini}, AzureDI=${hasAzure}, Tesseract=true, OCR.space=${hasOcrSpace}`);
+    console.log(`OCR providers: Gemini=${hasGemini}, Tesseract=false, OCR.space=${hasOcrSpace}`);
     console.log(`Analysis providers: OpenAI/OpenRouter=${hasOpenAI}, Gemini=${hasGemini}`);
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
@@ -932,6 +899,11 @@ serve(async (req) => {
         }
       }
 
+      // Guard against Deno serverless memory limits (WORKER_RESOURCE_LIMIT) on scanned documents > 12MB
+      if (!extractedText && fileBlob.size > 12 * 1024 * 1024) {
+        throw new Error(`Document is too large for edge OCR (${(fileBlob.size / 1024 / 1024).toFixed(2)}MB). The limit for scanned OCR processing is 12MB. Please compress the PDF or split it into smaller documents.`);
+      }
+
       // Tier 1: Gemini 2.5 Pro (best multimodal AI for legal docs — tables, stamps, Bates numbers)
       if (!extractedText && hasGemini) {
         try {
@@ -945,41 +917,9 @@ serve(async (req) => {
         }
       }
 
-      // Tier 2: Azure Document Intelligence - prebuilt-layout (extracts tables + text)
-      if (!extractedText && hasAzure) {
-        try {
-          console.log('Attempting Azure Document Intelligence...');
-          const diResult = await azureDIOcr(fileBlob);
-          extractedText = diResult.text;
-          extractedTables = diResult.tables;
-          ocrProvider = 'azure_di';
-        } catch (diError) {
-          console.error('Azure DI error:', diError);
-          errors.push(`Azure DI: ${diError instanceof Error ? diError.message : String(diError)}`);
+      // Tier 2: Azure Document Intelligence (removed — Gemini and OCR.space used instead)
 
-          // Tier 2b: Azure Computer Vision Read API v3.2
-          try {
-            console.log('Attempting Azure Computer Vision Read API v3.2...');
-            const mimeType = resolvedContentType || (isImage ? 'image/jpeg' : 'application/pdf');
-            extractedText = await azureCVReadOcr(fileBlob, mimeType);
-            ocrProvider = 'azure_cv';
-          } catch (cvError) {
-            console.error('Azure CV error:', cvError);
-            errors.push(`Azure CV: ${cvError instanceof Error ? cvError.message : String(cvError)}`);
-          }
-        }
-      }
-
-      // Tier 3: Tesseract.js (free offline OCR — best for scanned image documents)
-      if (!extractedText && isImage) {
-        try {
-          extractedText = await tesseractOcr(fileBlob, isImage);
-          ocrProvider = 'tesseract';
-        } catch (error) {
-          console.error('Tesseract.js error:', error);
-          errors.push(`Tesseract: ${error instanceof Error ? error.message : String(error)}`);
-        }
-      }
+      // Tier 3: Tesseract.js (removed to conserve memory and prevent serverless timeouts)
 
       // Tier 4: OCR.space (backup — 25k/month free, 1MB file limit on free tier)
       if (!extractedText && hasOcrSpace) {
@@ -1090,7 +1030,45 @@ ${textChunk}`;
 
         let content = '';
 
-        if (hasOpenAI) {
+        if (hasGemini) {
+          try {
+            const analysisResponse = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${googleApiKey}`,
+              {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  contents: [
+                    {
+                      parts: [{ text: analysisPrompt }],
+                    },
+                  ],
+                  generationConfig: {
+                    temperature: 0.1,
+                    maxOutputTokens: 2500,
+                    responseMimeType: 'application/json',
+                  },
+                }),
+              }
+            );
+
+            if (analysisResponse.ok) {
+              const analysisData = (await analysisResponse.json()) as GeminiResponse;
+              content = extractGeminiText(analysisData);
+              if (content) {
+                analysisProvider = 'gemini';
+              }
+            } else {
+              console.error(`Gemini chunk analysis failed (${index + 1}):`, await analysisResponse.text());
+            }
+          } catch (geminiError) {
+            console.error(`Gemini chunk analysis error (${index + 1}):`, geminiError);
+          }
+        }
+
+        if (!content && hasOpenAI) {
           try {
             // Resolve AI provider: gateway → OpenRouter → OpenAI direct
             let analysisApiUrl: string;
@@ -1137,44 +1115,6 @@ ${textChunk}`;
             }
           } catch (openaiError) {
             console.error(`AI chunk analysis error (${index + 1}):`, openaiError);
-          }
-        }
-
-        if (!content && hasGemini) {
-          try {
-            const analysisResponse = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${googleApiKey}`,
-              {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                  contents: [
-                    {
-                      parts: [{ text: analysisPrompt }],
-                    },
-                  ],
-                  generationConfig: {
-                    temperature: 0.1,
-                    maxOutputTokens: 2500,
-                    responseMimeType: 'application/json',
-                  },
-                }),
-              }
-            );
-
-            if (analysisResponse.ok) {
-              const analysisData = (await analysisResponse.json()) as GeminiResponse;
-              content = extractGeminiText(analysisData);
-              if (content) {
-                analysisProvider = 'gemini';
-              }
-            } else {
-              console.error(`Gemini chunk analysis failed (${index + 1}):`, await analysisResponse.text());
-            }
-          } catch (geminiError) {
-            console.error(`Gemini chunk analysis error (${index + 1}):`, geminiError);
           }
         }
 
