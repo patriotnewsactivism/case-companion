@@ -124,7 +124,7 @@ const App = () => (
     <AuthProvider>
       <TooltipProvider>
         <Sonner />
-        <BrowserRouter>
+        <BrowserRouter basename="/case-companion">
           <ErrorBoundary>
             <Suspense fallback={<PageLoader />}>
               <Routes>
