@@ -179,7 +179,7 @@ export function TimelineView({ events, onEventClick }: TimelineViewProps) {
 
             {/* Entities & Links */}
             <div className="flex flex-wrap items-center gap-3 pt-3 border-t border-slate-100 mt-auto">
-              {event.entities && Array.isArray(event.entities) && event.entities.slice(0, 3).map((entity, i) => {
+              {event.entities && Array.isArray(event.entities) && event.entities.slice(0, 3).map((entity, i) => (
                 <div key={i} className="flex items-center gap-1 text-[10px] font-medium text-slate-500 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100">
                   {typeof entity === 'string' ? (
                     <>

@@ -20,10 +20,18 @@ export interface GeneratedMotion {
   verification_flags: string[];
 }
 
+interface DocumentRowData {
+  name: string;
+  summary?: string;
+  key_facts?: string[];
+  favorable_findings?: string[];
+  ocr_text?: string;
+}
+
 const MOTION_GENERATION_SYSTEM_PROMPT_TEMPLATE = (
-  caseData: any,
-  documents: any[],
-  caseContext: any,
+  caseData: Record<string, unknown>,
+  documents: DocumentRowData[],
+  caseContext: Record<string, unknown>,
   motionType: string,
   customInstructions: string
 ) => `You are a senior litigator with 25 years of experience drafting winning motions in federal and state courts. You write with precision, authority, and strategic clarity.
@@ -45,7 +53,7 @@ Winning Factors: ${caseData.winning_factors?.join(", ") ?? "Not specified"}
 DOCUMENT EVIDENCE AVAILABLE:
 ${documents
   .slice(0, 8)
-  .map((d: any) => {
+  .map((d: DocumentRowData) => {
     const lines: string[] = [`• ${d.name}`];
     if (d.summary) lines.push(`  Summary: ${d.summary}`);
     if (d.key_facts?.length) lines.push(`  Key Facts: ${d.key_facts.join("; ")}`);
@@ -194,7 +202,7 @@ export async function generateMotionDraft(
   return generatedMotion;
 }
 
-export async function getGeneratedMotions(caseId: string): Promise<any[]> {
+export async function getGeneratedMotions(caseId: string): Promise<unknown[]> {
   const { data, error } = await supabase
     .from("generated_motions")
     .select("*")

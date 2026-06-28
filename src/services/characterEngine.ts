@@ -29,6 +29,25 @@ export interface CharacterProfile {
   vulnerabilities?: string;
 }
 
+interface CaseContextData {
+  case_name?: string;
+  case_type?: string;
+  jurisdiction?: string;
+  key_issues?: string[];
+  favorable_findings?: string[];
+  adverse_findings?: string[];
+  defendant_name?: string;
+  defense_theory?: string;
+  judge_name?: string;
+  witness_role?: string;
+  name?: string;
+}
+
+interface CaseMetaData {
+  name?: string;
+  case_type?: string;
+}
+
 export interface CharacterResponse {
   content: string;
   coachingNote?: string;
@@ -46,7 +65,7 @@ export interface Message {
 function buildJudgeSystemPrompt(
   character: CharacterProfile,
   mode: SimulationMode,
-  caseContext: any
+  caseContext: CaseContextData
 ): string {
   return `You are roleplaying as Judge ${character.name}, a federal district court judge presiding over ${caseContext?.case_name ?? "this case"}.
 
@@ -85,7 +104,7 @@ Stay fully in character. Never break the fourth wall.`;
 function buildWitnessSystemPrompt(
   character: CharacterProfile,
   mode: SimulationMode,
-  caseContext: any
+  caseContext: CaseContextData
 ): string {
   return `You are roleplaying as ${character.name}, a witness in ${caseContext?.case_name ?? "this case"}.
 
@@ -126,7 +145,7 @@ Stay fully in character throughout.`;
 function buildOpposingCounselSystemPrompt(
   character: CharacterProfile,
   mode: SimulationMode,
-  caseContext: any
+  caseContext: CaseContextData
 ): string {
   return `You are roleplaying as ${character.name}, opposing counsel in ${caseContext?.case_name ?? "this case"}.
 
@@ -164,7 +183,7 @@ Stay fully in character.`;
 function buildClerkSystemPrompt(
   character: CharacterProfile,
   mode: SimulationMode,
-  caseContext: any
+  caseContext: CaseContextData
 ): string {
   return `You are roleplaying as ${character.name}, the court clerk for ${caseContext?.judge_name ?? "the judge"}.
 
@@ -186,7 +205,7 @@ Keep responses brief and procedural. You are a neutral court officer.`;
 function buildJurorSystemPrompt(
   character: CharacterProfile,
   mode: SimulationMode,
-  caseContext: any
+  caseContext: CaseContextData
 ): string {
   return `You are roleplaying as Juror ${character.name} during ${mode === "voir-dire" ? "jury selection (voir dire)" : "trial proceedings"}.
 
@@ -208,7 +227,7 @@ Be authentic — jurors have biases, life experiences, and varying levels of com
 function buildCharacterSystemPrompt(
   character: CharacterProfile,
   mode: SimulationMode,
-  caseContext: any
+  caseContext: CaseContextData
 ): string {
   switch (character.type) {
     case "judge":
@@ -233,7 +252,7 @@ export async function getCharacterResponse(
   attorneyStatement: string,
   sessionHistory: Message[],
   simulationMode: SimulationMode,
-  caseContext: any
+  caseContext: CaseContextData
 ): Promise<CharacterResponse> {
   const systemPrompt = buildCharacterSystemPrompt(character, simulationMode, caseContext);
 
@@ -311,7 +330,7 @@ Be honest, direct, and specific. Focus on trial tactics, not just praise.`;
 
 export function buildDefaultCharacter(
   type: CharacterType,
-  caseData: any
+  caseData: CaseMetaData
 ): CharacterProfile {
   switch (type) {
     case "judge":

@@ -217,10 +217,10 @@ export async function getCaseDocumentsForTimeline(
 
   if (error) throw new Error(`Failed to fetch documents: ${error.message}`);
 
-  return (data ?? []).map((doc: any) => ({
-    id: doc.id,
-    name: doc.name,
-    content: doc.ocr_text ?? doc.name ?? "",
-    uploadDate: doc.created_at ? doc.created_at.split("T")[0] : "",
+  return (data ?? []).map((doc) => ({
+    id: String(doc.id),
+    name: String(doc.name),
+    content: typeof doc.ocr_text === 'string' ? doc.ocr_text : String(doc.name ?? ''),
+    uploadDate: typeof doc.created_at === 'string' ? doc.created_at.split("T")[0] : "",
   }));
 }

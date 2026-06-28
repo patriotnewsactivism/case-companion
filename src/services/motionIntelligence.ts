@@ -90,7 +90,7 @@ export async function scanForMotionOpportunities(
 
   // Build context string
   const docContext = (documents ?? [])
-    .map((d: any) => {
+    .map((d) => {
       const lines: string[] = [`Document: ${d.name}`];
       if (d.summary) lines.push(`Summary: ${d.summary}`);
       if (d.key_facts?.length) lines.push(`Key Facts: ${d.key_facts.join("; ")}`);
@@ -102,7 +102,7 @@ export async function scanForMotionOpportunities(
     .join("\n\n---\n\n");
 
   const timelineContext = (timelineEvents ?? [])
-    .map((e: any) => `${e.event_date}: [${e.importance?.toUpperCase()}] ${e.title} — ${e.description ?? ""}${e.legal_significance ? ` (Significance: ${e.legal_significance})` : ""}`)
+    .map((e) => `${e.event_date}: [${e.importance?.toUpperCase()}] ${e.title} — ${e.description ?? ""}${e.legal_significance ? ` (Significance: ${e.legal_significance})` : ""}`)
     .join("\n");
 
   const userMessage = `CASE OVERVIEW:
@@ -206,7 +206,7 @@ export async function dismissSuggestion(id: string): Promise<void> {
   if (error) throw new Error(`Failed to dismiss suggestion: ${error.message}`);
 }
 
-export async function getMotionTemplates(): Promise<any[]> {
+export async function getMotionTemplates(): Promise<unknown[]> {
   const { data, error } = await supabase
     .from("motion_templates")
     .select("*")
