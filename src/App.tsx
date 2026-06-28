@@ -93,6 +93,7 @@ const CaseSimulatorHistory = lazy(() => import("./pages/CaseSimulatorHistory"));
 const AzureBotChatPage = lazy(() => import("./pages/AzureBotChat"));
 const JudicialIntelligence = lazy(() => import("./pages/JudicialIntelligence"));
 const AgentDashboard = lazy(() => import("./pages/AgentDashboard"));
+const IntakeInbox = lazy(() => import("./pages/IntakeInbox"));
 
 // Optimized React Query configuration for better performance
 const queryClient = new QueryClient({
@@ -300,6 +301,10 @@ const App = () => {
                 <Route
                   path="/cases/:id/agents"
                   element={<ProtectedRoute><AgentDashboard /></ProtectedRoute>}
+                />
+                <Route
+                  path="/intake"
+                  element={<ProtectedRoute><IntakeInbox /></ProtectedRoute>}
                 />
 
                 {/* 404 page */}

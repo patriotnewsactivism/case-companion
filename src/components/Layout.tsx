@@ -44,6 +44,7 @@ const navItems = [
   { path: "/team", label: "Team", icon: Users },
   { path: "/conflicts", label: "Conflict Check", icon: Shield },
   { path: "/judicial-intelligence", label: "Judicial Intel", icon: Landmark },
+  { path: "/intake", label: "Intake Inbox", icon: Mail },
   { path: "/settings", label: "Settings", icon: Settings },
 ];
 
