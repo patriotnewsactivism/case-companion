@@ -116,5 +116,12 @@ create policy "Users update own insights" on agent_insights
   );
 
 -- Enable Realtime for workflow progress tracking
-alter publication supabase_realtime add table agent_workflows;
-alter publication supabase_realtime add table agent_insights;
+do $$ begin
+  alter publication supabase_realtime add table agent_workflows;
+exception when duplicate_object then null;
+end $$;
+
+do $$ begin
+  alter publication supabase_realtime add table agent_insights;
+exception when duplicate_object then null;
+end $$;
