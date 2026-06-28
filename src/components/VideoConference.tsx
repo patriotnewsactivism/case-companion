@@ -234,7 +234,7 @@ export function VideoConference({ defaultCaseId }: VideoConferenceProps) {
       );
       // Always copy link as backup
       if (!sent) {
-        try { await navigator.clipboard.writeText(joinUrl); } catch {}
+        try { await navigator.clipboard.writeText(joinUrl); } catch { /* clipboard may not be available */ }
       }
     } catch (err) {
       console.error("Invite edge function error:", err);
