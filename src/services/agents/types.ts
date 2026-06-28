@@ -1,6 +1,14 @@
 import type { Case } from "@/lib/api";
 
 export type AgentId =
+  | "maya"
+  | "rex"
+  | "doc"
+  | "lex"
+  | "sol"
+  | "sierra"
+  | "jules"
+  | "max"
   | "intake-agent"
   | "strategy-agent"
   | "discovery-agent"

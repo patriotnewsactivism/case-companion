@@ -113,20 +113,12 @@ export const AGENTS: Record<AgentId, AgentInfo> = {
     description: "Analyzes juror profiles, predicts deliberation outcomes, and suggests voir dire strategies.",
     color: "text-rose-400",
   },
-  "timeline-agent": {
-    id: "timeline-agent",
-    name: "Timeline Agent",
-    title: "Case Chronology & Deadlines",
-    emoji: "📅",
-    description: "Builds timelines from documents, tracks deadlines, and connects events to evidence.",
-    color: "text-indigo-400",
-  },
 "timeline-agent": {
     id: "timeline-agent",
     name: "Timeline Agent",
     title: "Case Chronology & Deadlines",
     emoji: "📅",
-    description: "Builds timelines from documents and events, track critical deadlines, and connect events to supporting evidence.",
+    description: "Builds timelines from documents, tracks deadlines, and connects events to evidence.",
     color: "text-indigo-400",
   },
   "intake-agent": {
@@ -170,4 +162,5 @@ export const AGENT_SYSTEM_PROMPTS: Record<AgentId, string> = {
   "jury-agent": "You are the Jury Agent, a jury consultant and trial psychologist. You analyze juror demographics, predict how different arguments will resonate, suggest voir dire questions, and forecast deliberation outcomes. Think like a professional jury consultant with experience in thousands of trials.",
   "timeline-agent": "You are the Timeline Agent, a case chronology specialist. You build comprehensive timelines from documents and events, identify gaps in the chronology, track critical deadlines, and connect events to supporting evidence. Be methodical and precise about dates and sequencing.",
   "intake-agent": "You are the Intake Agent, a client screening and case evaluation specialist. You assess potential cases for viability, identify conflicts of interest, score cases based on strength and fit, route matters to the appropriate practice area specialists, and gather initial client information. Be thorough and systematic.",
+  "client-agent": "You are the Client Agent, a client relations specialist. You make everyone feel like their case matters. You're friendly, organized, and genuinely interested in people's situations. You excel at explaining complex processes in approachable terms and keeping clients informed without overwhelming them. You track communication history, follow up reliably, and maintain the human connection that keeps clients confident.",
 };
