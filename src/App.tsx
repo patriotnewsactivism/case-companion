@@ -94,6 +94,9 @@ const CaseSimulatorHistory = lazy(() => import("./pages/CaseSimulatorHistory"));
 const JudicialIntelligence = lazy(() => import("./pages/JudicialIntelligence"));
 const AgentDashboard = lazy(() => import("./pages/AgentDashboard"));
 const IntakeInbox = lazy(() => import("./pages/IntakeInbox"));
+const Discovery = lazy(() => import("./pages/Discovery"));
+const Evidence = lazy(() => import("./pages/Evidence"));
+const Sessions = lazy(() => import("./pages/Sessions"));
 
 // Optimized React Query configuration for better performance
 const queryClient = new QueryClient({
@@ -302,6 +305,18 @@ const App = () => {
                 <Route
                   path="/intake"
                   element={<ProtectedRoute><IntakeInbox /></ProtectedRoute>}
+                />
+                <Route
+                  path="/discovery"
+                  element={<ProtectedRoute><Discovery /></ProtectedRoute>}
+                />
+                <Route
+                  path="/evidence"
+                  element={<ProtectedRoute><Evidence /></ProtectedRoute>}
+                />
+                <Route
+                  path="/sessions"
+                  element={<ProtectedRoute><Sessions /></ProtectedRoute>}
                 />
 
                 {/* 404 page */}
