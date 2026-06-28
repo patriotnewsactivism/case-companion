@@ -159,9 +159,9 @@ class AgentOrchestrator {
     await persistWorkflow(workflow);
     broadcastWorkflows(await loadWorkflows());
 
-    if (workflow.caseId) {
-      await addInsight("maya", workflow.caseId, {
-        agentId: "maya",
+if (workflow.caseId) {
+       await addInsight("intake-agent", workflow.caseId, {
+         agentId: "intake-agent",
         caseId: workflow.caseId,
         title: `Workflow Complete: ${workflow.name}`,
         content: `All ${workflow.steps.length} steps completed for ${workflow.caseTitle || "the case"}.`,

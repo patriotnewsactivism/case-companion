@@ -121,13 +121,29 @@ export const AGENTS: Record<AgentId, AgentInfo> = {
     description: "Builds timelines from documents, tracks deadlines, and connects events to evidence.",
     color: "text-indigo-400",
   },
+"timeline-agent": {
+    id: "timeline-agent",
+    name: "Timeline Agent",
+    title: "Case Chronology & Deadlines",
+    emoji: "📅",
+    description: "Builds timelines from documents and events, track critical deadlines, and connect events to supporting evidence.",
+    color: "text-indigo-400",
+  },
   "intake-agent": {
     id: "intake-agent",
     name: "Intake Agent",
     title: "Client Screening & Routing",
     emoji: "📋",
-    description: "Screens potential clients, scores case viability, checks conflicts, and routes to the right specialist.",
+    description: "Screens potential clients, scores case viability, checks conflicts, and routes to the appropriate practice area specialists.",
     color: "text-teal-400",
+  },
+  "client-agent": {
+    id: "client-agent",
+    name: "Client Agent",
+    title: "Client Relations Specialist",
+    emoji: "👋",
+    description: "Friendly client relations specialist who keeps everyone informed and organized.",
+    color: "text-pink-400",
   },
 };
 
