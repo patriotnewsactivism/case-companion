@@ -15,16 +15,19 @@ create index if not exists idx_agent_memory_agent_case on agent_memory(agent_id,
 
 alter table agent_memory enable row level security;
 
+drop policy if exists "Users read own agent memory" on agent_memory;
 create policy "Users read own agent memory" on agent_memory
   for select using (
     exists (select 1 from cases where cases.id::text = agent_memory.case_id and cases.user_id = auth.uid())
   );
 
+drop policy if exists "Users insert own agent memory" on agent_memory;
 create policy "Users insert own agent memory" on agent_memory
   for insert with check (
     exists (select 1 from cases where cases.id::text = agent_memory.case_id and cases.user_id = auth.uid())
   );
 
+drop policy if exists "Users update own agent memory" on agent_memory;
 create policy "Users update own agent memory" on agent_memory
   for update using (
     exists (select 1 from cases where cases.id::text = agent_memory.case_id and cases.user_id = auth.uid())
@@ -51,18 +54,21 @@ create index if not exists idx_agent_workflows_status on agent_workflows(status)
 
 alter table agent_workflows enable row level security;
 
+drop policy if exists "Users read own workflows" on agent_workflows;
 create policy "Users read own workflows" on agent_workflows
   for select using (
     case_id is null or
     exists (select 1 from cases where cases.id::text = agent_workflows.case_id and cases.user_id = auth.uid())
   );
 
+drop policy if exists "Users insert own workflows" on agent_workflows;
 create policy "Users insert own workflows" on agent_workflows
   for insert with check (
     case_id is null or
     exists (select 1 from cases where cases.id::text = agent_workflows.case_id and cases.user_id = auth.uid())
   );
 
+drop policy if exists "Users update own workflows" on agent_workflows;
 create policy "Users update own workflows" on agent_workflows
   for update using (
     case_id is null or
@@ -91,16 +97,19 @@ create index if not exists idx_agent_insights_unread on agent_insights(read) whe
 
 alter table agent_insights enable row level security;
 
+drop policy if exists "Users read own insights" on agent_insights;
 create policy "Users read own insights" on agent_insights
   for select using (
     exists (select 1 from cases where cases.id::text = agent_insights.case_id and cases.user_id = auth.uid())
   );
 
+drop policy if exists "Users insert own insights" on agent_insights;
 create policy "Users insert own insights" on agent_insights
   for insert with check (
     exists (select 1 from cases where cases.id::text = agent_insights.case_id and cases.user_id = auth.uid())
   );
 
+drop policy if exists "Users update own insights" on agent_insights;
 create policy "Users update own insights" on agent_insights
   for update using (
     exists (select 1 from cases where cases.id::text = agent_insights.case_id and cases.user_id = auth.uid())

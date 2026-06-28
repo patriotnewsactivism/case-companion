@@ -1,6 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
 import { AGENT_SYSTEM_PROMPTS, getAgentById } from "@/agents/personas";
-import { VOICE_AGENT_PROMPTS } from "@/services/agents/voicePersonas";
 import { recordAction, addInsight } from "./agentMemory";
 import type { Workflow, WorkflowStep, WorkflowStatus, AgentId, Case } from "./types";
 
@@ -45,7 +44,6 @@ async function executeStep(
 
    const sysInstruction =
      AGENT_SYSTEM_PROMPTS[step.agentId] ||
-     VOICE_AGENT_PROMPTS[step.agentId] ||
      `You are ${agent.name}, ${agent.title}. ${agent.description}`;
 
    const priorOutputs = Object.entries(step.inputs ?? {})
