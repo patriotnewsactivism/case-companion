@@ -29,15 +29,18 @@ create index if not exists idx_intake_cases_created on intake_cases(created_at d
 alter table intake_cases enable row level security;
 
 -- Attorneys can read their firm's intakes
+drop policy if exists "Users read own intakes" on intake_cases;
 create policy "Users read own intakes" on intake_cases
   for select using (
     exists (select 1 from cases where cases.user_id = auth.uid())
     or firm_id is null
   );
 
+drop policy if exists "Users insert intakes" on intake_cases;
 create policy "Users insert intakes" on intake_cases
   for insert with check (true);
 
+drop policy if exists "Users update own intakes" on intake_cases;
 create policy "Users update own intakes" on intake_cases
   for update using (
     exists (select 1 from cases where cases.user_id = auth.uid())
@@ -62,11 +65,14 @@ create index if not exists idx_client_invites_token on client_invites(token);
 
 alter table client_invites enable row level security;
 
+drop policy if exists "Users read own invites" on client_invites;
 create policy "Users read own invites" on client_invites
   for select using (created_by = auth.uid());
 
+drop policy if exists "Users insert invites" on client_invites;
 create policy "Users insert invites" on client_invites
   for insert with check (created_by = auth.uid());
 
+drop policy if exists "Users delete invites" on client_invites;
 create policy "Users delete invites" on client_invites
   for delete using (created_by = auth.uid());

@@ -13,6 +13,7 @@ drop policy if exists "case_documents_anon_read_by_path" on storage.objects;
 
 -- Create per-user scoped read policy: users can only read objects in their
 -- own folder path (foldername[1] = user_id)
+drop policy if exists "case_documents_select_own" on storage.objects;
 create policy "case_documents_select_own" on storage.objects
   for select to authenticated
   using (
@@ -21,6 +22,7 @@ create policy "case_documents_select_own" on storage.objects
   );
 
 -- Create per-user scoped select for service role (admin reads)
+drop policy if exists "case_documents_select_service_role" on storage.objects;
 create policy "case_documents_select_service_role" on storage.objects
   for select to service_role
   using (bucket_id = 'case-documents');
