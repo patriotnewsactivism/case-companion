@@ -638,47 +638,76 @@ serve(async (req) => {
       }
     };
 
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
     const invokeGeminiWithFallback = async (
-      body: Record<string, unknown>,
-      purpose: 'OCR' | 'analysis'
-    ) => {
-      if (!googleApiKey) throw new Error('Google AI API key not configured');
+      body: GeminiRequestBody,
+      purpose: 'OCR' | 'ANALYSIS'
+    ): Promise<{ payload: GeminiResponse; model: string }> => {
+      const candidateModels = purpose === 'OCR'
+        ? preferredGeminiModels
+        : geminiModelCandidates;
 
-      let lastError = 'No Gemini models attempted';
-
-      const candidateModels = await resolveGeminiModels();
+      let lastError = '';
+      const maxRetries = 3;
 
       for (const model of candidateModels) {
-        const response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${googleApiKey}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
+        for (let attempt = 0; attempt < maxRetries; attempt++) {
+          if (attempt > 0) {
+            const backoff = Math.min(1000 * Math.pow(2, attempt), 8000);
+            console.log(`Retrying Gemini ${purpose} (${model}) in ${backoff}ms (attempt ${attempt + 1})`);
+            await sleep(backoff);
           }
-        );
 
-        if (response.ok) {
-          const payload = (await response.json()) as GeminiResponse;
-          return { payload, model };
+          try {
+            const response = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${googleApiKey}`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+              }
+            );
+
+            if (response.ok) {
+              const payload = (await response.json()) as GeminiResponse;
+              return { payload, model };
+            }
+
+            const errorText = await response.text();
+            const unavailableModel =
+              (response.status === 404 || response.status === 400) &&
+              /model|not found|not supported/i.test(errorText);
+
+            if (response.status === 429) {
+              // Rate limited — retry with backoff
+              if (attempt < maxRetries - 1) continue;
+              // On last attempt, record and try next model
+              lastError = `${model}: rate limit exceeded after ${maxRetries} attempts`;
+              console.warn(lastError);
+              break;
+            }
+
+            if (unavailableModel) {
+              lastError = `${model}: ${errorText}`;
+              console.warn(`Gemini model unavailable for ${purpose}, trying next model: ${model}`);
+              break;
+            }
+
+            throw new Error(`Gemini ${purpose} failed (${model}, ${response.status}): ${errorText}`);
+          } catch (err) {
+            if (err instanceof Error && err.message.includes('rate limit')) {
+              if (attempt < maxRetries - 1) continue;
+              lastError = `${model}: rate limit exceeded after ${maxRetries} attempts`;
+              break;
+            }
+            if (err instanceof Error && (err.message.includes('model unavailable') || err.message.includes('not found'))) {
+              lastError = err.message;
+              break;
+            }
+            throw err;
+          }
         }
-
-        const errorText = await response.text();
-        const unavailableModel =
-          (response.status === 404 || response.status === 400) &&
-          /model|not found|not supported/i.test(errorText);
-
-        if (response.status === 429) {
-          throw new Error(`Gemini ${purpose} rate limit exceeded (${model})`);
-        }
-
-        if (unavailableModel) {
-          lastError = `${model}: ${errorText}`;
-          console.warn(`Gemini model unavailable for ${purpose}, trying next model: ${model}`);
-          continue;
-        }
-
-        throw new Error(`Gemini ${purpose} failed (${model}, ${response.status}): ${errorText}`);
       }
 
       throw new Error(`Gemini ${purpose} failed for all models: ${lastError}`);
@@ -722,24 +751,44 @@ serve(async (req) => {
       formData.append('OCREngine', '2');
       formData.append('filetype', extension.toUpperCase());
 
-      const response = await fetch('https://api.ocr.space/parse/image', { method: 'POST', body: formData });
-      if (!response.ok) throw new Error(`OCR.space API failed: ${response.status}`);
+      // Retry up to 3 times with backoff on 429
+      let ocrLastErr: Error | null = null;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (attempt > 0) {
+          const backoff = Math.min(2000 * Math.pow(2, attempt), 10000);
+          console.log(`Retrying OCR.space in ${backoff}ms (attempt ${attempt + 1})`);
+          await sleep(backoff);
+        }
+        try {
+          const response = await fetch('https://api.ocr.space/parse/image', { method: 'POST', body: formData });
+          if (response.status === 429) {
+            ocrLastErr = new Error(`OCR.space API rate limited (429)`);
+            continue;
+          }
+          if (!response.ok) throw new Error(`OCR.space API failed: ${response.status}`);
 
-      const result = (await response.json()) as OcrSpaceResponse;
-      if (result.OCRExitCode !== 1 || !result.ParsedResults?.length) {
-        const errorMessage = Array.isArray(result.ErrorMessage) ? result.ErrorMessage.join(', ') : (result.ErrorMessage || 'Unknown error');
-        throw new Error(`OCR.space parsing failed: ${errorMessage}`);
+          const result = (await response.json()) as OcrSpaceResponse;
+          if (result.OCRExitCode !== 1 || !result.ParsedResults?.length) {
+            const errorMessage = Array.isArray(result.ErrorMessage) ? result.ErrorMessage.join(', ') : (result.ErrorMessage || 'Unknown error');
+            throw new Error(`OCR.space parsing failed: ${errorMessage}`);
+          }
+
+          const extracted = result.ParsedResults
+            .map((page, idx) => {
+              const pageText = page.ParsedText || '';
+              return result.ParsedResults!.length > 1 ? `=== PAGE ${idx + 1} ===\n${pageText}` : pageText;
+            })
+            .join('\n\n');
+
+          console.log(`OCR.space extracted ${extracted.length} characters`);
+          return extracted;
+        } catch (err) {
+          ocrLastErr = err instanceof Error ? err : new Error(String(err));
+          if (ocrLastErr.message.includes('rate limit') && attempt < 2) continue;
+          throw ocrLastErr;
+        }
       }
-
-      const extracted = result.ParsedResults
-        .map((page, idx) => {
-          const pageText = page.ParsedText || '';
-          return result.ParsedResults!.length > 1 ? `=== PAGE ${idx + 1} ===\n${pageText}` : pageText;
-        })
-        .join('\n\n');
-
-      console.log(`OCR.space extracted ${extracted.length} characters`);
-      return extracted;
+      throw ocrLastErr || new Error('OCR.space failed after retries');
     };
 
     const isOcrTarget =
