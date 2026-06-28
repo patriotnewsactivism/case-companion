@@ -89,7 +89,7 @@ export const AGENTS: Record<AgentId, AgentInfo> = {
     description: "Prepares witnesses for testimony, predicts cross-examination tactics, and generates deposition questions.",
     color: "text-green-400",
   },
-  "research-agent": {
+"research-agent": {
     id: "research-agent",
     name: "Research Agent",
     title: "Legal Research & Precedent",
@@ -105,13 +105,21 @@ export const AGENTS: Record<AgentId, AgentInfo> = {
     description: "Drafts motions, briefs, discovery requests, correspondence, and other legal documents.",
     color: "text-amber-400",
   },
-"jury-agent": {
+  "jury-agent": {
     id: "jury-agent",
     name: "Jury Agent",
     title: "Jury Analysis & Prediction",
     emoji: "⚖️",
     description: "Analyzes juror profiles, predicts deliberation outcomes, and suggests voir dire strategies.",
     color: "text-rose-400",
+  },
+  "timeline-agent": {
+    id: "timeline-agent",
+    name: "Timeline Agent",
+    title: "Case Chronology & Deadlines",
+    emoji: "📅",
+    description: "Builds timelines from documents, tracks deadlines, and connects events to evidence.",
+    color: "text-indigo-400",
   },
   "intake-agent": {
     id: "intake-agent",

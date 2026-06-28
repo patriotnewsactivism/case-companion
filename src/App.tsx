@@ -90,7 +90,7 @@ const CaseMotions = lazy(() => import("./pages/CaseMotions"));
 const CaseMotionGenerator = lazy(() => import("./pages/CaseMotionGenerator"));
 const CaseSimulator = lazy(() => import("./pages/CaseSimulator"));
 const CaseSimulatorHistory = lazy(() => import("./pages/CaseSimulatorHistory"));
-const AzureBotChatPage = lazy(() => import("./pages/AzureBotChat"));
+
 const JudicialIntelligence = lazy(() => import("./pages/JudicialIntelligence"));
 const AgentDashboard = lazy(() => import("./pages/AgentDashboard"));
 const IntakeInbox = lazy(() => import("./pages/IntakeInbox"));
