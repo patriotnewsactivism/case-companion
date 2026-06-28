@@ -266,23 +266,25 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
-drop trigger if exists "objects_delete_delete_prefix" on "storage"."objects";
+-- DROP TRIGGER IF EXISTS fails when the TABLE doesn't exist (e.g. storage.prefixes not present
+-- in all Supabase preview environments), so wrap each in a DO block to catch undefined_table.
+DO $$ BEGIN DROP TRIGGER IF EXISTS "objects_delete_delete_prefix" ON "storage"."objects"; EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
-drop trigger if exists "objects_insert_create_prefix" on "storage"."objects";
+DO $$ BEGIN DROP TRIGGER IF EXISTS "objects_insert_create_prefix" ON "storage"."objects"; EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
-drop trigger if exists "objects_update_create_prefix" on "storage"."objects";
+DO $$ BEGIN DROP TRIGGER IF EXISTS "objects_update_create_prefix" ON "storage"."objects"; EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
-drop trigger if exists "prefixes_create_hierarchy" on "storage"."prefixes";
+DO $$ BEGIN DROP TRIGGER IF EXISTS "prefixes_create_hierarchy" ON "storage"."prefixes"; EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
-drop trigger if exists "prefixes_delete_hierarchy" on "storage"."prefixes";
+DO $$ BEGIN DROP TRIGGER IF EXISTS "prefixes_delete_hierarchy" ON "storage"."prefixes"; EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
-drop policy if exists "Users can upload their own documents" on "storage"."objects";
+DO $$ BEGIN DROP POLICY IF EXISTS "Users can upload their own documents" ON "storage"."objects"; EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
-drop policy if exists "Users can delete their own documents" on "storage"."objects";
+DO $$ BEGIN DROP POLICY IF EXISTS "Users can delete their own documents" ON "storage"."objects"; EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
-drop policy if exists "Users can update their own documents" on "storage"."objects";
+DO $$ BEGIN DROP POLICY IF EXISTS "Users can update their own documents" ON "storage"."objects"; EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
-drop policy if exists "Users can view their own documents" on "storage"."objects";
+DO $$ BEGIN DROP POLICY IF EXISTS "Users can view their own documents" ON "storage"."objects"; EXCEPTION WHEN undefined_table THEN NULL; END $$;
 
 
 DO $$ BEGIN
