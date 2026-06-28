@@ -6,11 +6,11 @@ import {
   validateEnvVars,
   validateRequestBody,
   checkRateLimit,
-} from '../_shared/errorHandler.ts';
-import { verifyAuth, forbiddenResponse } from '../_shared/auth.ts';
-import { validateUUID, validateURL } from '../_shared/validation.ts';
-import { getGenerateContentCapableGeminiModels, 
-getPreferredGeminiCandidates, rankGeminiModels } from '../_shared/gemini-model-utils.ts';
+} from './_shared/errorHandler.ts';
+import { verifyAuth, forbiddenResponse } from './_shared/auth.ts';
+import { validateUUID, validateURL } from './_shared/validation.ts';
+import { getGenerateContentCapableGeminiModels, getPreferredGeminiCandidates, rankGeminiModels } from './_shared/gemini-model-utils.ts';
+
 const STORAGE_BUCKET = 'case-documents';
 
 interface OcrSpaceParsedResult {
