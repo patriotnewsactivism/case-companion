@@ -1,5 +1,5 @@
 -- Create profiles table for user information
-CREATE TABLE public.profiles (
+CREATE TABLE IF NOT EXISTS public.profiles (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL UNIQUE,
   full_name TEXT,
@@ -10,13 +10,21 @@ CREATE TABLE public.profiles (
 );
 
 -- Create case status enum
-CREATE TYPE public.case_status AS ENUM ('active', 'discovery', 'pending', 'review', 'closed', 'archived');
+DO $$ BEGIN
+  CREATE TYPE public.case_status AS ENUM ('active', 'discovery', 'pending', 'review', 'closed', 'archived');
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;
 
 -- Create representation type enum
-CREATE TYPE public.representation_type AS ENUM ('plaintiff', 'defendant', 'executor', 'petitioner', 'respondent', 'other');
+DO $$ BEGIN
+  CREATE TYPE public.representation_type AS ENUM ('plaintiff', 'defendant', 'executor', 'petitioner', 'respondent', 'other');
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;
 
 -- Create cases table
-CREATE TABLE public.cases (
+CREATE TABLE IF NOT EXISTS public.cases (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
   name TEXT NOT NULL,
@@ -34,7 +42,7 @@ CREATE TABLE public.cases (
 );
 
 -- Create documents table (for discovery files)
-CREATE TABLE public.documents (
+CREATE TABLE IF NOT EXISTS public.documents (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   case_id UUID REFERENCES public.cases(id) ON DELETE CASCADE NOT NULL,
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
@@ -54,7 +62,7 @@ CREATE TABLE public.documents (
 );
 
 -- Create timeline events table
-CREATE TABLE public.timeline_events (
+CREATE TABLE IF NOT EXISTS public.timeline_events (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   case_id UUID REFERENCES public.cases(id) ON DELETE CASCADE NOT NULL,
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
@@ -75,68 +83,68 @@ ALTER TABLE public.documents ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.timeline_events ENABLE ROW LEVEL SECURITY;
 
 -- Create RLS policies for profiles
-CREATE POLICY "Users can view their own profile"
-  ON public.profiles FOR SELECT
-  USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users can view their own profile" ON public.profiles FOR SELECT USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN null; END $$;
 
-CREATE POLICY "Users can insert their own profile"
-  ON public.profiles FOR INSERT
-  WITH CHECK (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users can insert their own profile" ON public.profiles FOR INSERT WITH CHECK (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN null; END $$;
 
-CREATE POLICY "Users can update their own profile"
-  ON public.profiles FOR UPDATE
-  USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users can update their own profile" ON public.profiles FOR UPDATE USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN null; END $$;
 
 -- Create RLS policies for cases
-CREATE POLICY "Users can view their own cases"
-  ON public.cases FOR SELECT
-  USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users can view their own cases" ON public.cases FOR SELECT USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN null; END $$;
 
-CREATE POLICY "Users can insert their own cases"
-  ON public.cases FOR INSERT
-  WITH CHECK (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users can insert their own cases" ON public.cases FOR INSERT WITH CHECK (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN null; END $$;
 
-CREATE POLICY "Users can update their own cases"
-  ON public.cases FOR UPDATE
-  USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users can update their own cases" ON public.cases FOR UPDATE USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN null; END $$;
 
-CREATE POLICY "Users can delete their own cases"
-  ON public.cases FOR DELETE
-  USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users can delete their own cases" ON public.cases FOR DELETE USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN null; END $$;
 
 -- Create RLS policies for documents
-CREATE POLICY "Users can view their own documents"
-  ON public.documents FOR SELECT
-  USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users can view their own documents" ON public.documents FOR SELECT USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN null; END $$;
 
-CREATE POLICY "Users can insert their own documents"
-  ON public.documents FOR INSERT
-  WITH CHECK (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users can insert their own documents" ON public.documents FOR INSERT WITH CHECK (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN null; END $$;
 
-CREATE POLICY "Users can update their own documents"
-  ON public.documents FOR UPDATE
-  USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users can update their own documents" ON public.documents FOR UPDATE USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN null; END $$;
 
-CREATE POLICY "Users can delete their own documents"
-  ON public.documents FOR DELETE
-  USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users can delete their own documents" ON public.documents FOR DELETE USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN null; END $$;
 
 -- Create RLS policies for timeline events
-CREATE POLICY "Users can view their own timeline events"
-  ON public.timeline_events FOR SELECT
-  USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users can view their own timeline events" ON public.timeline_events FOR SELECT USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN null; END $$;
 
-CREATE POLICY "Users can insert their own timeline events"
-  ON public.timeline_events FOR INSERT
-  WITH CHECK (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users can insert their own timeline events" ON public.timeline_events FOR INSERT WITH CHECK (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN null; END $$;
 
-CREATE POLICY "Users can update their own timeline events"
-  ON public.timeline_events FOR UPDATE
-  USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users can update their own timeline events" ON public.timeline_events FOR UPDATE USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN null; END $$;
 
-CREATE POLICY "Users can delete their own timeline events"
-  ON public.timeline_events FOR DELETE
-  USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users can delete their own timeline events" ON public.timeline_events FOR DELETE USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN null; END $$;
 
 -- Create updated_at trigger function
 CREATE OR REPLACE FUNCTION public.update_updated_at_column()
@@ -148,29 +156,29 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Apply updated_at triggers to all tables
-CREATE TRIGGER update_profiles_updated_at
-  BEFORE UPDATE ON public.profiles
-  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+DO $$ BEGIN
+  CREATE TRIGGER update_profiles_updated_at BEFORE UPDATE ON public.profiles FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+EXCEPTION WHEN duplicate_object THEN null; END $$;
 
-CREATE TRIGGER update_cases_updated_at
-  BEFORE UPDATE ON public.cases
-  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+DO $$ BEGIN
+  CREATE TRIGGER update_cases_updated_at BEFORE UPDATE ON public.cases FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+EXCEPTION WHEN duplicate_object THEN null; END $$;
 
-CREATE TRIGGER update_documents_updated_at
-  BEFORE UPDATE ON public.documents
-  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+DO $$ BEGIN
+  CREATE TRIGGER update_documents_updated_at BEFORE UPDATE ON public.documents FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+EXCEPTION WHEN duplicate_object THEN null; END $$;
 
-CREATE TRIGGER update_timeline_events_updated_at
-  BEFORE UPDATE ON public.timeline_events
-  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+DO $$ BEGIN
+  CREATE TRIGGER update_timeline_events_updated_at BEFORE UPDATE ON public.timeline_events FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+EXCEPTION WHEN duplicate_object THEN null; END $$;
 
 -- Create indexes for better query performance
-CREATE INDEX idx_cases_user_id ON public.cases(user_id);
-CREATE INDEX idx_cases_status ON public.cases(status);
-CREATE INDEX idx_documents_case_id ON public.documents(case_id);
-CREATE INDEX idx_documents_user_id ON public.documents(user_id);
-CREATE INDEX idx_timeline_events_case_id ON public.timeline_events(case_id);
-CREATE INDEX idx_timeline_events_event_date ON public.timeline_events(event_date);
+CREATE INDEX IF NOT EXISTS idx_cases_user_id ON public.cases(user_id);
+CREATE INDEX IF NOT EXISTS idx_cases_status ON public.cases(status);
+CREATE INDEX IF NOT EXISTS idx_documents_case_id ON public.documents(case_id);
+CREATE INDEX IF NOT EXISTS idx_documents_user_id ON public.documents(user_id);
+CREATE INDEX IF NOT EXISTS idx_timeline_events_case_id ON public.timeline_events(case_id);
+CREATE INDEX IF NOT EXISTS idx_timeline_events_event_date ON public.timeline_events(event_date);
 
 -- Create function to automatically create profile on user signup
 CREATE OR REPLACE FUNCTION public.handle_new_user()
@@ -183,6 +191,6 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 -- Create trigger to auto-create profile on signup
-CREATE TRIGGER on_auth_user_created
-  AFTER INSERT ON auth.users
-  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+DO $$ BEGIN
+  CREATE TRIGGER on_auth_user_created AFTER INSERT ON auth.users FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+EXCEPTION WHEN duplicate_object THEN null; END $$;
