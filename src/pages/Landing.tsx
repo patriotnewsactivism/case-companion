@@ -144,20 +144,20 @@ const discoveryCapabilities = [
 
 const platformPreview = [
   {
-    title: "Matter Command Center",
-    description: "Track deadlines, filings, discovery status, and team activity from one live dashboard.",
+    title: "AI Agent Command Center",
+    description: "Monitor 8 autonomous AI agents working simultaneously. See real-time status, review outputs, and direct their work.",
   },
   {
-    title: "Evidence Intelligence Hub",
-    description: "View all favorable and adverse findings, inconsistencies, and key facts in one place.",
+    title: "12 AI Lawyer Specialists",
+    description: "Personal injury, criminal defense, civil rights, family law, and more. Each specialist has deep domain expertise.",
   },
   {
-    title: "Video War Room",
-    description: "Private video conferencing for case strategy, witness prep, and team collaboration.",
+    title: "Voice-Powered Firm Reception",
+    description: "Maya AI receptionist handles client intake 24/7. Callers get screened, scored, and routed without human intervention.",
   },
   {
-    title: "AI Assistant",
-    description: "Ask questions about your case, get deposition strategies, and simulate trial scenarios.",
+    title: "Trial Simulation Engine",
+    description: "Practice arguments, prep witnesses, analyze juries, and predict verdicts with AI-powered courtroom training.",
   },
 ];
 
@@ -687,11 +687,11 @@ export default function Landing() {
         >
           <Scale className="h-16 w-16 text-accent" />
           <h3 className="text-2xl font-serif font-bold text-primary-foreground sm:text-3xl">
-            Ready to Transform Your Discovery Process?
+            Ready to Deploy Your AI Law Firm?
           </h3>
           <p className="max-w-xl text-primary-foreground/80">
-            Join 500+ law firms using CaseBuddy to process discovery faster, find winning evidence, 
-            and collaborate securely with their teams.
+            Join forward-thinking legal teams using CaseBuddy to deploy AI agents, intake clients by voice, 
+            simulate trials, and win more cases.
           </p>
           <div className="flex flex-wrap justify-center gap-4">
             <Link to="/login">
@@ -714,7 +714,7 @@ export default function Landing() {
         <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 md:flex-row">
           <Logo size="sm" />
           <p className="text-xs text-muted-foreground">
-            © 2025 CaseBuddy Professional. All rights reserved.
+            © 2026 CaseBuddy. All rights reserved.
           </p>
         </div>
       </footer>
