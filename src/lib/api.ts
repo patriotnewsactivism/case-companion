@@ -1190,7 +1190,8 @@ export interface ConflictResult {
 export interface ConflictCheck {
   id: string;
   user_id: string;
-  search_terms: Record<string, unknown>;
+  search_name: string;
+  search_type: string | null;
   results: ConflictResult[];
   conflicts_found: number;
   status: "clear" | "conflict" | "potential" | "waived";

@@ -401,10 +401,8 @@ serve(async (req) => {
         .from("conflict_checks")
         .insert({
           user_id: userId,
-          client_name: sanitizedClientName,
-          opposing_party: opposingParty || null,
-          additional_parties: additionalParties || [],
-          case_type: caseType || null,
+          search_name: `${sanitizedClientName}${opposingParty ? ` vs ${opposingParty}` : ''}`,
+          search_type: caseType || 'general',
           status,
           conflicts_found: uniqueConflicts.length,
           results: uniqueConflicts,
