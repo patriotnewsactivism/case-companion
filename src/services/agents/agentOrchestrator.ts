@@ -1,5 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import { AGENT_SYSTEM_PROMPTS, getAgentById } from "@/agents/personas";
+import { VOICE_AGENT_PROMPTS } from "@/services/agents/voicePersonas";
 import { recordAction, addInsight } from "./agentMemory";
 import type { Workflow, WorkflowStep, WorkflowStatus, AgentId, Case } from "./types";
 
@@ -35,33 +36,34 @@ async function callAgentChat(
 }
 
 async function executeStep(
-  step: WorkflowStep,
-  workflow: Workflow,
-  caseContext: string
-): Promise<string> {
-  const agent = getAgentById(step.agentId);
-  if (!agent) throw new Error(`Unknown agent: ${step.agentId}`);
+   step: WorkflowStep,
+   workflow: Workflow,
+   caseContext: string
+ ): Promise<string> {
+   const agent = getAgentById(step.agentId);
+   if (!agent) throw new Error(`Unknown agent: ${step.agentId}`);
 
-  const sysInstruction =
-    AGENT_SYSTEM_PROMPTS[step.agentId] ||
-    `You are ${agent.name}, ${agent.title}. ${agent.description}`;
+   const sysInstruction =
+     AGENT_SYSTEM_PROMPTS[step.agentId] ||
+     VOICE_AGENT_PROMPTS[step.agentId] ||
+     `You are ${agent.name}, ${agent.title}. ${agent.description}`;
 
-  const priorOutputs = Object.entries(step.inputs ?? {})
-    .filter(([k]) => k !== "caseContext")
-    .map(([k, v]) => `${k}: ${typeof v === "string" ? v : JSON.stringify(v)}`)
-    .join("\n");
+   const priorOutputs = Object.entries(step.inputs ?? {})
+     .filter(([k]) => k !== "caseContext")
+     .map(([k, v]) => `${k}: ${typeof v === "string" ? v : JSON.stringify(v)}`)
+     .join("\n");
 
-  const userPrompt = [
-    `Task: ${step.description}`,
-    priorOutputs ? `Prior workflow context:\n${priorOutputs}` : "",
-    caseContext ? `\nCase Context:\n${caseContext}` : "",
-    "\nExecute this task completely. Be specific and actionable.",
-  ]
-    .filter(Boolean)
-    .join("\n\n");
+   const userPrompt = [
+     `Task: ${step.description}`,
+     priorOutputs ? `Prior workflow context:\n${priorOutputs}` : "",
+     caseContext ? `\nCase Context:\n${caseContext}` : "",
+     "\nExecute this task completely. Be specific and actionable.",
+   ]
+     .filter(Boolean)
+     .join("\n\n");
 
-  return callAgentChat(step.agentId, sysInstruction, userPrompt);
-}
+   return callAgentChat(step.agentId, sysInstruction, userPrompt);
+ }
 
 async function persistWorkflow(workflow: Workflow): Promise<void> {
   try {

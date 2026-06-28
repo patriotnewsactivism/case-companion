@@ -541,6 +541,12 @@ export function useVoiceEngine(options: VoiceEngineOptions) {
         throw new Error((error as { message?: string }).message ?? 'TTS request failed');
       }
 
+      // Guard against edge function returning a JSON error instead of binary audio
+      if (!(rawData instanceof ArrayBuffer) && !(rawData instanceof Uint8Array)) {
+        console.warn('[VoiceEngine] TTS response is not binary audio — falling back to browser TTS');
+        throw new Error('TTS response is not valid audio data');
+      }
+
       // Edge function returns an ArrayBuffer via the Supabase functions client
       const audioData = rawData instanceof ArrayBuffer
         ? rawData
