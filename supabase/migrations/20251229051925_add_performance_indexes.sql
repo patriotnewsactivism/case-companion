@@ -13,25 +13,30 @@ BEGIN
     CREATE INDEX IF NOT EXISTS idx_documents_case_created
     ON documents(case_id, created_at DESC);
 
-    -- Index for document search by case and type
-    CREATE INDEX IF NOT EXISTS idx_documents_case_type
-    ON documents(case_id, media_type)
-    WHERE media_type IS NOT NULL;
+    -- Index for document search by case and type (only if media_type column exists)
+    IF EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'documents' AND column_name = 'media_type') THEN
+      CREATE INDEX IF NOT EXISTS idx_documents_case_type
+      ON documents(case_id, media_type)
+      WHERE media_type IS NOT NULL;
+    END IF;
 
-    -- Index for OCR-processed documents
-    CREATE INDEX IF NOT EXISTS idx_documents_ocr_processed
-    ON documents(case_id, ocr_processed_at)
-    WHERE ocr_processed_at IS NOT NULL;
+    -- Index for OCR-processed documents (only if ocr_processed_at column exists)
+    IF EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'documents' AND column_name = 'ocr_processed_at') THEN
+      CREATE INDEX IF NOT EXISTS idx_documents_ocr_processed
+      ON documents(case_id, ocr_processed_at)
+      WHERE ocr_processed_at IS NOT NULL;
+    END IF;
 
     -- Index for AI-analyzed documents
     CREATE INDEX IF NOT EXISTS idx_documents_ai_analyzed
     ON documents(case_id, ai_analyzed)
     WHERE ai_analyzed = true;
 
-    -- Full-text search index for document OCR text
-    -- Note: COALESCE handles NULL values, no WHERE clause needed
-    CREATE INDEX IF NOT EXISTS idx_documents_ocr_text_search
-    ON documents USING gin(to_tsvector('english', COALESCE(ocr_text, '')));
+    -- Full-text search index for document OCR text (only if ocr_text column exists)
+    IF EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'documents' AND column_name = 'ocr_text') THEN
+      CREATE INDEX IF NOT EXISTS idx_documents_ocr_text_search
+      ON documents USING gin(to_tsvector('english', COALESCE(ocr_text, '')));
+    END IF;
 
     RAISE NOTICE 'Created documents table indexes';
   END IF;
