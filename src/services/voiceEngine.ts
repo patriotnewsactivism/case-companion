@@ -22,6 +22,14 @@ export const CHARACTER_VOICES: Record<string, CharacterVoiceProfile> = {
   witness: { pitch: 1.0, rate: 1.0, preferredVoiceName: "Google US English" },
   opposing_counsel: { pitch: 1.05, rate: 1.1, preferredVoiceName: "Google US English" },
   clerk: { pitch: 1.15, rate: 0.95, preferredVoiceName: "Google US English Female" },
+  maya: { pitch: 1.05, rate: 1.0, preferredVoiceName: "Google US English Female" },
+  rex: { pitch: 1.1, rate: 1.15, preferredVoiceName: "Google US English Male" },
+  doc: { pitch: 0.95, rate: 0.9, preferredVoiceName: "Google US English Male" },
+  lex: { pitch: 0.9, rate: 0.95, preferredVoiceName: "Google US English" },
+  sol: { pitch: 1.0, rate: 1.1, preferredVoiceName: "Google US English" },
+  sierra: { pitch: 1.1, rate: 1.05, preferredVoiceName: "Google US English Female" },
+  jules: { pitch: 1.0, rate: 1.0, preferredVoiceName: "Google US English Female" },
+  max: { pitch: 0.9, rate: 0.85, preferredVoiceName: "Google US English Male" },
 };
 
 // Legacy role names used by trial simulation UI
