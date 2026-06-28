@@ -6,6 +6,9 @@ import {
   checkRateLimit,
 } from '../_shared/errorHandler.ts';
 import { verifyAuth } from '../_shared/auth.ts';
+import { getFastAIProvider } from '../_shared/aiConfig.ts';
+
+const TIMEOUT_MS = 15000;
 
 serve(async (req) => {
   const corsHeaders = getCorsHeaders(req);
@@ -17,12 +20,7 @@ serve(async (req) => {
 
     const authResult = await verifyAuth(req);
     if (!authResult.authorized || !authResult.user || !authResult.supabase) {
-      return createErrorResponse(
-        new Error(authResult.error || 'Unauthorized'),
-        401,
-        'chat',
-        corsHeaders
-      );
+      return createErrorResponse(new Error(authResult.error || 'Unauthorized'), 401, 'chat', corsHeaders);
     }
 
     const { user } = authResult;
@@ -30,97 +28,55 @@ serve(async (req) => {
     const rateLimitCheck = checkRateLimit(`chat:${user.id}`, 60, 60000);
     if (!rateLimitCheck.allowed) {
       return new Response(
-        JSON.stringify({
-          error: 'Rate limit exceeded',
-          resetAt: new Date(rateLimitCheck.resetAt).toISOString(),
-        }),
-        {
-          status: 429,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        }
+        JSON.stringify({ error: 'Rate limit exceeded', resetAt: new Date(rateLimitCheck.resetAt).toISOString() }),
+        { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
     const { messages } = await req.json();
+    const config = getFastAIProvider();
 
-    // Determine AI provider: prefer custom gateway, then Gemini, then OpenRouter, then OpenAI
-    const AI_GATEWAY_URL = Deno.env.get("AI_GATEWAY_URL");
-    const GOOGLE_AI_API_KEY = Deno.env.get("GOOGLE_AI_API_KEY");
-    const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
-    const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
-    let apiUrl: string;
-    let apiKey: string;
-    let model: string;
-
-    if (AI_GATEWAY_URL) {
-      apiUrl = AI_GATEWAY_URL;
-      apiKey = OPENAI_API_KEY || OPENROUTER_API_KEY || GOOGLE_AI_API_KEY || "";
-      model = Deno.env.get("AI_GATEWAY_MODEL") || "gpt-4o-mini";
-    } else if (GOOGLE_AI_API_KEY) {
-      apiUrl = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
-      apiKey = GOOGLE_AI_API_KEY;
-      model = Deno.env.get("AI_GATEWAY_MODEL") || "gemini-1.5-flash";
-    } else if (OPENROUTER_API_KEY) {
-      apiUrl = "https://openrouter.ai/api/v1/chat/completions";
-      apiKey = OPENROUTER_API_KEY;
-      model = Deno.env.get("AI_GATEWAY_MODEL") || "google/gemini-2.0-flash-exp:free";
-    } else if (OPENAI_API_KEY) {
-      apiUrl = "https://api.openai.com/v1/chat/completions";
-      apiKey = OPENAI_API_KEY;
-      model = "gpt-4o-mini";
-    } else {
-      return new Response(JSON.stringify({ error: "No AI API key configured" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+    try {
+      const response = await fetch(config.apiUrl, {
+        method: "POST",
+        headers: config.headers,
+        signal: controller.signal,
+        body: JSON.stringify({
+          model: config.model,
+          messages: [
+            { role: "system", content: "You are a legal research assistant helping attorneys analyze documents, case law, and legal issues. Provide clear, concise, and actionable analysis. Always cite relevant case law and statutes when applicable." },
+            ...messages,
+          ],
+          max_tokens: config.maxTokens,
+          temperature: 0.7,
+        }),
       });
-    }
 
-    const response = await fetch(apiUrl, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: "system", content: "You are a legal research assistant helping attorneys analyze documents, case law, and legal issues. Provide clear, concise, and actionable analysis. Always cite relevant case law and statutes when applicable." },
-          ...messages,
-        ],
-        stream: false,
-      }),
-    });
-
-    if (!response.ok) {
-      if (response.status === 429) {
-        return new Response(JSON.stringify({ error: "Rate limits exceeded, please try again later." }), {
-          status: 429,
+      if (!response.ok) {
+        const t = await response.text();
+        console.error("AI error:", response.status, t);
+        let detail = "AI provider error";
+        try { const j = JSON.parse(t); detail = j.error?.message || j.error || t; } catch { detail = t; }
+        return new Response(JSON.stringify({ error: detail }), {
+          status: 500,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      if (response.status === 402) {
-        return new Response(JSON.stringify({ error: "Payment required, please add funds to your workspace." }), {
-          status: 402,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      const t = await response.text();
-      console.error("AI gateway error:", response.status, t);
-      // Surface the actual API error to the caller for better debugging
-      let detail = "AI gateway error";
-      try { const j = JSON.parse(t); detail = j.error?.message || j.error || t; } catch { detail = t; }
-      return new Response(JSON.stringify({ error: detail }), {
-        status: 500,
+
+      const data = await response.json();
+      return new Response(JSON.stringify(data), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    } finally {
+      clearTimeout(timeoutId);
     }
-
-    const data = await response.json();
-    return new Response(JSON.stringify(data), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
   } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') {
+      return createErrorResponse(new Error('AI provider timed out'), 504, 'chat', corsHeaders);
+    }
     console.error("chat error:", e);
     return createErrorResponse(e, 500, 'chat', corsHeaders);
   }
