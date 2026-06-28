@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { Layout } from "@/components/Layout";
 import { memo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
@@ -103,7 +102,7 @@ interface Document {
   favorable_findings: string[] | null;
   adverse_findings: string[] | null;
   action_items: string[] | null;
-  entities?: any[] | null;
+  entities?: unknown[] | null;
   ai_analyzed: boolean | null;
   ocr_text: string | null;
   ocr_page_count: number | null;
@@ -123,7 +122,7 @@ interface TimelineEvent {
   event_type: string | null;
   linked_document_id: string | null;
   importance: string | null;
-  entities?: any[] | null;
+  entities?: unknown[] | null;
   created_at: string;
   updated_at: string;
 }
@@ -135,6 +134,15 @@ interface OcrFunctionResponse {
   requestedTimelineEvents?: number;
   timelineEventsInserted?: number;
   timelineInsertWarning?: string | null;
+}
+
+interface UploadedDocumentMeta {
+  id?: string;
+  name?: string;
+  file_name?: string;
+  file_url?: string;
+  storage_path?: string;
+  [key: string]: unknown;
 }
 
 interface Case {
@@ -1101,7 +1109,7 @@ export default function CaseDetail() {
 
         // Auto-trigger OCR + AI analysis + timeline extraction
         if (uploadResult?.fileId) {
-          const doc = (uploadResult?.document || {}) as any;
+          const doc = (uploadResult?.document || {}) as UploadedDocumentMeta;
           // Build public URL: prefer file_url, fall back to constructing from storage_path
           const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
           const storageFallback = doc.storage_path
@@ -1521,7 +1529,7 @@ export default function CaseDetail() {
                             // Auto-trigger OCR + AI analysis for each uploaded doc
                             const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
                             for (const doc of uploadedDocs) {
-                              const d = doc as any;
+                              const d = doc as unknown as UploadedDocumentMeta;
                               const storageFallback = d.storage_path
                                 ? `${supabaseUrl}/storage/v1/object/public/case-documents/${d.storage_path}`
                                 : null;

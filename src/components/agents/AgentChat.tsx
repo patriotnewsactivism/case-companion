@@ -44,7 +44,7 @@ export function AgentChat({ agentId, caseId, caseContext }: AgentChatProps) {
         timestamp: Date.now(),
       },
     ]);
-  }, [agentId]);
+  }, [agentId, agent?.name, agent?.title]);
 
   const handleSend = async () => {
     if (!input.trim() || loading) return;

@@ -6,6 +6,7 @@ import {
   checkRateLimit,
 } from '../_shared/errorHandler.ts';
 import { verifyAuth } from '../_shared/auth.ts';
+import { getFastAIProvider } from '../_shared/aiConfig.ts';
 
 // Score document relevance to a query using keyword overlap
 function scoreDocumentRelevance(doc: Record<string, unknown>, query: string): number {
@@ -140,50 +141,26 @@ INSTRUCTIONS:
 - Format responses clearly with headers when appropriate
 - Keep legal advice accurate and grounded in the provided facts`;
 
-    // AI provider selection: Gateway → Gemini → OpenRouter (free) → OpenAI
-    const AI_GATEWAY_URL = Deno.env.get("AI_GATEWAY_URL");
-    const GOOGLE_AI_API_KEY = Deno.env.get("GOOGLE_AI_API_KEY");
-    const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
-    const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
+    // AI provider via shared config
+    const config = getFastAIProvider();
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
 
-    let apiUrl: string;
-    let apiKey: string;
-    let model: string;
-
-    if (AI_GATEWAY_URL) {
-      apiUrl = AI_GATEWAY_URL;
-      apiKey = OPENAI_API_KEY || OPENROUTER_API_KEY || GOOGLE_AI_API_KEY || "";
-      model = Deno.env.get("AI_GATEWAY_MODEL") || "gpt-4o-mini";
-    } else if (GOOGLE_AI_API_KEY) {
-      apiUrl = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
-      apiKey = GOOGLE_AI_API_KEY;
-      model = "gemini-2.0-flash";
-    } else if (OPENROUTER_API_KEY) {
-      apiUrl = "https://openrouter.ai/api/v1/chat/completions";
-      apiKey = OPENROUTER_API_KEY;
-      model = Deno.env.get("AI_GATEWAY_MODEL") || "openai/gpt-oss-120b:free";
-    } else if (OPENAI_API_KEY) {
-      apiUrl = "https://api.openai.com/v1/chat/completions";
-      apiKey = OPENAI_API_KEY;
-      model = "gpt-4o-mini";
-    } else {
-      return new Response(JSON.stringify({ error: "No AI API key configured" }), {
-        status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const response = await fetch(apiUrl, {
+    const response = await fetch(config.apiUrl, {
       method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      headers: config.headers,
+      signal: controller.signal,
       body: JSON.stringify({
-        model,
+        model: config.model,
         messages: [
           { role: "system", content: systemPrompt },
           ...messages,
         ],
-        stream: false,
+        max_tokens: config.maxTokens,
+        temperature: 0.7,
       }),
     });
+    clearTimeout(timeoutId);
 
     if (!response.ok) {
       if (response.status === 429) {

@@ -1,8 +1,12 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Loader2, CheckCircle2, AlertCircle, Clock } from 'lucide-react';
+
+interface QueueItem {
+  status: string;
+}
 
 interface ProcessingStatusBarProps {
   caseId: string;
@@ -12,6 +16,40 @@ export function ProcessingStatusBar({ caseId }: ProcessingStatusBarProps) {
   const [status, setStatus] = useState({ pending: 0, processing: 0, completed: 0, failed: 0 });
   const [isVisible, setIsVisible] = useState(false);
 
+  const fetchStatus = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('processing_queue')
+        .select('status')
+        .eq('case_id', caseId)
+        .eq('user_id', (await supabase.auth.getUser()).data.user?.id);
+
+      // Silently ignore table-does-not-exist errors
+      if (error) {
+        setIsVisible(false);
+        return;
+      }
+
+      if (data && data.length > 0) {
+        const counts = { pending: 0, processing: 0, completed: 0, failed: 0 };
+        const items = data as unknown as QueueItem[];
+        items.forEach((item) => {
+          if (item.status === 'pending' || item.status === 'retrying') counts.pending++;
+          else if (item.status === 'processing') counts.processing++;
+          else if (item.status === 'completed') counts.completed++;
+          else if (item.status === 'failed') counts.failed++;
+        });
+        setStatus(counts);
+        setIsVisible(counts.pending > 0 || counts.processing > 0);
+      } else {
+        setIsVisible(false);
+      }
+    } catch {
+      // Any unexpected error — hide the bar, don't crash
+      setIsVisible(false);
+    }
+  }, [caseId]);
+
   useEffect(() => {
     fetchStatus();
 
@@ -20,6 +58,7 @@ export function ProcessingStatusBar({ caseId }: ProcessingStatusBarProps) {
       channel = supabase
         .channel('processing-status')
         .on(
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           'postgres_changes' as any,
           {
             event: '*',
@@ -37,40 +76,7 @@ export function ProcessingStatusBar({ caseId }: ProcessingStatusBarProps) {
     return () => {
       if (channel) supabase.removeChannel(channel);
     };
-  }, [caseId]);
-
-  async function fetchStatus() {
-    try {
-      const { data, error } = await supabase
-        .from('processing_queue')
-        .select('status')
-        .eq('case_id', caseId)
-        .eq('user_id', (await supabase.auth.getUser()).data.user?.id);
-
-      // Silently ignore table-does-not-exist errors
-      if (error) {
-        setIsVisible(false);
-        return;
-      }
-
-      if (data && data.length > 0) {
-        const counts = { pending: 0, processing: 0, completed: 0, failed: 0 };
-        (data as any[]).forEach((item: any) => {
-          if (item.status === 'pending' || item.status === 'retrying') counts.pending++;
-          else if (item.status === 'processing') counts.processing++;
-          else if (item.status === 'completed') counts.completed++;
-          else if (item.status === 'failed') counts.failed++;
-        });
-        setStatus(counts);
-        setIsVisible(counts.pending > 0 || counts.processing > 0);
-      } else {
-        setIsVisible(false);
-      }
-    } catch {
-      // Any unexpected error — hide the bar, don't crash
-      setIsVisible(false);
-    }
-  }
+  }, [caseId, fetchStatus]);
 
   if (!isVisible) return null;
 

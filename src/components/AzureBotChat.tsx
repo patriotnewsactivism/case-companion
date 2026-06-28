@@ -1,9 +1,10 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, type ComponentType } from 'react';
 import ReactWebChatRaw from 'botframework-webchat';
 import { createDirectLine } from 'botframework-webchat';
 import { Bot, AlertTriangle } from 'lucide-react';
 
-const ReactWebChat = ReactWebChatRaw as any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const ReactWebChat = ReactWebChatRaw as ComponentType<Record<string, any>>;
 
 interface AzureBotChatProps {
   directLineSecret?: string;
@@ -22,6 +23,19 @@ export function AzureBotChat({
   botAvatarInitials = 'GLM',
   userAvatarInitials = 'ME',
 }: AzureBotChatProps) {
+
+  const directLine = useMemo(() => {
+    if (!directLineSecret && !directLineToken) return null;
+    try {
+      if (directLineToken) {
+        return createDirectLine({ token: directLineToken });
+      }
+      return createDirectLine({ secret: directLineSecret });
+    } catch (err) {
+      console.error("DirectLine init failed:", err);
+      return null;
+    }
+  }, [directLineSecret, directLineToken]);
 
   // If no secret/token is configured, show a friendly setup message instead of crashing
   if (!directLineSecret && !directLineToken) {
@@ -44,18 +58,6 @@ export function AzureBotChat({
       </div>
     );
   }
-
-  const directLine = useMemo(() => {
-    try {
-      if (directLineToken) {
-        return createDirectLine({ token: directLineToken });
-      }
-      return createDirectLine({ secret: directLineSecret });
-    } catch (err) {
-      console.error("DirectLine init failed:", err);
-      return null;
-    }
-  }, [directLineSecret, directLineToken]);
 
   if (!directLine) {
     return (
@@ -86,6 +88,7 @@ export function AzureBotChat({
           bubbleFromUserTextColor: '#ffffff',
           bubbleFromUserBorderRadius: 8,
           fontStack: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
         } as any}
       />
     </div>

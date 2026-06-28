@@ -1,8 +1,15 @@
-// @ts-nocheck
 /**
  * VoiceEngine — Web Speech API wrapper for STT and TTS.
  * No external API keys required. Degrades gracefully when unsupported.
  */
+
+// Extend Window to support vendor-prefixed SpeechRecognition
+declare global {
+  interface Window {
+    SpeechRecognition?: new () => SpeechRecognition;
+    webkitSpeechRecognition?: new () => SpeechRecognition;
+  }
+}
 
 export interface CharacterVoiceProfile {
   pitch: number;
@@ -66,12 +73,12 @@ export class VoiceEngine {
 
     // SpeechRecognition with vendor-prefixed fallback for Safari/older browsers
     const SRClass =
-      (window as any).SpeechRecognition ??
-      (window as any).webkitSpeechRecognition ??
+      window.SpeechRecognition ??
+      window.webkitSpeechRecognition ??
       null;
 
     if (SRClass) {
-      this.recognition = new SRClass() as SpeechRecognition;
+      this.recognition = new SRClass();
       this.recognition.continuous = true;
       this.recognition.interimResults = true;
       this.recognition.lang = "en-US";

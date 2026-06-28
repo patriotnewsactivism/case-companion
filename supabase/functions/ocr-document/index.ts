@@ -37,6 +37,31 @@ interface GeminiResponse {
   candidates?: GeminiCandidate[];
 }
 
+interface GeminiInlineData {
+  mime_type: string;
+  data: string;
+}
+
+interface GeminiPart {
+  text?: string;
+  inline_data?: GeminiInlineData;
+}
+
+interface GeminiContent {
+  parts: GeminiPart[];
+}
+
+interface GeminiGenerationConfig {
+  temperature?: number;
+  maxOutputTokens?: number;
+  responseMimeType?: string;
+}
+
+interface GeminiRequestBody {
+  contents: GeminiContent[];
+  generationConfig?: GeminiGenerationConfig;
+}
+
 type TimelineImportance = 'low' | 'medium' | 'high';
 type TimelinePhase = 'pre-suit' | 'pleadings' | 'discovery' | 'dispositive' | 'trial' | 'post-trial';
 
@@ -365,9 +390,9 @@ const isOcrArtifact = (sentence: string): boolean => {
   const s = sentence.trim();
   if (/^={2,}\s*PAGE\s+\d+/i.test(s)) return true;
   if (/^PAGE\s+\d+\s+(Case|of)\b/i.test(s)) return true;
-  if (/^Case\s+\d+[:\-]\d+/i.test(s)) return true;
+  if (/^Case\s+\d+[:-]\d+/i.test(s)) return true;
   if (/^Document\s+[#\d]/i.test(s) && /Page\s+\d+\s+of\s+\d+/i.test(s)) return true;
-  const cleaned = s.replace(/(?:PAGE|DOCUMENT|===|\d+\s*of\s*\d+|Case\s*\d+[:\-]\S+)/gi, '').trim();
+  const cleaned = s.replace(/(?:PAGE|DOCUMENT|===|\d+\s*of\s*\d+|Case\s*\d+[:-]\S+)/gi, '').trim();
   if (cleaned.length < 15) return true;
   return false;
 };
@@ -376,7 +401,7 @@ const buildTimelineTitle = (sentence: string, dateToken: string | null): string 
   let cleaned = sentence.replace(/={2,}\s*PAGE\s+\d+\s*={0,}/gi, '').trim();
   cleaned = cleaned.replace(/^PAGE\s+\d+\s*/i, '').trim();
   const withoutDate = dateToken ? cleaned.replace(dateToken, ' ') : cleaned;
-  const withoutCaseNum = withoutDate.replace(/Case\s+\d+[:\-]\d+[-\w]*/gi, ' ').trim();
+  const withoutCaseNum = withoutDate.replace(/Case\s+\d+[:-]\d+[-\w]*/gi, ' ').trim();
   const withoutDocRef = withoutCaseNum.replace(/Document\s+#?\s*\d+/gi, ' ').replace(/Page\s+\d+\s+of\s+\d+/gi, ' ').trim();
   const words = withoutDocRef.replace(/[^a-zA-Z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean).slice(0, 8);
   if (words.length === 0) return 'Document event';
@@ -504,6 +529,116 @@ DOCUMENT TEXT:
 ${documentContext}${tableSection}`;
 }
 
+// ===== PDF Embedded Text Extraction (Tier 0) =====
+// Attempts to extract text from a PDF's text layer before resorting to OCR.
+// Works on PDFs that have embedded text (not scanned image-only PDFs).
+async function extractPdfEmbeddedText(fileBlob: Blob): Promise<string> {
+  try {
+    if (!fileBlob || fileBlob.size === 0) return '';
+
+    // Quick check: only attempt on files with PDF-like signatures
+    if (fileBlob.size > 100 * 1024 * 1024) {
+      // Skip very large files — the cost of reading into memory outweighs the benefit
+      throw new Error('File too large for embedded text extraction');
+    }
+
+    const arrayBuffer = await fileBlob.arrayBuffer();
+    const bytes = new Uint8Array(arrayBuffer);
+
+    // Check PDF magic bytes
+    if (bytes[0] !== 0x25 || bytes[1] !== 0x50 || bytes[2] !== 0x44 || bytes[3] !== 0x46) {
+      return ''; // Not a PDF
+    }
+
+    const text = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+
+    // Extract text from PDF text objects (BT ... ET blocks)
+    const extracted: string[] = [];
+    let idx = 0;
+    while (idx < text.length) {
+      const btStart = text.indexOf('BT', idx);
+      if (btStart === -1) break;
+      const contentStart = btStart + 2;
+      const etEnd = text.indexOf('ET', contentStart);
+      if (etEnd === -1) break;
+
+      const block = text.substring(contentStart, etEnd);
+
+      // Match (text) Tj
+      const tjRegex = /\(([^)]*)\)\s*Tj/g;
+      let tjMatch;
+      while ((tjMatch = tjRegex.exec(block)) !== null) {
+        if (tjMatch[1]) extracted.push(tjMatch[1]);
+      }
+
+      // Match (text) ' (single-quote operator)
+      const sqRegex = /\(([^)]*)\)\s*'/g;
+      let sqMatch;
+      while ((sqMatch = sqRegex.exec(block)) !== null) {
+        if (sqMatch[1]) extracted.push(sqMatch[1]);
+      }
+
+      idx = etEnd + 2;
+    }
+
+    const result = extracted.join(' ').replace(/\s+/g, ' ').trim();
+    return result;
+  } catch {
+    return '';
+  }
+}
+
+// ===== Phase Normalization =====
+function normalizePhase(phase: string | undefined, content: string): TimelinePhase {
+  const normalized = (phase || '').trim().toLowerCase();
+  const validPhases: TimelinePhase[] = ['pre-suit', 'pleadings', 'discovery', 'dispositive', 'trial', 'post-trial'];
+  if (validPhases.includes(normalized as TimelinePhase)) {
+    return normalized as TimelinePhase;
+  }
+
+  const contentLower = content.toLowerCase();
+  if (/pre[-\s]?suit|statute\s+of\s+limitations|demand\s+letter/i.test(contentLower)) return 'pre-suit';
+  if (/complaint|answer|motion\s+to\s+dismiss|plead|responsive\s+pleading/i.test(contentLower)) return 'pleadings';
+  if (/interrogator|deposit|discovery|request\s+for\s+production|document\s+request|admission/i.test(contentLower)) return 'discovery';
+  if (/summary\s+judgment|dismiss|dispositive|motion\s+in\s+limine|directed\s+verdict/i.test(contentLower)) return 'dispositive';
+  if (/trial|jury|evidence|exhibit|witness|opening|closing|voir\s+dire/i.test(contentLower)) return 'trial';
+  if (/appeal|post[-\s]trial|judgment|settlement/i.test(contentLower)) return 'post-trial';
+  return 'discovery';
+}
+
+// ===== Infer Next Required Action =====
+function inferNextRequiredAction(phase: TimelinePhase, content: string): string {
+  const contentLower = content.toLowerCase();
+  const actions: Record<TimelinePhase, string[]> = {
+    'pre-suit': ['Send demand letter', 'Preserve evidence', 'Investigate claims', 'Evaluate settlement options'],
+    'pleadings': ['File responsive pleading', 'Review complaint for affirmative defenses', 'Calendar answer deadline', 'Prepare initial disclosures'],
+    'discovery': ['Prepare discovery requests', 'Review produced documents', 'Schedule depositions', 'Serve interrogatories'],
+    'dispositive': ['Research legal standard', 'Draft motion', 'File and serve motion', 'Prepare opposition brief'],
+    'trial': ['Prepare witness examinations', 'Finalize exhibit list', 'File motions in limine', 'Prepare opening statement'],
+    'post-trial': ['File notice of appeal', 'Prepare bill of costs', 'Review judgment for errors', 'Evaluate post-trial motions'],
+  };
+
+  const candidates = actions[phase] || actions['discovery'];
+  for (const action of candidates) {
+    if (contentLower.includes(action.split(' ')[0].toLowerCase())) return action;
+  }
+  return candidates[0];
+}
+
+// ===== OCR Junk Title Detection =====
+function isTitleOcrJunk(title: string): boolean {
+  if (!title || title.length < 3) return true;
+  // Patterns that indicate OCR artifacts rather than real legal events
+  if (/^page\s+\d+/i.test(title)) return true;
+  if (/^={2,}/i.test(title)) return true;
+  if (/^\d+$/.test(title.trim())) return true;
+  if (/^[A-Z0-9]{20,}$/.test(title.replace(/\s/g, ''))) return true;
+  if (/^\s*$/.test(title)) return true;
+  if (/^document\s*\d+/i.test(title)) return true;
+  if (/^bates\s*stamp/i.test(title)) return true;
+  return false;
+}
+
 serve(async (req) => {
   const corsHeaders = getCorsHeaders(req);
 
@@ -583,7 +718,13 @@ serve(async (req) => {
       return createErrorResponse(new Error('Document not found'), 404, 'ocr-document', corsHeaders);
     }
 
-    const caseRelation = (documentData as any).cases;
+    interface DocumentOwnerData {
+      case_id: string;
+      name: string;
+      cases: { user_id: string } | { user_id: string }[];
+    }
+    const docOwnerData = documentData as unknown as DocumentOwnerData;
+    const caseRelation = docOwnerData.cases;
     const ownerId = Array.isArray(caseRelation) ? caseRelation[0]?.user_id : caseRelation?.user_id;
 
     if (!ownerId) {
@@ -724,7 +865,7 @@ serve(async (req) => {
       const { payload, model } = await invokeGeminiWithFallback(
         {
           contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mimeType, data: base64 } }] }],
-          generationConfig: { temperature: 0.05, maxOutputTokens: 65536 },
+          generationConfig: { temperature: 0.05, maxOutputTokens: 8192 },
         },
         'OCR'
       );
@@ -1031,7 +1172,7 @@ ${textChunk}`;
               favorableFindings: Array.isArray(parsed.favorable_findings) ? parsed.favorable_findings.map((i) => String(i)) : [],
               adverseFindings: Array.isArray(parsed.adverse_findings) ? parsed.adverse_findings.map((i) => String(i)) : [],
               actionItems: Array.isArray(parsed.action_items) ? parsed.action_items.map((i) => String(i)) : [],
-              timelineEvents: Array.isArray(parsed.timeline_events) ? (parsed.timeline_events as any[]) : [],
+              timelineEvents: Array.isArray(parsed.timeline_events) ? (parsed.timeline_events as unknown[]) : [],
               entities: Array.isArray(parsed.entities) ? parsed.entities : [],
             },
           };
@@ -1126,7 +1267,7 @@ ${textChunk}`;
 
     if (timelineEvents.length > 0) {
       console.log(`Inserting ${timelineEvents.length} timeline events...`);
-      const caseId = (documentData as any).case_id;
+      const caseId = docOwnerData.case_id;
 
       const dedupedEvents = new Map<string, TimelineEventInsertRow[]>();
       const normalizedEvents = (timelineEvents as TimelineEventCandidate[])

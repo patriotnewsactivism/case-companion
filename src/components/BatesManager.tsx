@@ -75,7 +75,7 @@ export function BatesManager({ caseId }: BatesManagerProps) {
     } finally {
       setIsLoading(false);
     }
-  }, [caseId]);
+  }, [caseId, toast]);
 
   useEffect(() => {
     fetchDocuments();

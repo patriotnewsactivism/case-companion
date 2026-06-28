@@ -99,43 +99,23 @@ Analyze this exchange and provide real-time coaching. Respond with ONLY valid JS
   "coachingNote": "One concise tactical observation (max 2 sentences)"
 }`;
 
-    // AI provider selection
-    const AI_GATEWAY_URL = Deno.env.get("AI_GATEWAY_URL");
-    const GOOGLE_AI_API_KEY = Deno.env.get("GOOGLE_AI_API_KEY");
-    const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
-    const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
+    // AI provider via shared config
+    const config = getFastAIProvider();
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
 
-    let apiUrl: string, apiKey: string, model: string;
-
-    if (AI_GATEWAY_URL) {
-      apiUrl = AI_GATEWAY_URL; apiKey = OPENAI_API_KEY || GOOGLE_AI_API_KEY || ""; model = Deno.env.get("AI_GATEWAY_MODEL") || "gpt-4o-mini";
-    } else if (GOOGLE_AI_API_KEY) {
-      apiUrl = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
-      apiKey = GOOGLE_AI_API_KEY; model = "gemini-2.0-flash";
-    } else if (OPENROUTER_API_KEY) {
-      apiUrl = "https://openrouter.ai/api/v1/chat/completions"; apiKey = OPENROUTER_API_KEY; model = Deno.env.get("AI_GATEWAY_MODEL") || "openai/gpt-oss-120b:free";
-    } else if (OPENAI_API_KEY) {
-      apiUrl = "https://api.openai.com/v1/chat/completions"; apiKey = OPENAI_API_KEY; model = "gpt-4o-mini";
-    } else {
-      // Return empty coaching rather than failing hard
-      return new Response(JSON.stringify({
-        objectionAlert: { isObjectionable: false, objectionType: null, grounds: null },
-        answerAnalysis: { isEvasive: false, evasionTactic: null, trapAlert: null },
-        suggestedFollowUps: [],
-        evidenceReference: { relevantDoc: null, howToUse: null },
-        coachingNote: null,
-      }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-    }
-
-    const response = await fetch(apiUrl, {
+    const response = await fetch(config.apiUrl, {
       method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      headers: config.headers,
+      signal: controller.signal,
       body: JSON.stringify({
-        model,
+        model: config.model,
         messages: [{ role: "user", content: prompt }],
-        stream: false,
+        max_tokens: config.maxTokens,
+        temperature: 0.7,
       }),
     });
+    clearTimeout(timeoutId);
 
     if (!response.ok) {
       return new Response(JSON.stringify({ error: "AI analysis failed" }), {

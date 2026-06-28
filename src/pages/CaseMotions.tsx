@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { Layout } from "@/components/Layout";
@@ -288,8 +287,9 @@ export default function CaseMotions() {
       queryClient.invalidateQueries({ queryKey: ["motion_suggestions", id] });
       refetch();
       toast.success("Suggestion dismissed");
-    } catch (err: any) {
-      toast.error(err.message ?? "Failed to dismiss");
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to dismiss";
+      toast.error(message);
     } finally {
       setDismissingId(null);
     }

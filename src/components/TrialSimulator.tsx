@@ -302,6 +302,14 @@ function mapQPayload(p: TrialSimulationQuestionPayload, idx: number, docs: Docum
   };
 }
 
+const VOICE_ROLES: Record<string, { pitch: number; rate: number; voiceKeyword: string }> = {
+  judge: { pitch: 0.85, rate: 0.92, voiceKeyword: "male" },
+  witness: { pitch: 1.1, rate: 1.0, voiceKeyword: "female" },
+  "opposing counsel": { pitch: 0.9, rate: 1.05, voiceKeyword: "male" },
+  deponent: { pitch: 1.05, rate: 0.95, voiceKeyword: "female" },
+  default: { pitch: 1.0, rate: 0.95, voiceKeyword: "male" },
+};
+
 export function TrialSimulator({ caseData, documents = [] }: TrialSimulatorProps) {
   const [selectedMode, setSelectedMode] = useState<SimMode>(SIMULATION_MODES[0]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);

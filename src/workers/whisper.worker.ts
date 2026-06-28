@@ -1,4 +1,3 @@
-// @ts-nocheck
 interface WhisperWorkerMessage {
   type: 'init' | 'transcribe' | 'abort';
   payload?: {
