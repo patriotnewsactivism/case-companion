@@ -234,10 +234,6 @@ const App = () => {
                   }
                 />
                 <Route
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
                   path="/analytics"
                   element={
                     <ProtectedRoute>
