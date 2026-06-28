@@ -399,6 +399,11 @@ serve(async (req) => {
     );
   } catch (error) {
     console.error('Error in mock-jury function:', error);
-    return createErrorResponse(error, 500, 'mock-jury', corsHeaders);
+    return createErrorResponse(
+      error instanceof Error ? error : new Error(String(error)),
+      500,
+      'mock-jury',
+      corsHeaders
+    );
   }
 });

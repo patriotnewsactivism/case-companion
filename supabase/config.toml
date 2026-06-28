@@ -4,52 +4,54 @@ project_id = "jpzkumgndqsdwimbvjku"
 port = 54323
 shadow_port = 54420
 
+# All authenticated-user functions require JWT
 [functions.create-video-room]
-verify_jwt = false
+verify_jwt = true
 
 [functions.join-video-room]
-verify_jwt = false
+verify_jwt = true
 
 [functions.ocr-document]
-verify_jwt = false
+verify_jwt = true
 
 [functions.import-google-drive]
-verify_jwt = false
+verify_jwt = true
 
+# External webhook from Daily.co — no JWT, uses its own signature verification
 [functions.recording-webhook]
 verify_jwt = false
 
 [functions.transcribe-media]
-verify_jwt = false
+verify_jwt = true
 
 [functions.transcribe-recording]
-verify_jwt = false
+verify_jwt = true
 
 [functions.trial-coach]
-verify_jwt = false
+verify_jwt = true
 
 [functions.chat]
-verify_jwt = false
+verify_jwt = true
 
 [functions.trial-simulation]
-verify_jwt = false
+verify_jwt = true
 
 [functions.settlement-analysis]
-verify_jwt = false
+verify_jwt = true
 
 [functions.export-document]
-verify_jwt = false
+verify_jwt = true
 
 [functions.conflict-check]
-verify_jwt = false
+verify_jwt = true
 
-# Voice pipeline — JWT required (authenticated users only)
+# Voice pipeline
 [functions.deepgram-token]
 verify_jwt = true
 
 [functions.tts-generate]
 verify_jwt = true
 
-# Mock jury — JWT required
+# Mock jury
 [functions.mock-jury]
 verify_jwt = true
