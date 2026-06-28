@@ -60,11 +60,11 @@ serve(async (req) => {
     } else if (GOOGLE_AI_API_KEY) {
       apiUrl = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
       apiKey = GOOGLE_AI_API_KEY;
-      model = "gemini-2.0-flash";
+      model = Deno.env.get("AI_GATEWAY_MODEL") || "gemini-1.5-flash";
     } else if (OPENROUTER_API_KEY) {
       apiUrl = "https://openrouter.ai/api/v1/chat/completions";
       apiKey = OPENROUTER_API_KEY;
-      model = Deno.env.get("AI_GATEWAY_MODEL") || "openai/gpt-oss-120b:free";
+      model = Deno.env.get("AI_GATEWAY_MODEL") || "google/gemini-2.0-flash-exp:free";
     } else if (OPENAI_API_KEY) {
       apiUrl = "https://api.openai.com/v1/chat/completions";
       apiKey = OPENAI_API_KEY;
@@ -107,7 +107,10 @@ serve(async (req) => {
       }
       const t = await response.text();
       console.error("AI gateway error:", response.status, t);
-      return new Response(JSON.stringify({ error: "AI gateway error" }), {
+      // Surface the actual API error to the caller for better debugging
+      let detail = "AI gateway error";
+      try { const j = JSON.parse(t); detail = j.error?.message || j.error || t; } catch { detail = t; }
+      return new Response(JSON.stringify({ error: detail }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

@@ -645,7 +645,7 @@ serve(async (req) => {
       purpose: 'OCR' | 'ANALYSIS'
     ): Promise<{ payload: GeminiResponse; model: string }> => {
       const candidateModels = purpose === 'OCR'
-        ? preferredGeminiModels
+        ? await resolveGeminiModels()
         : geminiModelCandidates;
 
       let lastError = '';
