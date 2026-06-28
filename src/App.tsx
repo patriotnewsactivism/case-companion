@@ -224,7 +224,7 @@ const App = () => {
                     </ProtectedRoute>
                   }
                 />
-{/* Settings route */}
+                {/* Settings route */}
                 <Route
                   path="/settings"
                   element={
