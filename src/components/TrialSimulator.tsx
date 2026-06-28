@@ -385,7 +385,7 @@ export function TrialSimulator({ caseData, documents = [] }: TrialSimulatorProps
     } else {
       voice.stopListening();
     }
-  }, [isVoiceEnabled]);
+  }, [isVoiceEnabled]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (scrollRef.current) {

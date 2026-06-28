@@ -211,7 +211,6 @@ export function useVoiceEngine(options: VoiceEngineOptions) {
     detectProviders();
     return () => { cancelled = true; };
     // Only run once on mount
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Cleanup on unmount
@@ -570,9 +569,8 @@ export function useVoiceEngine(options: VoiceEngineOptions) {
       toast.error('Voice generation unavailable — using browser TTS');
       speakWebSpeech(sanitizeForTTS(text), character);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // ── TTS — Web Speech API fallback ────────────────────────────────────────
 
   const speakWebSpeech = useCallback((text: string, character: string) => {
     if (!window.speechSynthesis) return;
