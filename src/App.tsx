@@ -287,9 +287,6 @@ const App = () => {
                   element={<ProtectedRoute><CaseSimulatorHistory /></ProtectedRoute>}
                 />
                 <Route
-                  path="/cases/:id/ai-assistant"
-                  element={<ProtectedRoute><AzureBotChatPage /></ProtectedRoute>}
-                />
                 <Route
                   path="/judicial-intelligence"
                   element={<ProtectedRoute><JudicialIntelligence /></ProtectedRoute>}
