@@ -233,9 +233,7 @@ const App = () => {
                     </ProtectedRoute>
                   }
                 />
-                  element={
-                    <ProtectedRoute>
-                      <Settings />
+                <Route
                     </ProtectedRoute>
                   }
                 />
@@ -293,7 +291,6 @@ const App = () => {
                   path="/cases/:id/simulator/history"
                   element={<ProtectedRoute><CaseSimulatorHistory /></ProtectedRoute>}
                 />
-                <Route
                 <Route
                   path="/judicial-intelligence"
                   element={<ProtectedRoute><JudicialIntelligence /></ProtectedRoute>}

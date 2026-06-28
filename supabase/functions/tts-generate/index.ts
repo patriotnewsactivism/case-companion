@@ -58,6 +58,39 @@ const VOICE_MAP: Record<string, VoiceProfile> = {
     voiceId: 'ErXwobaYiN019PkySvjV',   // Antoni — measured, cautious
     stability: 0.65, similarityBoost: 0.75, style: 0.15, useSpeakerBoost: false,
   },
+  // Agent character mappings
+  maya: {
+    voiceId: 'EXAVITQu4vr4xnSDxMaL',   // Bella — warm, professional female
+    stability: 0.70, similarityBoost: 0.80, style: 0.15, useSpeakerBoost: false,
+  },
+  rex: {
+    voiceId: 'pNInz6obpgDQGcFmaJgB',    // Adam — authoritative, energetic
+    stability: 0.75, similarityBoost: 0.85, style: 0.30, useSpeakerBoost: true,
+  },
+  doc: {
+    voiceId: '21m00Tcm4TlvDq8ikWAM',   // Rachel — precise, professional
+    stability: 0.80, similarityBoost: 0.85, style: 0.10, useSpeakerBoost: false,
+  },
+  lex: {
+    voiceId: 'ErXwobaYiN019PkySvjV',    // Antoni — scholarly, measured
+    stability: 0.75, similarityBoost: 0.80, style: 0.10, useSpeakerBoost: false,
+  },
+  sol: {
+    voiceId: '21m00Tcm4TlvDq8ikWAM',    // Rachel — sharp, efficient
+    stability: 0.70, similarityBoost: 0.75, style: 0.20, useSpeakerBoost: false,
+  },
+  sierra: {
+    voiceId: 'EXAVITQu4vr4xnSDxMaL',    // Bella — friendly, approachable
+    stability: 0.65, similarityBoost: 0.75, style: 0.25, useSpeakerBoost: false,
+  },
+  jules: {
+    voiceId: 'AZnzlk1XvdvUeBnXmlld',    // Domi — perceptive, curious
+    stability: 0.55, similarityBoost: 0.70, style: 0.35, useSpeakerBoost: false,
+  },
+  max: {
+    voiceId: 'ErXwobaYiN019PkySvjV',    // Antoni — thorough, methodical
+    stability: 0.85, similarityBoost: 0.80, style: 0.05, useSpeakerBoost: false,
+  },
   default: {
     voiceId: 'pNInz6obpgDQGcFmaJgB',   // Adam
     stability: 0.70, similarityBoost: 0.75, style: 0.10, useSpeakerBoost: false,
