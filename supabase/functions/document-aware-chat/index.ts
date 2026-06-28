@@ -41,7 +41,7 @@ serve(async (req) => {
 
     const { user, supabase } = authResult;
 
-    const rateLimitCheck = checkRateLimit(`document-aware-chat:${user.id}`, 30, 60000);
+    const rateLimitCheck = checkRateLimit(`document-aware-chat:${user.id}`, 60, 60000);
     if (!rateLimitCheck.allowed) {
       return new Response(
         JSON.stringify({ error: 'Rate limit exceeded', resetAt: new Date(rateLimitCheck.resetAt).toISOString() }),

@@ -27,7 +27,7 @@ serve(async (req) => {
 
     const { user } = authResult;
 
-    const rateLimitCheck = checkRateLimit(`chat:${user.id}`, 30, 60000);
+    const rateLimitCheck = checkRateLimit(`chat:${user.id}`, 60, 60000);
     if (!rateLimitCheck.allowed) {
       return new Response(
         JSON.stringify({
