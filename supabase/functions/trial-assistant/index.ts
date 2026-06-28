@@ -6,7 +6,7 @@ import {
   checkRateLimit,
 } from '../_shared/errorHandler.ts';
 import { verifyAuth } from '../_shared/auth.ts';
-import { getFastAIProvider } from '../_shared/aiConfig.ts';
+import { getFastAIProvider, callChatCompletion } from '../_shared/aiConfig.ts';
 
 serve(async (req) => {
   const corsHeaders = getCorsHeaders(req);
@@ -113,30 +113,19 @@ Analyze this exchange and provide real-time coaching. Respond with ONLY valid JS
         coachingNote: null,
       }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
-
-    const response = await fetch(config.apiUrl, {
-      method: "POST",
-      headers: config.headers,
-      signal: controller.signal,
-      body: JSON.stringify({
-        model: config.model,
-        messages: [{ role: "user", content: prompt }],
-        max_tokens: config.maxTokens,
-        temperature: 0.7,
-      }),
-    });
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
+    let rawContent: string;
+    try {
+      rawContent = await callChatCompletion(
+        config,
+        [{ role: 'user', content: prompt }],
+        { responseFormat: 'json', temperature: 0.7 }
+      );
+    } catch (aiErr) {
+      console.error("trial-assistant AI error:", aiErr);
       return new Response(JSON.stringify({ error: "AI analysis failed" }), {
         status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-
-    const aiData = await response.json();
-    const rawContent = aiData?.choices?.[0]?.message?.content || "{}";
 
     let coaching: Record<string, unknown>;
     try {
