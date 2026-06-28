@@ -2786,6 +2786,12 @@ export default function CaseDetail() {
                     <CardDescription>Ask anything about your case — the AI searches all {documents.filter(d => d.ai_analyzed).length} analyzed documents for answers.</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-3">
+                    {chatMessages.length === 0 && documents.length > 0 && documents.filter(d => d.ai_analyzed).length === 0 && (
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                        <p className="font-medium mb-1">Documents need analysis first</p>
+                        <p className="text-xs">Upload documents and let OCR + AI analysis run, or click the <Scan className="h-3 w-3 inline mx-0.5" /> icon on each document to analyze it. Once analysis is complete, the AI can answer questions about your case.</p>
+                      </div>
+                    )}
                     {chatMessages.length === 0 && documents.filter(d => d.ai_analyzed).length > 0 && (
                       <div className="space-y-2">
                         <p className="text-xs text-muted-foreground">Suggested questions:</p>

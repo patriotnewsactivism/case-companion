@@ -6,7 +6,7 @@ import {
   checkRateLimit,
 } from '../_shared/errorHandler.ts';
 import { verifyAuth } from '../_shared/auth.ts';
-import { getFastAIProvider } from '../_shared/aiConfig.ts';
+import { getFastAIProvider, callChatCompletion } from '../_shared/aiConfig.ts';
 
 serve(async (req) => {
   const corsHeaders = getCorsHeaders(req);
@@ -141,34 +141,26 @@ Respond with ONLY valid JSON in this exact structure:
   "executiveSummary": "2-3 sentence overall assessment of the case record"
 }`;
 
-    // AI provider selection via shared config
-    const config = getFastAIProvider();
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    // AI provider selection via shared config with model fallback
+    let config;
+    try {
+      config = getFastAIProvider();
+    } catch {
+      return new Response(
+        JSON.stringify({ error: 'AI not configured. Please set GOOGLE_AI_API_KEY in your Supabase secrets.' }),
+        { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
-    const response = await fetch(config.apiUrl, {
-      method: "POST",
-      headers: config.headers,
-      signal: controller.signal,
-      body: JSON.stringify({
-        model: config.model,
-        messages: [{ role: "user", content: systemPrompt }],
-        max_tokens: config.maxTokens,
-        temperature: 0.7,
-      }),
-    });
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      const t = await response.text();
-      console.error("AI error:", response.status, t);
+    let rawContent: string;
+    try {
+      rawContent = await callChatCompletion(config, [{ role: 'user', content: systemPrompt }], { responseFormat: 'json', temperature: 0.7 });
+    } catch (aiErr) {
+      console.error("cross-document-analysis AI error:", aiErr);
       return new Response(JSON.stringify({ error: "AI analysis failed" }), {
         status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-
-    const aiData = await response.json();
-    const rawContent = aiData?.choices?.[0]?.message?.content || "{}";
 
     let analysis: Record<string, unknown>;
     try {
