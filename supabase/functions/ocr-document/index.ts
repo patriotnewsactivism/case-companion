@@ -437,12 +437,17 @@ const buildHeuristicAnalysis = (text: string): HeuristicAnalysisResult => {
   const factCandidates = sentences.filter((s) => /\b(\d{1,2}\/\d{1,2}\/\d{2,4}|\d{4}-\d{2}-\d{2}|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|\$|\d{2,}|agreement|demand|response|meeting|incident|email|letter)\b/i.test(s));
   const favorableCandidates = sentences.filter((s) => /\b(admit|confirmed|supports|favorable|complied|approved|paid|received|signed)\b/i.test(s));
   const adverseCandidates = sentences.filter((s) => /\b(deny|denied|dispute|late|overdue|breach|damaging|adverse|inconsistent|liability|default|failed)\b/i.test(s));
+  const firstSentence = sentences[0]?.slice(0, 200) || '';
+  const generatedSummary = `Heuristic analysis of document text: ${firstSentence}${firstSentence ? '...' : ''} Identified ${timelineEvents.length} timeline events, ${factCandidates.length} potential facts.`;
   return {
-    summary,
-    keyFacts,
-    favorableFindings,
-    adverseFindings,
-    actionItems,
+    summary: generatedSummary,
+    keyFacts: uniqueTrimmed(factCandidates, 20),
+    favorableFindings: uniqueTrimmed(favorableCandidates, 10),
+    adverseFindings: uniqueTrimmed(adverseCandidates, 10),
+    actionItems: uniqueTrimmed(
+      sentences.filter((s) => /\b(should|must|need|required|deadline|file|serve|respond|review|prepare|schedule|request|notice|follow.up|contact|submit|send|call|meet|verify|confirm|obtain|complete|update)\b/i.test(s)),
+      10
+    ),
     timelineEvents: timelineEvents.sort((a, b) => {
       const aDate = toDateOnlyString(a.date) || '9999-12-31';
       const bDate = toDateOnlyString(b.date) || '9999-12-31';

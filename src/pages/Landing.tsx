@@ -30,6 +30,18 @@ import {
 
 const featureHighlights = [
   {
+    title: "12 AI Lawyer Specialists",
+    description: "A dedicated team of AI legal specialists — each expert in their domain. Personal injury, criminal defense, civil rights, family law, and more. Deploy them instantly on any case.",
+    icon: Users,
+    highlight: true,
+  },
+  {
+    title: "AI Agent Orchestration",
+    description: "Deploy the Firm: launch 8+ autonomous AI agents that research, draft, analyze, and prepare simultaneously. Real-time status dashboard shows every agent at work.",
+    icon: BrainCircuit,
+    highlight: true,
+  },
+  {
     title: "AI-Powered Discovery Analysis",
     description: "Upload thousands of discovery documents and let AI extract key facts, identify inconsistencies, and surface favorable evidence in minutes—not weeks.",
     icon: FileSearch,
@@ -41,14 +53,21 @@ const featureHighlights = [
     icon: Search,
   },
   {
-    title: "Favorable vs Adverse Findings",
-    description: "AI automatically categorizes evidence as supporting or damaging to your case theory, helping you prepare for every angle.",
-    icon: TrendingUp,
+    title: "Trial Simulation & Argument Practice",
+    description: "Practice your arguments against an AI opponent. Get real-time feedback on weaknesses, rhetorical effectiveness, and objections before you enter the courtroom.",
+    icon: Gavel,
+    highlight: true,
   },
   {
-    title: "Inconsistency Detection",
-    description: "Cross-reference witness statements, contracts, and documents. AI flags contradictions you can exploit at trial.",
-    icon: AlertTriangle,
+    title: "Jury Analysis & Deliberation",
+    description: "AI-powered jury simulator runs full deliberations. Test your case against diverse virtual jurors and predict outcomes before trial.",
+    icon: Scale,
+  },
+  {
+    title: "Voice-Powered Intake & Firm Reception",
+    description: "Clients call in, speak naturally to Maya (AI receptionist), and get automatically screened, scored, and routed—24/7. No human needed for initial intake.",
+    icon: MessageSquare,
+    highlight: true,
   },
   {
     title: "Secure Video Collaboration",
@@ -57,38 +76,43 @@ const featureHighlights = [
     highlight: true,
   },
   {
-    title: "AI Trial Simulation",
-    description: "Practice your arguments against an AI opponent. Get real-time feedback on weaknesses and objections before you enter the courtroom.",
-    icon: Gavel,
-  },
-  {
-    title: "Deposition Prep Assistant",
-    description: "AI generates strategic questions based on your case theory, witness profiles, and discovered inconsistencies.",
-    icon: MessageSquare,
+    title: "Deposition & Witness Prep",
+    description: "AI generates strategic questions, predicts opposing counsel tactics, and runs mock examinations with realistic witness personas.",
+    icon: BookOpen,
   },
   {
     title: "Timeline Generation",
     description: "Automatically build case chronologies from discovery. Link events to source documents with one click.",
     icon: Clock,
   },
+  {
+    title: "Verdict Prediction & Case Scoring",
+    description: "AI analyzes your case strength across 50+ factors, predicts verdict outcomes, and recommends strategy adjustments.",
+    icon: TrendingUp,
+  },
+  {
+    title: "Cross-Case Intelligence",
+    description: "AI identifies patterns, benchmarks, and winning strategies across all your cases. Learn from every matter you handle.",
+    icon: Layers,
+  },
 ];
 
 const workflowSteps = [
   {
-    title: "Upload & Ingest",
-    description: "Drop your discovery files—PDFs, emails, documents. AI extracts text, applies Bates numbers, and begins analysis immediately.",
-    icon: CloudUpload,
-    stats: "10,000+ pages per hour",
+    title: "Voice Intake & Screening",
+    description: "Clients call in and speak naturally to Maya, the AI receptionist. She screens, scores, and routes cases to the right specialist — 24/7.",
+    icon: MessageSquare,
+    stats: "Under 5 minutes per intake",
   },
   {
-    title: "AI Analysis",
-    description: "Every document gets a summary, key facts extraction, and classification into favorable/adverse/neutral findings for your case theory.",
+    title: "Deploy AI Agents",
+    description: "Launch 8 autonomous agents on any case. They research, analyze discovery, draft documents, and build timelines simultaneously.",
     icon: BrainCircuit,
-    stats: "Seconds per document",
+    stats: "8 agents per case",
   },
   {
-    title: "Strategy & Prep",
-    description: "Generate timelines, prep deposition questions, run trial simulations. Collaborate via secure video with your team.",
+    title: "Trial Simulation & Strategy",
+    description: "Simulate trial arguments, prep witnesses, analyze juries, and predict verdicts — all driven by AI learning from every interaction.",
     icon: Workflow,
     stats: "Days saved per case",
   },
@@ -151,11 +175,11 @@ export default function Landing() {
         <header className="relative z-10 px-6 py-6 lg:px-12">
           <div className="mx-auto flex max-w-6xl items-center justify-between">
             <Logo />
-            <div className="hidden items-center gap-6 text-sm text-muted-foreground md:flex">
-              <a href="#discovery" className="hover:text-primary transition-colors">Discovery AI</a>
-              <a href="#features" className="hover:text-primary transition-colors">Features</a>
-              <a href="#workflow" className="hover:text-primary transition-colors">Workflow</a>
-            </div>
+              <div className="hidden items-center gap-6 text-sm text-muted-foreground md:flex">
+                <a href="#agents" className="hover:text-primary transition-colors">AI Agents</a>
+                <a href="#features" className="hover:text-primary transition-colors">Features</a>
+                <a href="#workflow" className="hover:text-primary transition-colors">Workflow</a>
+              </div>
             <div className="flex items-center gap-3">
               <Link to="/login">
                 <Button variant="outline" className="hidden md:inline-flex">Sign In</Button>
@@ -178,18 +202,18 @@ export default function Landing() {
             >
               <div className="inline-flex items-center gap-2 rounded-full border border-accent/30 bg-accent/10 px-4 py-1.5 text-sm text-accent font-medium">
                 <Sparkles className="h-4 w-4" />
-                Process 10,000+ discovery pages in hours, not weeks
+                8 AI Agents · 12 AI Lawyers · Voice Intake · Trial Simulation
               </div>
               
               <h1 className="text-4xl font-serif font-bold text-primary sm:text-5xl lg:text-6xl leading-tight">
-                Turn Massive Discovery Into{" "}
-                <span className="text-gradient-gold">Winning Strategy</span>
+                Your AI-Powered{" "}
+                <span className="text-gradient-gold">Law Firm</span>
               </h1>
               
               <p className="max-w-2xl mx-auto text-base text-muted-foreground sm:text-lg leading-relaxed">
-                CaseBuddy is the AI-powered legal platform that processes enormous discovery productions, 
-                extracts favorable evidence, flags inconsistencies, and prepares you for trial—all in a 
-                secure, collaborative workspace with private video conferencing.
+                CaseBuddy is the first AI-native legal platform. Deploy 8 specialized AI agents, 
+                12 AI lawyer specialists, voice-powered client intake, trial simulation, and 
+                comprehensive case management — all in one secure workspace.
               </p>
               
               <div className="flex flex-wrap justify-center gap-4 pt-4">
@@ -199,9 +223,9 @@ export default function Landing() {
                     <ArrowRight className="h-4 w-4" />
                   </Button>
                 </Link>
-                <a href="#discovery">
+                <a href="#features">
                   <Button variant="outline" size="lg" className="text-base px-8">
-                    See Discovery AI
+                    See Features
                   </Button>
                 </a>
               </div>
@@ -212,8 +236,8 @@ export default function Landing() {
                   No credit card required
                 </span>
                 <span className="inline-flex items-center gap-2">
-                  <Video className="h-4 w-4 text-accent" />
-                  Private video rooms included
+                  <Zap className="h-4 w-4 text-accent" />
+                  AI agents ready on day one
                 </span>
               </div>
             </motion.div>
@@ -226,10 +250,10 @@ export default function Landing() {
               transition={{ duration: 0.6, delay: 0.3 }}
             >
               {[
-                { value: "10M+", label: "Documents Processed" },
-                { value: "500+", label: "Law Firms" },
+                { value: "8", label: "AI Agents at Work" },
+                { value: "12", label: "AI Lawyer Specialists" },
                 { value: "95%", label: "Time Saved on Discovery" },
-                { value: "99.9%", label: "Uptime SLA" },
+                { value: "24/7", label: "Voice Intake Available" },
               ].map((stat, index) => (
                 <div key={index} className="text-center">
                   <p className="text-3xl lg:text-4xl font-serif font-bold text-primary">{stat.value}</p>
@@ -363,6 +387,62 @@ export default function Landing() {
         </div>
       </section>
 
+      {/* AI Agents Section */}
+      <section id="agents" className="bg-primary/[0.02] px-6 py-20 lg:px-12">
+        <div className="mx-auto max-w-6xl space-y-12">
+          <motion.div 
+            className="text-center space-y-4"
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.5 }}
+          >
+            <p className="text-sm uppercase tracking-[0.25em] text-accent font-medium">AI Agent System</p>
+            <h2 className="text-3xl font-serif font-bold text-primary sm:text-4xl">
+              Deploy Your Firm — Instantly
+            </h2>
+            <p className="mx-auto max-w-2xl text-muted-foreground">
+              Launch 8 autonomous AI agents that work around the clock. Each agent is a specialist 
+              trained in a specific area of legal practice, collaborating to prepare your case.
+            </p>
+          </motion.div>
+
+          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+            {[
+              { title: "Discovery Agent", icon: FileSearch, desc: "Analyzes documents, extracts facts, flags inconsistencies" },
+              { title: "Strategy Agent", icon: BrainCircuit, desc: "Develops case strategy, identifies winning arguments" },
+              { title: "Witness Agent", icon: Users, desc: "Prepares witnesses, predicts cross-examination" },
+              { title: "Research Agent", icon: BookOpen, desc: "Researches case law, statutes, and precedents" },
+              { title: "Drafting Agent", icon: FileText, desc: "Drafts motions, briefs, and legal documents" },
+              { title: "Jury Agent", icon: Scale, desc: "Analyzes jurors, predicts deliberation outcomes" },
+              { title: "Timeline Agent", icon: Clock, desc: "Builds chronologies, connects events to evidence" },
+              { title: "Intake Agent", icon: MessageSquare, desc: "Screens clients, scores cases, routes to specialists" },
+            ].map((agent, index) => {
+              const Icon = agent.icon;
+              return (
+                <motion.div
+                  key={agent.title}
+                  initial={{ opacity: 0, y: 20 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true }}
+                  transition={{ duration: 0.5, delay: index * 0.1 }}
+                >
+                  <Card className="glass-card h-full text-center">
+                    <CardContent className="pt-6 space-y-4">
+                      <div className="mx-auto rounded-full bg-accent/10 p-4 w-fit">
+                        <Icon className="h-6 w-6 text-accent" />
+                      </div>
+                      <h3 className="font-serif font-bold text-primary">{agent.title}</h3>
+                      <p className="text-sm text-muted-foreground">{agent.desc}</p>
+                    </CardContent>
+                  </Card>
+                </motion.div>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
       {/* Features Section */}
       <section id="features" className="px-6 py-20 lg:px-12">
         <div className="mx-auto max-w-6xl space-y-12">
@@ -378,8 +458,8 @@ export default function Landing() {
               Everything You Need to Win Your Case
             </h2>
             <p className="mx-auto max-w-2xl text-muted-foreground">
-              From initial discovery to trial day, CaseBuddy provides AI-powered tools and secure 
-              collaboration features that give you the edge.
+              12 AI lawyer specialists, autonomous agents, voice intake, trial simulation, and 
+              comprehensive case management — all in one secure platform.
             </p>
           </motion.div>
           
