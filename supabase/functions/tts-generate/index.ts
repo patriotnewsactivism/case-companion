@@ -14,6 +14,16 @@
  *   court clerk      → Rachel  (21m00Tcm4TlvDq8ikWAM) — professional female
  *   potential juror  → Domi    (AZnzlk1XvdvUeBnXmlld) — casual
  *   deponent         → Antoni  (ErXwobaYiN019PkySvjV) — measured male
+ *
+ * Agent characters:
+ *   maya → Bella  (warm, professional intake specialist)
+ *   rex  → Adam   (authoritative, energetic trial coach)
+ *   doc  → Rachel (precise, methodical drafting attorney)
+ *   lex  → Antoni (scholarly, measured research lead)
+ *   sol  → Rachel (sharp, efficient deadlines tracker)
+ *   sierra → Bella (friendly, approachable client relations)
+ *   jules → Domi  (perceptive, curious jury psychologist)
+ *   max  → Antoni (thorough, methodical filing clerk)
  *   default          → Adam    (pNInz6obpgDQGcFmaJgB)
  */
 
