@@ -25,14 +25,14 @@ const PageLoader = () => (
 );
 
 // Error boundary component for better error handling
-class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: Error | null }> {
   constructor(props: { children: ReactNode }) {
     super(props);
-    this.state = { hasError: false };
+    this.state = { hasError: false, error: null };
   }
 
-  static getDerivedStateFromError(_: Error) {
-    return { hasError: true };
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
@@ -50,9 +50,8 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boole
               </svg>
             </div>
             <h2 className="text-2xl font-bold text-sidebar-foreground mb-2">Something went wrong</h2>
-            <p className="text-muted-foreground mb-6">
-              We apologize for the inconvenience. Please try refreshing the page or contact support if the problem persists.
-            </p>
+            <p className="text-sm text-muted-foreground mb-2 font-mono">{this.state.error?.message}</p>
+            <pre className="text-xs text-muted-foreground mb-6 text-left overflow-auto max-h-40 bg-muted p-2 rounded">{this.state.error?.stack}</pre>
             <button
               onClick={() => window.location.reload()}
               className="px-6 py-3 bg-gold-500 text-white font-medium rounded-lg hover:bg-gold-600 transition-colors w-full sm:w-auto"
