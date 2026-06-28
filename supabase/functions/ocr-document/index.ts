@@ -976,11 +976,14 @@ serve(async (req) => {
         ANALYSIS_CHUNK_OVERLAP
       );
 
-      const chunkResults: StructuredChunkAnalysis[] = [];
+      // ── Process chunks in parallel batches (max 3 concurrent AI calls) ──
+      const CHUNK_CONCURRENCY = 3;
 
-      for (let index = 0; index < textChunks.length; index += 1) {
-        const textChunk = textChunks[index];
-        const analysisPrompt = `You are an expert legal document analyst specializing in litigation support. Analyze documents with precision and identify strategic insights for case preparation.
+      type ChunkProviderResult = { result: StructuredChunkAnalysis | null; provider: 'gemini' | 'openai' | null };
+
+      const processChunk = async (index: number, textChunk: string): Promise<ChunkProviderResult> => {
+        const totalChunks = textChunks.length;
+        const chunkPrompt = `You are an expert legal document analyst specializing in litigation support. Analyze documents with precision and identify strategic insights for case preparation.
 
 Analyze this legal document CHUNK and provide a JSON response with comprehensive legal analysis for this chunk only.
 
@@ -1025,10 +1028,11 @@ Respond ONLY with valid JSON in this exact format:
   ]
 }
 
-Chunk ${index + 1} of ${textChunks.length}:
+Chunk ${index + 1} of ${totalChunks}:
 ${textChunk}`;
 
-        let content = '';
+        let chunkContent = '';
+        let chunkProvider: 'gemini' | 'openai' | null = null;
 
         if (hasGemini) {
           try {
@@ -1036,15 +1040,9 @@ ${textChunk}`;
               `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${googleApiKey}`,
               {
                 method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                  contents: [
-                    {
-                      parts: [{ text: analysisPrompt }],
-                    },
-                  ],
+                  contents: [{ parts: [{ text: chunkPrompt }] }],
                   generationConfig: {
                     temperature: 0.1,
                     maxOutputTokens: 2500,
@@ -1053,28 +1051,23 @@ ${textChunk}`;
                 }),
               }
             );
-
             if (analysisResponse.ok) {
               const analysisData = (await analysisResponse.json()) as GeminiResponse;
-              content = extractGeminiText(analysisData);
-              if (content) {
-                analysisProvider = 'gemini';
-              }
+              chunkContent = extractGeminiText(analysisData);
+              if (chunkContent) chunkProvider = 'gemini';
             } else {
-              console.error(`Gemini chunk analysis failed (${index + 1}):`, await analysisResponse.text());
+              console.error(`Gemini chunk ${index + 1} failed:`, await analysisResponse.text());
             }
-          } catch (geminiError) {
-            console.error(`Gemini chunk analysis error (${index + 1}):`, geminiError);
+          } catch (err) {
+            console.error(`Gemini chunk ${index + 1} error:`, err);
           }
         }
 
-        if (!content && hasOpenAI) {
+        if (!chunkContent && hasOpenAI) {
           try {
-            // Resolve AI provider: gateway → OpenRouter → OpenAI direct
             let analysisApiUrl: string;
             let analysisApiKey: string;
             let analysisModel: string;
-
             if (aiGatewayUrl) {
               analysisApiUrl = aiGatewayUrl;
               analysisApiKey = openaiApiKey || openrouterApiKey || '';
@@ -1088,61 +1081,67 @@ ${textChunk}`;
               analysisApiKey = openaiApiKey || '';
               analysisModel = 'gpt-4o-mini';
             }
-
             const analysisResponse = await fetch(analysisApiUrl, {
               method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${analysisApiKey}`,
-              },
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${analysisApiKey}` },
               body: JSON.stringify({
                 model: analysisModel,
-                messages: [{ role: 'user', content: analysisPrompt }],
+                messages: [{ role: 'user', content: chunkPrompt }],
                 temperature: 0.1,
                 max_tokens: 2500,
                 response_format: { type: 'json_object' },
               }),
             });
-
             if (analysisResponse.ok) {
               const analysisData = await analysisResponse.json();
-              content = analysisData.choices?.[0]?.message?.content || '';
-              if (content) {
-                analysisProvider = 'openai';
-              }
+              chunkContent = analysisData.choices?.[0]?.message?.content || '';
+              if (chunkContent) chunkProvider = 'openai';
             } else {
-              console.error(`AI chunk analysis failed (${index + 1}):`, await analysisResponse.text());
+              console.error(`OpenAI chunk ${index + 1} failed:`, await analysisResponse.text());
             }
-          } catch (openaiError) {
-            console.error(`AI chunk analysis error (${index + 1}):`, openaiError);
+          } catch (err) {
+            console.error(`OpenAI chunk ${index + 1} error:`, err);
           }
         }
 
-        if (!content) continue;
+        if (!chunkContent) return { result: null, provider: null };
 
         try {
-          const jsonMatch = content.match(/\{[\s\S]*\}/);
-          if (!jsonMatch) continue;
+          const jsonMatch = chunkContent.match(/\{[\s\S]*\}/);
+          if (!jsonMatch) return { result: null, provider: null };
           const parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
-          chunkResults.push({
-            summary: String(parsed.summary || ''),
-            keyFacts: Array.isArray(parsed.key_facts) ? parsed.key_facts.map((item) => String(item)) : [],
-            favorableFindings: Array.isArray(parsed.favorable_findings)
-              ? parsed.favorable_findings.map((item) => String(item))
-              : [],
-            adverseFindings: Array.isArray(parsed.adverse_findings)
-              ? parsed.adverse_findings.map((item) => String(item))
-              : [],
-            actionItems: Array.isArray(parsed.action_items)
-              ? parsed.action_items.map((item) => String(item))
-              : [],
-            timelineEvents: Array.isArray(parsed.timeline_events)
-              ? (parsed.timeline_events as any[])
-              : [],
-            entities: Array.isArray(parsed.entities) ? parsed.entities : [],
-          });
-        } catch (parseError) {
-          console.error(`Failed to parse chunk analysis JSON (${index + 1}):`, parseError);
+          return {
+            provider: chunkProvider,
+            result: {
+              summary: String(parsed.summary || ''),
+              keyFacts: Array.isArray(parsed.key_facts) ? parsed.key_facts.map((i) => String(i)) : [],
+              favorableFindings: Array.isArray(parsed.favorable_findings) ? parsed.favorable_findings.map((i) => String(i)) : [],
+              adverseFindings: Array.isArray(parsed.adverse_findings) ? parsed.adverse_findings.map((i) => String(i)) : [],
+              actionItems: Array.isArray(parsed.action_items) ? parsed.action_items.map((i) => String(i)) : [],
+              timelineEvents: Array.isArray(parsed.timeline_events) ? (parsed.timeline_events as any[]) : [],
+              entities: Array.isArray(parsed.entities) ? parsed.entities : [],
+            },
+          };
+        } catch (err) {
+          console.error(`Failed to parse chunk ${index + 1} JSON:`, err);
+          return { result: null, provider: null };
+        }
+      };
+
+      // Run chunks in parallel batches of CHUNK_CONCURRENCY
+      const chunkResults: StructuredChunkAnalysis[] = [];
+      for (let batchStart = 0; batchStart < textChunks.length; batchStart += CHUNK_CONCURRENCY) {
+        const batch = textChunks.slice(batchStart, batchStart + CHUNK_CONCURRENCY);
+        const batchOutcomes = await Promise.allSettled(
+          batch.map((chunk, j) => processChunk(batchStart + j, chunk))
+        );
+        for (const outcome of batchOutcomes) {
+          if (outcome.status === 'fulfilled' && outcome.value.result) {
+            chunkResults.push(outcome.value.result);
+            if (!analysisProvider || analysisProvider === 'none') {
+              analysisProvider = outcome.value.provider === 'gemini' ? 'gemini' : 'openai';
+            }
+          }
         }
       }
 

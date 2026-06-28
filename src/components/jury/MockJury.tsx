@@ -140,7 +140,7 @@ export function MockJury() {
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-serif font-bold flex items-center gap-2">
             <Users className="h-6 w-6" />
@@ -151,7 +151,7 @@ export function MockJury() {
           </p>
         </div>
         {phase !== 'setup' && (
-          <Button variant="outline" onClick={handleReset} className="gap-2">
+          <Button variant="outline" onClick={handleReset} className="gap-2 self-start sm:self-auto">
             <RefreshCw className="h-4 w-4" />
             Start New Simulation
           </Button>

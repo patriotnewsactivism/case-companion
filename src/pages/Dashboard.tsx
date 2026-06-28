@@ -17,6 +17,7 @@ import {
 import { Layout } from "@/components/Layout";
 import { getCases, getDocumentStats } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface TimelineEvent {
   id: string;
@@ -181,10 +182,10 @@ export default function Dashboard(): React.JSX.Element {
                 </div>
 
                 <div className="grid w-full grid-cols-2 gap-3 sm:grid-cols-4 xl:w-auto">
-                  <MetricCard icon={FolderOpen} label="Active matters" value={loading ? "..." : String(activeCases)} />
-                  <MetricCard icon={Waypoints} label="Deadlines" value={loading ? "..." : String(deadlinesCount)} />
-                  <MetricCard icon={FileText} label="Documents" value={loading ? "..." : String(totalDocuments)} />
-                  <MetricCard icon={Scale} label="AI analyzed" value={loading ? "..." : String(analyzedDocuments)} />
+                  <MetricCard icon={FolderOpen} label="Active matters" value={String(activeCases)} loading={loading} />
+                  <MetricCard icon={Waypoints} label="Deadlines" value={String(deadlinesCount)} loading={loading} />
+                  <MetricCard icon={FileText} label="Documents" value={String(totalDocuments)} loading={loading} />
+                  <MetricCard icon={Scale} label="AI analyzed" value={String(analyzedDocuments)} loading={loading} />
                 </div>
               </div>
 
@@ -337,16 +338,21 @@ interface MetricCardProps {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
   value: string;
+  loading?: boolean;
 }
 
-function MetricCard({ icon: Icon, label, value }: MetricCardProps): React.JSX.Element {
+function MetricCard({ icon: Icon, label, value, loading }: MetricCardProps): React.JSX.Element {
   return (
     <div className="rounded-xl border border-slate-700 bg-slate-950/50 p-3">
       <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-slate-400">
         <Icon className="h-3.5 w-3.5" />
         <span>{label}</span>
       </div>
-      <p className="mt-1.5 text-xl font-semibold text-white">{value}</p>
+      {loading ? (
+        <Skeleton className="mt-2 h-6 w-10 bg-slate-700" />
+      ) : (
+        <p className="mt-1.5 text-xl font-semibold text-white">{value}</p>
+      )}
     </div>
   );
 }

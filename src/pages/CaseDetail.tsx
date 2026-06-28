@@ -36,6 +36,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { motion } from "framer-motion";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -85,6 +86,7 @@ import {
   ChevronUp,
   Lock,
   Star,
+  GitMerge,
 } from "lucide-react";
 // Define types locally to avoid type mismatch with auto-generated types
 interface Document {
@@ -429,6 +431,7 @@ export default function CaseDetail() {
   // Privilege Log state
   const [generatingPrivilegeLog, setGeneratingPrivilegeLog] = useState(false);
   const [privilegeLogEntries, setPrivilegeLogEntries] = useState<unknown[]>([]);
+  const [synthesizingTimeline, setSynthesizingTimeline] = useState(false);
 
   const [docForm, setDocForm] = useState({
     name: "",
@@ -866,6 +869,30 @@ export default function CaseDetail() {
     }
   };
 
+  const handleSynthesizeTimeline = async () => {
+    if (!id || timelineEvents.length < 2) {
+      toast.error("Need at least 2 timeline events to synthesize.");
+      return;
+    }
+    setSynthesizingTimeline(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("synthesize-timeline", {
+        body: { caseId: id },
+      });
+      if (error) throw new Error(error.message);
+      if (!data?.success) throw new Error(data?.error || "Synthesis failed");
+      queryClient.invalidateQueries({ queryKey: ["timeline_events", id] });
+      toast.success(
+        `Timeline synthesized — ${data.synthesized} clean events from ${data.removed} raw extractions` +
+        (data.duplicatesResolved > 0 ? `, ${data.duplicatesResolved} cross-doc duplicates resolved` : "")
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Timeline synthesis failed");
+    } finally {
+      setSynthesizingTimeline(false);
+    }
+  };
+
   // Count unanalyzed documents
   const unanalyzedCount = documents.filter(
     (doc) => !doc.ai_analyzed && doc.file_url && 
@@ -1182,8 +1209,48 @@ export default function CaseDetail() {
   if (caseLoading) {
     return (
       <Layout>
-        <div className="flex items-center justify-center min-h-[50vh]">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <div className="p-6 lg:p-8 max-w-6xl mx-auto space-y-6">
+          {/* Header skeleton */}
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <Skeleton className="h-5 w-28 rounded-full" />
+                <Skeleton className="h-5 w-20 rounded-full" />
+              </div>
+              <div className="flex items-center gap-2">
+                <Skeleton className="h-8 w-20" />
+                <Skeleton className="h-8 w-28" />
+                <Skeleton className="h-8 w-28 bg-amber-500/20" />
+                <Skeleton className="h-8 w-20" />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Skeleton className="h-9 w-2/3" />
+              <Skeleton className="h-4 w-1/2" />
+            </div>
+          </div>
+          {/* Tabs skeleton */}
+          <div className="border-b border-border">
+            <div className="flex gap-6 pb-3">
+              {["Discovery", "Timeline", "Trial Prep", "Briefs", "AI Chat"].map((t) => (
+                <Skeleton key={t} className="h-4 w-16" />
+              ))}
+            </div>
+          </div>
+          {/* Content skeleton — document cards */}
+          <div className="grid gap-3">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-4 p-4 rounded-lg border border-border bg-card">
+                <Skeleton className="h-10 w-10 rounded-md flex-shrink-0" />
+                <div className="flex-1 space-y-2">
+                  <Skeleton className="h-4 w-1/3" />
+                  <Skeleton className="h-3 w-1/2" />
+                </div>
+                <Skeleton className="h-6 w-16 rounded-full" />
+                <Skeleton className="h-8 w-8 rounded-md" />
+              </div>
+            ))}
+          </div>
         </div>
       </Layout>
     );
@@ -1226,10 +1293,10 @@ export default function CaseDetail() {
                   Only you
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <Button variant="outline" size="sm" className="gap-2" onClick={() => setActiveTab("ai")}>
                   <MessageSquare className="h-4 w-4" />
-                  Chat
+                  <span className="hidden sm:inline">Chat</span>
                 </Button>
                 <Button
                   variant="outline"
@@ -1241,15 +1308,15 @@ export default function CaseDetail() {
                   }}
                 >
                   <Video className="h-4 w-4" />
-                  Video Call
+                  <span className="hidden sm:inline">Video Call</span>
                 </Button>
                 <Button size="sm" className="gap-2 bg-amber-500 hover:bg-amber-600">
                   <Plus className="h-4 w-4" />
-                  Add Evidence
+                  <span className="hidden xs:inline">Add Evidence</span>
                 </Button>
                 <Button variant="outline" size="sm" className="gap-2">
                   <Download className="h-4 w-4" />
-                  Export
+                  <span className="hidden sm:inline">Export</span>
                 </Button>
                 <Button variant="outline" size="icon" className="h-8 w-8 text-destructive hover:text-destructive">
                   <Trash2 className="h-4 w-4" />
@@ -1646,8 +1713,18 @@ export default function CaseDetail() {
 
                 {/* Document List */}
                 {docsLoading ? (
-                  <div className="flex items-center justify-center py-8">
-                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  <div className="grid gap-3">
+                    {Array.from({ length: 5 }).map((_, i) => (
+                      <div key={i} className="flex items-center gap-4 p-4 rounded-lg border border-border bg-card">
+                        <Skeleton className="h-10 w-10 rounded-md flex-shrink-0" />
+                        <div className="flex-1 space-y-2">
+                          <Skeleton className="h-4 w-1/3" />
+                          <Skeleton className="h-3 w-1/2" />
+                        </div>
+                        <Skeleton className="h-6 w-16 rounded-full" />
+                        <Skeleton className="h-8 w-8 rounded-md" />
+                      </div>
+                    ))}
                   </div>
                 ) : documents.length === 0 ? (
                   <Card className="glass-card">
@@ -1777,13 +1854,33 @@ export default function CaseDetail() {
 
               {/* Timeline Tab */}
               <TabsContent value="timeline" className="space-y-4">
-                <div className="flex justify-between items-center">
+                <div className="flex flex-wrap justify-between items-center gap-3">
                   <p className="text-sm text-muted-foreground">
                     Track important dates and events in your case
                   </p>
+                  <div className="flex items-center gap-2">
+                    {timelineEvents.length >= 2 && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-2"
+                        onClick={handleSynthesizeTimeline}
+                        disabled={synthesizingTimeline}
+                        title="Deduplicate and enrich events across all documents using AI"
+                      >
+                        {synthesizingTimeline ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <GitMerge className="h-4 w-4" />
+                        )}
+                        <span className="hidden sm:inline">
+                          {synthesizingTimeline ? "Synthesizing…" : "Synthesize"}
+                        </span>
+                      </Button>
+                    )}
                   <Dialog open={isEventOpen} onOpenChange={setIsEventOpen}>
                     <DialogTrigger asChild>
-                      <Button className="gap-2">
+                      <Button className="gap-2" size="sm">
                         <Plus className="h-4 w-4" />
                         Add Event
                       </Button>
@@ -1869,11 +1966,24 @@ export default function CaseDetail() {
                       </form>
                     </DialogContent>
                   </Dialog>
+                  </div>
                 </div>
 
                 {eventsLoading ? (
-                  <div className="flex items-center justify-center py-8">
-                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  <div className="space-y-4 mt-8">
+                    {Array.from({ length: 4 }).map((_, i) => (
+                      <div key={i} className="flex gap-4">
+                        <div className="flex flex-col items-center">
+                          <Skeleton className="h-3 w-3 rounded-full mt-1" />
+                          <Skeleton className="w-0.5 h-16 mt-1" />
+                        </div>
+                        <div className="flex-1 space-y-2 pb-4">
+                          <Skeleton className="h-4 w-1/4" />
+                          <Skeleton className="h-5 w-1/2" />
+                          <Skeleton className="h-3 w-3/4" />
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 ) : (
                   <div className="mt-8">

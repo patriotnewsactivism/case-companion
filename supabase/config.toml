@@ -55,3 +55,7 @@ verify_jwt = true
 # Mock jury
 [functions.mock-jury]
 verify_jwt = true
+
+# Cross-document timeline synthesis
+[functions.synthesize-timeline]
+verify_jwt = true
