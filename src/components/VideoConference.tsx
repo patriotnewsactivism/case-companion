@@ -302,7 +302,7 @@ export function VideoConference({ defaultCaseId }: VideoConferenceProps) {
           room_name: currentRoom?.roomName,
           timestamp: note.timestamp,
         },
-      } as any).then(({ error }) => {
+      } as unknown as Record<string, unknown>).then(({ error }) => {
         if (error) console.warn("Failed to save note to case events:", error.message);
       });
     }
@@ -349,7 +349,7 @@ export function VideoConference({ defaultCaseId }: VideoConferenceProps) {
           notes_count: meetingNotes.length,
           duration_started: recordingStartTime?.toISOString(),
         },
-      } as any);
+      } as unknown as Record<string, unknown>);
     }
     setInCallView(false);
     setCurrentRoom(null);
