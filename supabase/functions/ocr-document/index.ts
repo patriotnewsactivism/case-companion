@@ -6,10 +6,10 @@ import {
   validateEnvVars,
   validateRequestBody,
   checkRateLimit,
-} from '../_shared/errorHandler.ts';
-import { verifyAuth, forbiddenResponse } from '../_shared/auth.ts';
-import { validateUUID, validateURL } from '../_shared/validation.ts';
-import { getGenerateContentCapableGeminiModels, getPreferredGeminiCandidates, rankGeminiModels } from '../_shared/gemini-model-utils.ts';
+} from './_shared/errorHandler.ts';
+import { verifyAuth, forbiddenResponse } from './_shared/auth.ts';
+import { validateUUID, validateURL } from './_shared/validation.ts';
+import { getGenerateContentCapableGeminiModels, getPreferredGeminiCandidates, rankGeminiModels } from './_shared/gemini-model-utils.ts';
 
 const STORAGE_BUCKET = 'case-documents';
 
@@ -451,138 +451,6 @@ const buildHeuristicAnalysis = (text: string): HeuristicAnalysisResult => {
   };
 };
 
-// ===== Azure Document Intelligence OCR (primary - best quality) =====
-// Uses prebuilt-layout model: extracts text + structured tables + key-value pairs
-// Falls back to prebuilt-read if layout model is unavailable on the endpoint
-async function azureDIOcr(fileBlob: Blob): Promise<{ text: string; tables: TableResult[] }> {
-  let result;
-  try {
-    console.log('Azure DI: Submitting with prebuilt-layout (tables + full text)...');
-    result = await analyzeDocument(fileBlob, 'prebuilt-layout');
-  } catch (layoutErr) {
-    const msg = layoutErr instanceof Error ? layoutErr.message : String(layoutErr);
-    // If it's a model availability or endpoint issue, try the simpler read model
-    if (/model|resource not found|unsupported|invalid request|404/i.test(msg)) {
-      console.warn(`Azure DI prebuilt-layout unavailable (${msg}), trying prebuilt-read...`);
-      result = await analyzeDocument(fileBlob, 'prebuilt-read');
-    } else {
-      throw layoutErr;
-    }
-  }
-
-  const text = formatAnalyzeResultAsText(result);
-  if (!text.trim()) throw new Error('Azure DI returned empty content');
-
-  const tables = result.tables || [];
-  console.log(`Azure DI: ${text.length} chars, ${tables.length} tables, ${result.pages.length} pages`);
-  return { text, tables };
-}
-
-// ===== Azure Computer Vision Read API v3.2 (fallback if DI not available) =====
-async function azureCVReadOcr(fileBlob: Blob, contentType: string): Promise<string> {
-  const endpoint = Deno.env.get('AZURE_VISION_ENDPOINT');
-  const apiKey = Deno.env.get('AZURE_VISION_API_KEY');
-  if (!endpoint || !apiKey) throw new Error('Azure Computer Vision not configured');
-
-  const baseUrl = endpoint.replace(/\/+$/, '');
-  const analyzeUrl = `${baseUrl}/vision/v3.2/read/analyze`;
-
-  console.log(`Azure CV Read API v3.2: Submitting ${(fileBlob.size / 1024 / 1024).toFixed(2)}MB...`);
-
-  const submitResponse = await fetch(analyzeUrl, {
-    method: 'POST',
-    headers: {
-      'Ocp-Apim-Subscription-Key': apiKey,
-      'Content-Type': contentType || 'application/octet-stream',
-    },
-    body: fileBlob,
-  });
-
-  if (!submitResponse.ok) {
-    const errorText = await submitResponse.text();
-    throw new Error(`Azure CV Read submit failed (${submitResponse.status}): ${errorText}`);
-  }
-
-  const operationLocation = submitResponse.headers.get('Operation-Location');
-  if (!operationLocation) throw new Error('Azure CV Read: No Operation-Location header');
-
-  let result: any = null;
-  for (let attempt = 0; attempt < 60; attempt++) {
-    await delay(attempt < 5 ? 1000 : 2000);
-    const pollResponse = await fetch(operationLocation, {
-      headers: { 'Ocp-Apim-Subscription-Key': apiKey },
-    });
-    if (!pollResponse.ok) throw new Error(`Azure CV Read poll failed: ${pollResponse.status}`);
-    result = await pollResponse.json();
-    if (result.status === 'succeeded') break;
-    if (result.status === 'failed') throw new Error(`Azure CV Read analysis failed: ${JSON.stringify(result.error)}`);
-  }
-
-  if (!result || result.status !== 'succeeded') throw new Error('Azure CV Read: Timed out');
-
-  const readResults = result.analyzeResult?.readResults || [];
-  if (!readResults.length) throw new Error('Azure CV Read returned no readResults');
-
-  const pageTexts: string[] = [];
-  for (const pageResult of readResults) {
-    const lines = pageResult.lines || [];
-    const pageText = lines.map((l: any) => l.text || '').join('\n');
-    if (readResults.length > 1) {
-      pageTexts.push(`=== PAGE ${pageResult.page} ===\n${pageText}`);
-    } else {
-      pageTexts.push(pageText);
-    }
-  }
-
-  const extracted = pageTexts.join('\n\n');
-  if (!extracted.trim()) throw new Error('Azure CV Read returned empty text');
-  console.log(`Azure CV Read: ${extracted.length} chars from ${readResults.length} pages`);
-  return extracted;
-}
-
-// ===== PDF embedded text extraction (Tier 0 — no OCR needed) =====
-async function extractPdfEmbeddedText(blob: Blob): Promise<string> {
-  const bytes = new Uint8Array(await blob.arrayBuffer());
-  const text: string[] = [];
-  const decoder = new TextDecoder('latin1');
-  const raw = decoder.decode(bytes);
-
-  // Extract text between BT...ET (Begin Text / End Text) operators
-  const btEtRegex = /BT\s([\s\S]*?)ET/g;
-  let match: RegExpExecArray | null;
-
-  while ((match = btEtRegex.exec(raw)) !== null) {
-    const block = match[1];
-    // Match Tj (show string) and TJ (show array of strings) operators
-    const tjRegex = /\(([^)]*)\)\s*Tj/g;
-    const tjArrayRegex = /\[([^\]]*)\]\s*TJ/g;
-    let tj: RegExpExecArray | null;
-
-    while ((tj = tjRegex.exec(block)) !== null) {
-      const decoded = tj[1]
-        .replace(/\\n/g, '\n').replace(/\\r/g, '\r')
-        .replace(/\\t/g, '\t').replace(/\\\\/g, '\\')
-        .replace(/\\([()])/g, '$1');
-      text.push(decoded);
-    }
-    while ((tj = tjArrayRegex.exec(block)) !== null) {
-      const parts = tj[1].match(/\(([^)]*)\)/g) || [];
-      const line = parts.map(p =>
-        p.slice(1, -1)
-          .replace(/\\n/g, '\n').replace(/\\r/g, '\r')
-          .replace(/\\t/g, '\t').replace(/\\\\/g, '\\')
-          .replace(/\\([()])/g, '$1')
-      ).join('');
-      if (line.trim()) text.push(line);
-    }
-  }
-
-  const result = text.join(' ').replace(/\s+/g, ' ').trim();
-  return result;
-}
-
-// ===== Tesseract.js OCR (removed to conserve memory and prevent serverless timeouts) =====
-
 // ===== Build the AI analysis prompt (shared between Azure OpenAI and Gemini) =====
 function buildAnalysisPrompt(documentContext: string, tableContext: string, maxEvents: number): string {
   const tableSection = tableContext
@@ -726,7 +594,7 @@ serve(async (req) => {
     const { blob: fileBlob, contentType } = await loadFileBlob(supabase, validatedFileUrl);
     const resolvedContentType = contentType || fileBlob.type || '';
     let extractedText = '';
-    let extractedTables: TableResult[] = [];
+    let extractedTables: unknown[] = [];
     let ocrProvider = '';
 
     // ===== OCR EXTRACTION - Triple-tier with Azure as primary =====
@@ -959,7 +827,7 @@ serve(async (req) => {
     let summary = '';
     let timelineEvents: unknown[] = [];
     let extractedEntities: unknown[] = [];
-    let analysisProvider: 'azure_openai' | 'gemini' | 'heuristic' | 'none' = 'none';
+    let analysisProvider: 'gemini' | 'openai' | 'heuristic' | 'none' = 'none';
 
     const hasSubstantialText = Boolean(
       extractedText &&
@@ -1036,28 +904,19 @@ ${textChunk}`;
 
         if (hasGemini) {
           try {
-            const analysisResponse = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${googleApiKey}`,
+            const { payload } = await invokeGeminiWithFallback(
               {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  contents: [{ parts: [{ text: chunkPrompt }] }],
-                  generationConfig: {
-                    temperature: 0.1,
-                    maxOutputTokens: 2500,
-                    responseMimeType: 'application/json',
-                  },
-                }),
-              }
+                contents: [{ parts: [{ text: chunkPrompt }] }],
+                generationConfig: {
+                  temperature: 0.1,
+                  maxOutputTokens: 2500,
+                  responseMimeType: 'application/json',
+                },
+              },
+              'analysis'
             );
-            if (analysisResponse.ok) {
-              const analysisData = (await analysisResponse.json()) as GeminiResponse;
-              chunkContent = extractGeminiText(analysisData);
-              if (chunkContent) chunkProvider = 'gemini';
-            } else {
-              console.error(`Gemini chunk ${index + 1} failed:`, await analysisResponse.text());
-            }
+            chunkContent = extractGeminiText(payload);
+            if (chunkContent) chunkProvider = 'gemini';
           } catch (err) {
             console.error(`Gemini chunk ${index + 1} error:`, err);
           }
@@ -1185,7 +1044,7 @@ ${textChunk}`;
       entities: extractedEntities.length > 0 ? extractedEntities : null,
     };
 
-    // Store structured tables extracted by Azure DI
+    // Store structured tables (if any were extracted during OCR)
     if (extractedTables.length > 0) {
       updateData.extracted_tables = extractedTables;
     }
