@@ -26,6 +26,7 @@ import {
   FileText,
   Mic,
   Landmark,
+  Bot,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
@@ -57,6 +58,11 @@ export function Layout({ children }: LayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const caseMatch = location.pathname.match(/^\/cases\/([^\/]+)/);
   const activeCaseId = caseMatch?.[1];
+
+  const agentNavItems = [
+    { id: "agents", path: "/agents", label: "AI Agents", icon: Bot },
+    { id: "agent-case", path: activeCaseId ? `/cases/${activeCaseId}/agents` : "/agents", label: "Agent Chat", icon: Bot },
+  ];
 
   const missionNavItems = [
     { id: "timeline", path: activeCaseId ? `/cases/${activeCaseId}/timeline` : "/cases", label: "Timeline", icon: History },
@@ -169,6 +175,31 @@ export function Layout({ children }: LayoutProps) {
               return (
                 <Link
                   key={item.path}
+                  to={item.path}
+                  onClick={() => setSidebarOpen(false)}
+                  className={cn(
+                    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                    isActive
+                      ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                      : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                  )}
+                >
+                  <Icon className="h-4 w-4" />
+                  {item.label}
+                </Link>
+              );
+            })}
+
+            <div className="px-3 pt-5 pb-2 text-[10px] uppercase tracking-[0.2em] text-sidebar-foreground/60">
+              AI Agents
+            </div>
+
+            {agentNavItems.map((item) => {
+              const Icon = item.icon;
+              const isActive = isActivePath(item.path);
+              return (
+                <Link
+                  key={item.id}
                   to={item.path}
                   onClick={() => setSidebarOpen(false)}
                   className={cn(
