@@ -124,7 +124,7 @@ export async function createTrialSession(input: CreateSessionInput): Promise<Tri
 }
 
 export async function updateTrialSession(sessionId: string, updates: UpdateSessionInput): Promise<TrialSimulationSession> {
-  const dbUpdates: any = { ...updates };
+  const dbUpdates: Record<string, unknown> = { ...updates };
   if (updates.transcript) dbUpdates.transcript = updates.transcript as unknown as Json;
   if (updates.exhibits_shown) dbUpdates.exhibits_shown = updates.exhibits_shown as unknown as Json;
   if (updates.objections_made) dbUpdates.objections_made = updates.objections_made as unknown as Json;

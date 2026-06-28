@@ -479,8 +479,8 @@ export default function CaseTimeline() {
       toast.success(
         `Timeline generated: ${result.inserted} events added, ${result.gaps.length} gaps identified`
       );
-    } catch (err: any) {
-      toast.error(err.message ?? "Failed to generate timeline");
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to generate timeline");
     } finally {
       setGenerating(false);
       setGenerationProgress("");

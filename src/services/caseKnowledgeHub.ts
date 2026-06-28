@@ -113,38 +113,38 @@ export async function buildCaseKnowledge(caseId: string): Promise<CaseKnowledge>
     console.warn("Failed to fetch timeline events:", timelineError.message);
   }
 
-  const docs = (documents || []) as any[];
-  const events = (timelineData || []) as any[];
+  const docs = (documents || []) as unknown as Array<Record<string, unknown>>;
+  const events = (timelineData || []) as unknown as Array<Record<string, unknown>>;
 
   // Build document summaries
   const documentSummaries: CaseDocumentSummary[] = docs.map((doc) => ({
-    id: doc.id,
-    name: doc.name,
-    aiSuggestedName: doc.ai_suggested_name || null,
-    documentType: doc.document_type || null,
-    documentDate: doc.document_date || null,
-    batesNumber: doc.bates_number || null,
-    summary: doc.summary || null,
+    id: String(doc.id ?? ''),
+    name: String(doc.name ?? ''),
+    aiSuggestedName: typeof doc.ai_suggested_name === 'string' ? doc.ai_suggested_name : null,
+    documentType: typeof doc.document_type === 'string' ? doc.document_type : null,
+    documentDate: typeof doc.document_date === 'string' ? doc.document_date : null,
+    batesNumber: typeof doc.bates_number === 'string' ? doc.bates_number : null,
+    summary: typeof doc.summary === 'string' ? doc.summary : null,
     classification: null,
-    keyFacts: doc.key_facts || [],
-    favorableFindings: doc.favorable_findings || [],
-    adverseFindings: doc.adverse_findings || [],
-    actionItems: doc.action_items || [],
-    ocrProvider: doc.ocr_provider || null,
-    aiAnalyzed: doc.ai_analyzed || false,
+    keyFacts: Array.isArray(doc.key_facts) ? doc.key_facts as string[] : [],
+    favorableFindings: Array.isArray(doc.favorable_findings) ? doc.favorable_findings as string[] : [],
+    adverseFindings: Array.isArray(doc.adverse_findings) ? doc.adverse_findings as string[] : [],
+    actionItems: Array.isArray(doc.action_items) ? doc.action_items as string[] : [],
+    ocrProvider: typeof doc.ocr_provider === 'string' ? doc.ocr_provider : null,
+    aiAnalyzed: !!doc.ai_analyzed,
   }));
 
   // Aggregate entities from all documents
   const allEntities: CaseEntity[] = [];
   for (const doc of docs) {
     if (doc.entities && Array.isArray(doc.entities)) {
-      for (const entity of doc.entities) {
+      for (const entity of doc.entities as unknown as Array<{ name?: string; text?: string; type?: string; context?: string }>) {
         allEntities.push({
           name: entity.name || entity.text || "",
           type: entity.type || "other",
           context: entity.context || "",
-          sourceDocumentId: doc.id,
-          sourceDocumentName: doc.ai_suggested_name || doc.name,
+          sourceDocumentId: String(doc.id),
+          sourceDocumentName: String(doc.ai_suggested_name || doc.name),
         });
       }
     }
@@ -155,9 +155,10 @@ export async function buildCaseKnowledge(caseId: string): Promise<CaseKnowledge>
   for (const doc of docs) {
     if (doc.key_facts && Array.isArray(doc.key_facts)) {
       for (const fact of doc.key_facts) {
-        const factStr = typeof fact === "string" ? fact : (fact as any).fact || JSON.stringify(fact);
-        const sig = typeof fact === "object" && (fact as any).significance
-          ? (fact as any).significance
+        const factObj = fact as unknown as { fact?: string; significance?: string } | string;
+        const factStr = typeof factObj === "string" ? factObj : factObj.fact || JSON.stringify(factObj);
+        const sig = typeof factObj === "object" && factObj.significance
+          ? factObj.significance
           : "neutral";
         allFacts.push({
           fact: factStr,
@@ -170,8 +171,8 @@ export async function buildCaseKnowledge(caseId: string): Promise<CaseKnowledge>
   }
 
   // Build timeline
-  const docNameMap = new Map(docs.map((d: any) => [d.id, d.ai_suggested_name || d.name]));
-  const timeline: CaseTimelineEvent[] = events.map((event: any) => ({
+  const docNameMap = new Map(docs.map((d) => [String(d.id), String(d.ai_suggested_name || d.name)]));
+  const timeline: CaseTimelineEvent[] = events.map((event) => ({
     id: event.id,
     date: event.event_date?.split("T")[0] || "",
     title: event.title,

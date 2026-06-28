@@ -40,7 +40,7 @@ export class CacheManager {
     }, { onConflict: 'content_hash' });
   }
 
-  static async checkAICache(contentHash: string, analysisType: string, promptVersion: string): Promise<CacheResult<any>> {
+  static async checkAICache(contentHash: string, analysisType: string, promptVersion: string): Promise<CacheResult<unknown>> {
     const { data } = await supabase
       .from('ai_analysis_cache')
       .select('result, model_used')
@@ -59,7 +59,7 @@ export class CacheManager {
     return { hit: false };
   }
 
-  static async storeAICache(contentHash: string, analysisType: string, promptVersion: string, result: any, model: string, tokens: number): Promise<void> {
+  static async storeAICache(contentHash: string, analysisType: string, promptVersion: string, result: unknown, model: string, tokens: number): Promise<void> {
     await supabase.from('ai_analysis_cache').upsert({
       content_hash: contentHash,
       analysis_type: analysisType,
@@ -70,7 +70,7 @@ export class CacheManager {
     }, { onConflict: 'content_hash,analysis_type,prompt_version' });
   }
 
-  static async checkTranscriptCache(contentHash: string): Promise<CacheResult<{ text: string; segments: any; speakers: any; duration: number }>> {
+  static async checkTranscriptCache(contentHash: string): Promise<CacheResult<{ text: string; segments: unknown; speakers: unknown; duration: number }>> {
     const { data } = await supabase
       .from('transcription_cache')
       .select('*')
@@ -96,7 +96,7 @@ export class CacheManager {
     return { hit: false };
   }
 
-  static async storeTranscriptCache(contentHash: string, text: string, segments: any, speakers: any, duration: number, provider: string): Promise<void> {
+  static async storeTranscriptCache(contentHash: string, text: string, segments: unknown, speakers: unknown, duration: number, provider: string): Promise<void> {
     await supabase.from('transcription_cache').upsert({
       content_hash: contentHash,
       transcript_text: text,

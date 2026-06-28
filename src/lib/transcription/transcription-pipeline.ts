@@ -44,7 +44,7 @@ export async function transcribeMedia(
     try {
       const result = await transcribeWithLocalWhisper(file);
       await CacheManager.storeTranscriptCache(
-        contentHash, (result as any).text, result.segments, null, estimatedDuration, 'whisper_local'
+        contentHash, result.text, result.segments, null, estimatedDuration, 'whisper_local'
       );
       return { ...result, cached: false };
     } catch (e) {
@@ -55,9 +55,9 @@ export async function transcribeMedia(
   // STEP 4: AssemblyAI (5 hrs/mo free — has speaker diarization)
   try {
     const result = await transcribeWithAssemblyAI(file);
-    await CacheManager.storeTranscriptCache(
-      contentHash, (result as any).text, result.segments, result.speakers, result.durationSeconds, 'assemblyai'
-    );
+      await CacheManager.storeTranscriptCache(
+        contentHash, result.text, result.segments, result.speakers, result.durationSeconds, 'assemblyai'
+      );
     return { ...result, cached: false };
   } catch (e) {
     console.warn('AssemblyAI failed, falling through:', e);
@@ -66,9 +66,9 @@ export async function transcribeMedia(
   // STEP 5: OpenAI Whisper API ($0.006/min — reliable fallback)
   try {
     const result = await transcribeWithOpenAIWhisper(file);
-    await CacheManager.storeTranscriptCache(
-      contentHash, (result as any).text, result.segments, null, result.durationSeconds, 'openai_whisper'
-    );
+      await CacheManager.storeTranscriptCache(
+        contentHash, result.text, result.segments, null, result.durationSeconds, 'openai_whisper'
+      );
     return { ...result, cached: false };
   } catch (e) {
     console.warn('OpenAI Whisper failed:', e);
@@ -96,9 +96,11 @@ async function transcribeWithLocalWhisper(file: File): Promise<TranscriptionResu
     return_timestamps: true,
   });
   
+  const whisperResult = result as unknown as { text: string; chunks?: Array<{ timestamp: number[]; text: string }> };
+
   return {
-    text: (result as any).text,
-    segments: (result as any).chunks?.map((c: any) => ({
+    text: whisperResult.text,
+    segments: whisperResult.chunks?.map((c) => ({
       start: c.timestamp[0],
       end: c.timestamp[1],
       text: c.text,

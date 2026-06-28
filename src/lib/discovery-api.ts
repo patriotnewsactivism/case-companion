@@ -334,10 +334,10 @@ export async function extractDiscoveryDocument(
     extractedText: result.text,
     chunks,
     metadata: {
-      fileType: (result as any).metadata?.fileType ?? '',
-      wordCount: (result as any).metadata?.wordCount ?? 0,
-      charCount: (result as any).metadata?.charCount ?? 0,
-      isScanned: (result as any).metadata?.isScanned ?? false,
+      fileType: (result.metadata?.fileType as string) ?? '',
+      wordCount: (result.metadata?.wordCount as number) ?? 0,
+      charCount: (result.metadata?.charCount as number) ?? 0,
+      isScanned: (result.metadata?.isScanned as boolean) ?? false,
     },
   };
 

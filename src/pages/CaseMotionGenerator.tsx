@@ -315,8 +315,8 @@ export default function CaseMotionGenerator() {
       const motion = await generateMotionDraft(id, motionType, fullInstructions || undefined);
       setGeneratedMotion(motion);
       setStep(5);
-    } catch (e: any) {
-      toast.error(e?.message ?? "Failed to generate motion");
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Failed to generate motion");
       setStep(3); // Go back to instructions step on error
     } finally {
       setGenerating(false);
@@ -341,8 +341,8 @@ export default function CaseMotionGenerator() {
         caseNumber: caseData?.id ?? undefined,
       });
       toast.success("Motion downloaded as DOCX");
-    } catch (e: any) {
-      toast.error(e?.message ?? "Export failed");
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Export failed");
     }
   };
 

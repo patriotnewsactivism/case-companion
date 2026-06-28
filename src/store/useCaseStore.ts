@@ -35,8 +35,8 @@ export const useCaseStore = create<CaseState>((set, get) => ({
 
       if (error) throw error;
       set({ events: data as CaseEvent[], isLoading: false });
-    } catch (err: any) {
-      set({ error: err.message, isLoading: false });
+    } catch (err: unknown) {
+      set({ error: err instanceof Error ? err.message : String(err), isLoading: false });
     }
   },
 

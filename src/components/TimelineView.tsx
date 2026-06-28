@@ -27,7 +27,8 @@ export interface TimelineEvent {
   event_type: string | null;
   importance: 'high' | 'medium' | 'low' | string | null;
   linked_document_id?: string | null;
-  entities?: any[] | null;
+  linked_document_name?: string | null;
+  entities?: Array<{ type?: string; name?: string }> | string[] | null;
 }
 
 interface TimelineViewProps {
@@ -178,7 +179,7 @@ export function TimelineView({ events, onEventClick }: TimelineViewProps) {
 
             {/* Entities & Links */}
             <div className="flex flex-wrap items-center gap-3 pt-3 border-t border-slate-100 mt-auto">
-              {event.entities && Array.isArray(event.entities) && event.entities.slice(0, 3).map((entity: any, i) => (
+              {event.entities && Array.isArray(event.entities) && event.entities.slice(0, 3).map((entity, i) => {
                 <div key={i} className="flex items-center gap-1 text-[10px] font-medium text-slate-500 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100">
                   {typeof entity === 'string' ? (
                     <>

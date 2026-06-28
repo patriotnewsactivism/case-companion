@@ -100,7 +100,19 @@ Analyze this exchange and provide real-time coaching. Respond with ONLY valid JS
 }`;
 
     // AI provider via shared config
-    const config = getFastAIProvider();
+    let config;
+    try {
+      config = getFastAIProvider();
+    } catch {
+      // Graceful degradation: return empty coaching when no AI provider configured
+      return new Response(JSON.stringify({
+        objectionAlert: { isObjectionable: false, objectionType: null, grounds: null },
+        answerAnalysis: { isEvasive: false, evasionTactic: null, trapAlert: null },
+        suggestedFollowUps: [],
+        evidenceReference: { relevantDoc: null, howToUse: null },
+        coachingNote: null,
+      }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 15000);
 

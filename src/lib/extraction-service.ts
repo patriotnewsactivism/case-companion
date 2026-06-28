@@ -13,8 +13,9 @@ export const triggerExtractionPipeline = async (documentId: string, caseId: stri
     await useCaseStore.getState().fetchEvents(caseId);
     
     return data;
-  } catch (err: any) {
-    console.error("Extraction Pipeline Failure:", err.message);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("Extraction Pipeline Failure:", message);
     throw err;
   }
 };

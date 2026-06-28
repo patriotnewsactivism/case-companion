@@ -865,7 +865,7 @@ serve(async (req) => {
       const { payload, model } = await invokeGeminiWithFallback(
         {
           contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mimeType, data: base64 } }] }],
-          generationConfig: { temperature: 0.05, maxOutputTokens: 8192 },
+          generationConfig: { temperature: 0.05, maxOutputTokens: 32768 },
         },
         'OCR'
       );

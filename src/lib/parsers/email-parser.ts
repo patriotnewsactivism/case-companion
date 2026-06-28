@@ -38,7 +38,7 @@ export async function parseEmail(file: File): Promise<ParsedEmail> {
       content: new Uint8Array(a.content as ArrayBuffer),
       size: (a.content as ArrayBuffer).byteLength,
     })) || [],
-    headers: email.headers?.reduce((acc: Record<string, string>, h: any) => {
+    headers: email.headers?.reduce((acc: Record<string, string>, h: { key: string; value: string }) => {
       acc[h.key] = h.value;
       return acc;
     }, {}) || {},

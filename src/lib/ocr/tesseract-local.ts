@@ -2,12 +2,12 @@ import { createWorker } from 'tesseract.js';
 
 let workerInstance: Awaited<ReturnType<typeof createWorker>> | null = null;
 let workerInitializing = false;
-const workerQueue: Array<{ resolve: (w: any) => void }> = [];
+const workerQueue: Array<{ resolve: (w: Awaited<ReturnType<typeof createWorker>> | null) => void }> = [];
 
 async function getWorker() {
   if (workerInstance) return workerInstance;
   if (workerInitializing) {
-    return new Promise<any>((resolve) => workerQueue.push({ resolve }));
+    return new Promise<Awaited<ReturnType<typeof createWorker>> | null>((resolve) => workerQueue.push({ resolve }));
   }
   
   workerInitializing = true;

@@ -94,7 +94,7 @@ export async function analyzeDocument(
   throw new Error('ALL_AI_PROVIDERS_EXHAUSTED');
 }
 
-async function callGeminiFlash(text: string, context?: string): Promise<any> {
+async function callGeminiFlash(text: string, context?: string): Promise<unknown> {
   const { data, error } = await supabase.functions.invoke('gemini-proxy', {
     body: {
       model: 'gemini-2.0-flash',
@@ -119,7 +119,7 @@ async function callGeminiFlash(text: string, context?: string): Promise<any> {
   return JSON.parse(resultText);
 }
 
-async function callGPT4oMini(text: string, context?: string): Promise<any> {
+async function callGPT4oMini(text: string, context?: string): Promise<unknown> {
   // Fallback: also use Gemini (free) with a different model variant
   // since there is no generic OpenAI proxy edge function deployed
   const { data, error } = await supabase.functions.invoke('gemini-proxy', {
@@ -154,14 +154,15 @@ async function isProviderAvailable(provider: string): Promise<boolean> {
     .eq('provider', provider)
     .single();
   if (!data) return false;
-  if (new Date((data as any).reset_at) <= new Date()) {
+  const rateLimitRow = data as unknown as { reset_at: string; is_available: boolean; requests_used: number; requests_limit: number };
+  if (new Date(rateLimitRow.reset_at) <= new Date()) {
     await supabase
       .from('rate_limit_status')
       .update({ requests_used: 0, is_available: true })
       .eq('provider', provider);
     return true;
   }
-  return (data as any).is_available && (data as any).requests_used < (data as any).requests_limit;
+  return rateLimitRow.is_available && rateLimitRow.requests_used < rateLimitRow.requests_limit;
 }
 
 async function incrementUsage(provider: string): Promise<void> {

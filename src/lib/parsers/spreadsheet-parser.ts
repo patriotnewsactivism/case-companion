@@ -6,7 +6,7 @@ export interface SpreadsheetResult {
     name: string;
     rows: number;
     columns: number;
-    data: any[][];
+    data: unknown[][];
   }>;
 }
 
@@ -17,7 +17,7 @@ export async function parseSpreadsheet(file: File): Promise<SpreadsheetResult> {
   let fullText = '';
   const sheets = workbook.SheetNames.map(name => {
     const sheet = workbook.Sheets[name];
-    const data = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[][];
+    const data = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as unknown[][];
     const text = XLSX.utils.sheet_to_csv(sheet);
     fullText += `\n--- Sheet: ${name} ---\n${text}\n`;
     
