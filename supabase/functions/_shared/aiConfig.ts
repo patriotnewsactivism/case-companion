@@ -119,7 +119,7 @@ export async function callChatCompletion(
 
     if (!res.ok) {
       const errText = await res.text().catch(() => res.statusText);
-      if ((res.status === 404 || res.status === 503) && config.provider === 'gemini') {
+      if ((res.status === 404 || res.status === 429 || res.status === 503) && config.provider === 'gemini') {
         lastError = new Error(`Gemini model ${model} unavailable (${res.status})`);
         console.warn(`[aiConfig] ${lastError.message} — trying next model`);
         continue;
