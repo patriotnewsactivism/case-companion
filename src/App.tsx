@@ -1,7 +1,7 @@
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { HashRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { lazy, Suspense, Component, ErrorInfo, ReactNode, useEffect } from "react";
 import { AuthProvider } from "@/hooks/AuthProvider";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
@@ -149,7 +149,7 @@ const App = () => {
     <AuthProvider>
       <TooltipProvider>
         <Sonner />
-        <HashRouter>
+        <BrowserRouter>
           <ErrorBoundary>
             <Suspense fallback={<PageLoader />}>
               <Routes>
@@ -312,7 +312,7 @@ const App = () => {
               </Routes>
             </Suspense>
           </ErrorBoundary>
-        </HashRouter>
+        </BrowserRouter>
       </TooltipProvider>
     </AuthProvider>
   </QueryClientProvider>
