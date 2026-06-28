@@ -599,7 +599,7 @@ serve(async (req) => {
     const { blob: fileBlob, contentType } = await loadFileBlob(supabase, validatedFileUrl);
     const resolvedContentType = contentType || fileBlob.type || '';
     let extractedText = '';
-    let extractedTables: unknown[] = [];
+    const extractedTables: unknown[] = [];
     let ocrProvider = '';
 
     // ===== OCR EXTRACTION - Triple-tier with Azure as primary =====

@@ -58,7 +58,7 @@ export function Layout({ children }: LayoutProps) {
   const navigate = useNavigate();
   const { signOut, user } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const caseMatch = location.pathname.match(/^\/cases\/([^\/]+)/);
+  const caseMatch = location.pathname.match(new RegExp("^/cases/([^/]+)"));
   const activeCaseId = caseMatch?.[1];
 
   const agentNavItems = [
