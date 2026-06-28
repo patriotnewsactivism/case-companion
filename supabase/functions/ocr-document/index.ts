@@ -1024,11 +1024,12 @@ serve(async (req) => {
     let extractedEntities: unknown[] = [];
     let analysisProvider: 'gemini' | 'openai' | 'heuristic' | 'none' = 'none';
 
+    // Substantial text = enough content for analysis regardless of which AI providers are available.
+    // Heuristic analysis runs as a final fallback even when no AI key is configured.
     const hasSubstantialText = Boolean(
       extractedText &&
       extractedText.length > 50 &&
-      !extractedText.startsWith('[File type') &&
-      (hasOpenAI || hasGemini)
+      !extractedText.startsWith('[File type')
     );
 
     if (hasSubstantialText) {
