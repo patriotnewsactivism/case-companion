@@ -6,6 +6,7 @@ import {
   checkRateLimit,
 } from '../_shared/errorHandler.ts';
 import { verifyAuth } from '../_shared/auth.ts';
+import { getFastAIProvider } from '../_shared/aiConfig.ts';
 
 serve(async (req) => {
   const corsHeaders = getCorsHeaders(req);
