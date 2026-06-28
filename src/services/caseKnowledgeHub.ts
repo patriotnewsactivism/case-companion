@@ -174,19 +174,19 @@ export async function buildCaseKnowledge(caseId: string): Promise<CaseKnowledge>
   const docNameMap = new Map(docs.map((d) => [String(d.id), String(d.ai_suggested_name || d.name)]));
   const timeline: CaseTimelineEvent[] = events.map((event) => ({
     id: event.id,
-    date: event.event_date?.split("T")[0] || "",
-    title: event.title,
-    description: event.description || "",
-    importance: event.importance || "medium",
-    eventType: event.event_type || "general",
-    linkedDocumentId: event.linked_document_id || null,
-    linkedDocumentName: event.linked_document_id ? docNameMap.get(event.linked_document_id) || null : null,
+    date: typeof event.event_date === 'string' ? event.event_date.split("T")[0] || "" : "",
+    title: String(event.title ?? ''),
+    description: String(event.description ?? ''),
+    importance: String(event.importance || "medium"),
+    eventType: String(event.event_type || "general"),
+    linkedDocumentId: typeof event.linked_document_id === 'string' ? event.linked_document_id : null,
+    linkedDocumentName: typeof event.linked_document_id === 'string' ? (docNameMap.get(event.linked_document_id) ?? null) : null,
   }));
 
   // Aggregate favorable/adverse factors
-  const favorableFactors = dedupe(docs.flatMap((d: any) => d.favorable_findings || []));
-  const adverseFactors = dedupe(docs.flatMap((d: any) => d.adverse_findings || []));
-  const actionItems = dedupe(docs.flatMap((d: any) => d.action_items || []));
+  const favorableFactors = dedupe(docs.flatMap((d) => (Array.isArray(d.favorable_findings) ? d.favorable_findings as string[] : [])));
+  const adverseFactors = dedupe(docs.flatMap((d) => (Array.isArray(d.adverse_findings) ? d.adverse_findings as string[] : [])));
+  const actionItems = dedupe(docs.flatMap((d) => (Array.isArray(d.action_items) ? d.action_items as string[] : [])));
 
   return {
     caseId,
@@ -200,7 +200,7 @@ export async function buildCaseKnowledge(caseId: string): Promise<CaseKnowledge>
     adverseFactors,
     actionItems,
     documentCount: docs.length,
-    analyzedCount: docs.filter((d: any) => d.ai_analyzed).length,
+    analyzedCount: docs.filter((d) => !!d.ai_analyzed).length,
     lastUpdated: new Date().toISOString(),
   };
 }
