@@ -1,22 +1,15 @@
 import type { Case } from "@/lib/api";
 
 export type AgentId =
-  | "maya"
-  | "rex"
-  | "doc"
-  | "lex"
-  | "sol"
-  | "sierra"
-  | "jules"
-  | "max"
-  | "discovery-agent"
+  | "intake-agent"
   | "strategy-agent"
+  | "discovery-agent"
   | "witness-agent"
   | "research-agent"
   | "drafting-agent"
   | "jury-agent"
   | "timeline-agent"
-  | "intake-agent";
+  | "client-agent";
 
 export type AgentStatus = "idle" | "working" | "done" | "error";
 export type WorkflowStatus = "pending" | "running" | "completed" | "failed";

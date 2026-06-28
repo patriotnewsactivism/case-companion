@@ -83,46 +83,13 @@ interface VoiceAgentRequest {
   message?: string;
 }
 
-interface FallacyDetectionResult {
-  fallacyDetected?: string[];
-}
-
-interface CoachingResult {
-  feedback?: string;
-}
-
-const FALLACY_PROMPT = `Analyze the user input for logical fallacies. Return only valid JSON.
-
-FALLACIES TO DETECT:
-- strawman: Misrepresenting someone's argument to make it easier to attack
-- ad hominem: Attacking the person rather than their argument
-- slippery slope: Claiming one event will lead to extreme consequences without evidence
-- false dichotomy: Presenting only two options when more exist
-- appeal to authority: Using authority as evidence when irrelevant to the argument
-- circular reasoning: Using conclusion as evidence for the premise
-- red herring: Introducing irrelevant information to distract from the issue
-- appeal to emotion: Using emotion instead of logic/reasoning
-
-USER INPUT: {text}
-
-JSON schema:
-{{"fallacyDetected": ["list of detected fallacy names, empty array if none"]}}`;
-
-const COACHING_PROMPT = `You are {personaName}, providing coaching feedback for trial preparation. Analyze the user's argument and provide concise, actionable feedback.
-
-CONTEXT: {caseContext}
-USER MESSAGE: {message}
-
-Return only valid JSON:
-{{"feedback": "concise coaching tip or feedback, max 200 words"}}`;
-
 serve(async (req) => {
   const corsHeaders = getCorsHeaders(req);
 
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    validateEnvVars(["SUPABASE_URL", "SUPABASE_ANON_KEY"]);
+    validateEnvVars(["SUPABASE_URL", "SUPABASE_ANON_KEY", "GOOGLE_AI_API_KEY"]);
 
     const authResult = await verifyAuth(req);
     if (!authResult.authorized || !authResult.user || !authResult.supabase) {
@@ -171,75 +138,72 @@ serve(async (req) => {
       personaVoice: persona.auraVoice,
     };
 
-    if (message && persona) {
-      const chatMessages: ChatMessage[] = [
+    if (message) {
+      const historyMessages: ChatMessage[] = [
         { role: "system", content: persona.systemInstruction },
       ];
 
       if (caseContext) {
-        chatMessages.push({ role: "user", content: `Context: ${caseContext}` });
+        historyMessages.push({ role: "user", content: `Context: ${caseContext}` });
       }
 
       if (history && Array.isArray(history)) {
         for (const h of history) {
-          chatMessages.push({
+          historyMessages.push({
             role: h.role === "assistant" ? "assistant" : "user",
             content: h.text,
           });
         }
       }
 
-      chatMessages.push({ role: "user", content: message });
+      historyMessages.push({ role: "user", content: message });
 
       try {
-        const aiResponse = await callChatCompletion(config, chatMessages, {
+        const aiResponse = await callChatCompletion(config, historyMessages, {
           temperature: 0.7,
-          systemPrompt: persona.systemInstruction,
         });
         response.response = aiResponse;
       } catch (e) {
         console.error("AI response error:", e);
         response.response = "I'm sorry, I'm having trouble processing your request right now.";
       }
+    }
 
-      if (personaId === "rex" && caseContext) {
-        try {
-          const coachingMessages: ChatMessage[] = [
-            { role: "system", content: `You are ${personaId}, providing coaching feedback for trial preparation.` },
-            { role: "user", content: `Context: ${caseContext}\nUser message: ${message}` },
-          ];
-          const coachingResponse = await callChatCompletion(
-            { ...config },
-            coachingMessages,
-            { temperature: 0.5 }
-          );
-          const coachingJson = JSON.parse(coachingResponse);
-          if (coachingJson.feedback) {
-            response.coaching = coachingJson.feedback;
-          }
-        } catch (e) {
-          console.error("Coaching error:", e);
+    if (personaId === "rex" && caseContext && message) {
+      try {
+        const coachingResponse = await callChatCompletion(
+          { ...config },
+          [
+            { role: "system", content: "Return only valid JSON with a 'feedback' field." },
+            { role: "user", content: `Provide coaching feedback for trial preparation.\nContext: ${caseContext}\nUser message: ${message}` },
+          ],
+          { temperature: 0.5, responseFormat: "json" }
+        );
+        const coachingJson = JSON.parse(coachingResponse);
+        if (coachingJson.feedback) {
+          response.coaching = coachingJson.feedback;
         }
+      } catch (e) {
+        console.error("Coaching error:", e);
       }
+    }
 
-      if (message) {
-        try {
-          const fallacyMessages: ChatMessage[] = [
-            { role: "system", content: "Detect logical fallacies in the user input. Return only JSON." },
-            { role: "user", content: FALLACY_PROMPT.replace("{text}", message) },
-          ];
-          const fallacyResponse = await callChatCompletion(
-            { ...config },
-            fallacyMessages,
-            { temperature: 0.3 }
-          );
-          const fallacyJson = JSON.parse(fallacyResponse);
-          if (Array.isArray(fallacyJson.fallacyDetected) && fallacyJson.fallacyDetected.length > 0) {
-            response.fallacyDetected = fallacyJson.fallacyDetected;
-          }
-        } catch (e) {
-          console.error("Fallacy detection error:", e);
+    if (message) {
+      try {
+        const fallacyResponse = await callChatCompletion(
+          { ...config },
+          [
+            { role: "system", content: "Return only valid JSON with a 'fallacyDetected' array field." },
+            { role: "user", content: `Detect logical fallacies in this user input: "${message}"\nFallacies to detect: strawman, ad hominem, slippery slope, false dichotomy, appeal to authority, circular reasoning, red herring, appeal to emotion.\nJSON output format: {"fallacyDetected": []}` },
+          ],
+          { temperature: 0.3, responseFormat: "json" }
+        );
+        const fallacyJson = JSON.parse(fallacyResponse);
+        if (Array.isArray(fallacyJson.fallacyDetected) && fallacyJson.fallacyDetected.length > 0) {
+          response.fallacyDetected = fallacyJson.fallacyDetected;
         }
+      } catch (e) {
+        console.error("Fallacy detection error:", e);
       }
     }
 

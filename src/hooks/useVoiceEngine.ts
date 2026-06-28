@@ -192,16 +192,18 @@ export function useVoiceEngine(options: VoiceEngineOptions) {
         console.info('[VoiceEngine] Deepgram unavailable, falling back to Web Speech API');
       }
 
-      // 2) Check ElevenLabs availability (try a 0-char probe call just to see if the key works)
+      // 2) Check ElevenLabs availability (try a probe call to verify the key works)
       try {
         const probe = await supabase.functions.invoke('tts-generate', {
           body: { text: 'test', character: 'default' },
         });
-        // A non-auth-error response means the key exists
-        if (!probe.error || (probe.error as { status?: number })?.status !== 401) {
+        // Only mark as ready if the probe returned audio data (no error, data is binary)
+        if (!probe.error && probe.data != null) {
           if (!cancelled) {
             setState(prev => ({ ...prev, ttsProvider: 'elevenlabs', elevenLabsReady: true }));
           }
+        } else {
+          console.info('[VoiceEngine] ElevenLabs probe failed — falling back to browser TTS');
         }
       } catch {
         console.info('[VoiceEngine] ElevenLabs unavailable, falling back to browser TTS');
