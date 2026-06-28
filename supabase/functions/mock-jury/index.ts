@@ -7,7 +7,7 @@ import {
 } from '../_shared/errorHandler.ts';
 import { verifyAuth } from '../_shared/auth.ts';
 import { validateUUID } from '../_shared/validation.ts';
-import { callAzureOpenAI } from '../_shared/azureOpenAI.ts';
+import { getDocumentAIProvider, callChatCompletion } from '../_shared/aiConfig.ts';
 
 interface Juror {
   id: string;
@@ -276,10 +276,12 @@ Respond in JSON format:
   }
 }`;
 
-  const response = await callAzureOpenAI([
-    { role: 'system', content: systemPrompt },
-    { role: 'user', content: 'Begin the jury deliberation simulation. Have the jurors discuss the case and reach a verdict.' },
-  ], { temperature: 0.8, maxTokens: 3000, jsonMode: true });
+  const aiProvider = getDocumentAIProvider();
+  const response = await callChatCompletion(
+    aiProvider,
+    [{ role: 'user', content: 'Begin the jury deliberation simulation. Have the jurors discuss the case and reach a verdict.' }],
+    { temperature: 0.8, responseFormat: 'json', systemPrompt }
+  );
 
   try {
     const result = JSON.parse(response);

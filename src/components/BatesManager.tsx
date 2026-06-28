@@ -67,6 +67,11 @@ export function BatesManager({ caseId }: BatesManagerProps) {
       }
     } catch (err) {
       console.error("Failed to fetch documents:", err);
+      toast({
+        title: "Failed to load documents",
+        description: err instanceof Error ? err.message : "Could not retrieve Bates records.",
+        variant: "destructive",
+      });
     } finally {
       setIsLoading(false);
     }

@@ -2,9 +2,10 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { HashRouter, Routes, Route } from "react-router-dom";
-import { lazy, Suspense, Component, ErrorInfo, ReactNode } from "react";
+import { lazy, Suspense, Component, ErrorInfo, ReactNode, useEffect } from "react";
 import { AuthProvider } from "@/hooks/AuthProvider";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { toast } from "sonner";
 
 // Enhanced loading component for suspense fallback
 const PageLoader = () => (
@@ -119,7 +120,29 @@ const queryClient = new QueryClient({
 });
 
 // Main App component with routing fix
-const App = () => (
+const App = () => {
+  // Global safety net: surface unhandled promise rejections as toast errors.
+  // React ErrorBoundary only catches synchronous render errors; this catches
+  // async failures (edge function calls, React Query callbacks, etc.) that
+  // escape individual try/catch blocks.
+  useEffect(() => {
+    const handler = (event: PromiseRejectionEvent) => {
+      event.preventDefault(); // suppress console "Uncaught (in promise)" noise
+      const reason = event.reason;
+      const msg = reason instanceof Error
+        ? reason.message
+        : typeof reason === "string"
+          ? reason
+          : "An unexpected error occurred";
+      // Filter out noise: auth session-missing is expected in public routes
+      if (msg.includes("JWT") || msg.includes("session_id") || msg.includes("Auth session missing")) return;
+      toast.error(msg, { duration: 6000 });
+    };
+    window.addEventListener("unhandledrejection", handler);
+    return () => window.removeEventListener("unhandledrejection", handler);
+  }, []);
+
+  return (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
       <TooltipProvider>
@@ -279,6 +302,7 @@ const App = () => (
       </TooltipProvider>
     </AuthProvider>
   </QueryClientProvider>
-);
+  );
+};
 
 export default App;

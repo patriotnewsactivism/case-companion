@@ -42,3 +42,14 @@ verify_jwt = false
 
 [functions.conflict-check]
 verify_jwt = false
+
+# Voice pipeline — JWT required (authenticated users only)
+[functions.deepgram-token]
+verify_jwt = true
+
+[functions.tts-generate]
+verify_jwt = true
+
+# Mock jury — JWT required
+[functions.mock-jury]
+verify_jwt = true

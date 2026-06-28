@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -70,6 +71,9 @@ export function PerformanceDashboard({ caseId, onViewSession }: PerformanceDashb
         });
       } catch (error) {
         console.error('Failed to fetch performance data:', error);
+        toast.error("Failed to load performance data", {
+          description: error instanceof Error ? error.message : undefined,
+        });
       } finally {
         setLoading(false);
       }

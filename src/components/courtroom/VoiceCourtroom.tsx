@@ -500,13 +500,19 @@ export function VoiceCourtroom({ caseId, caseName, mode, modeName, onEnd }: Voic
     voiceMode,
     interimTranscript,
     audioLevel,
-    speechSupported,
+    sttProvider,
+    ttsProvider,
+    deepgramReady,
+    elevenLabsReady,
     startListening,
     stopListening,
     speak,
     stopSpeaking,
     setVoiceMode,
   } = voice;
+
+  // speechSupported compat alias — true if any STT provider is available
+  const speechSupported = sttProvider === "deepgram" ? deepgramReady : true;
 
   // Intro message
   useEffect(() => {
@@ -534,6 +540,7 @@ export function VoiceCourtroom({ caseId, caseName, mode, modeName, onEnd }: Voic
         setSessionId(session.id);
       } catch (error) {
         console.error("Failed to create trial session:", error);
+        toast.error("Could not start trial session. Your progress won't be saved this run.");
       }
     };
 
@@ -674,10 +681,10 @@ export function VoiceCourtroom({ caseId, caseName, mode, modeName, onEnd }: Voic
           content: data.message,
           timestamp: new Date().toISOString(),
           aiRole: data.role,
-        }).catch(console.error);
+        }).catch(() => { /* non-critical transcript log */ });
 
         if (data.coaching) {
-          addCoachingTip(sessionId, data.coaching).catch(console.error);
+          addCoachingTip(sessionId, data.coaching).catch(() => { /* non-critical */ });
         }
       }
 
@@ -744,7 +751,7 @@ export function VoiceCourtroom({ caseId, caseName, mode, modeName, onEnd }: Voic
         role: 'user',
         content: messageText,
         timestamp: new Date().toISOString(),
-      }).catch(console.error);
+      }).catch(() => { /* non-critical transcript log */ });
     }
 
     simulationMutation.mutate(messageText);
@@ -943,6 +950,31 @@ export function VoiceCourtroom({ caseId, caseName, mode, modeName, onEnd }: Voic
                 {voiceMode === "hands-free" ? "Hands-free" : voiceMode === "push-to-talk" ? "Push-to-talk" : "Voice off"}
               </span>
             </Button>
+            {/* Voice provider status badges */}
+            <div className="hidden lg:flex items-center gap-1 px-1">
+              <span
+                title={deepgramReady ? "Deepgram Nova-3 STT active" : "Browser Web Speech API (fallback)"}
+                className={cn(
+                  "text-[10px] font-mono px-1.5 py-0.5 rounded border",
+                  deepgramReady
+                    ? "border-green-500/40 text-green-400 bg-green-500/10"
+                    : "border-slate-600/40 text-slate-500 bg-slate-700/20"
+                )}
+              >
+                {deepgramReady ? "DG" : "WEB"} STT
+              </span>
+              <span
+                title={elevenLabsReady ? "ElevenLabs TTS active" : "Browser speechSynthesis (fallback)"}
+                className={cn(
+                  "text-[10px] font-mono px-1.5 py-0.5 rounded border",
+                  elevenLabsReady
+                    ? "border-purple-500/40 text-purple-400 bg-purple-500/10"
+                    : "border-slate-600/40 text-slate-500 bg-slate-700/20"
+                )}
+              >
+                {elevenLabsReady ? "EL" : "WEB"} TTS
+              </span>
+            </div>
             <Button
               size="sm"
               variant="ghost"
