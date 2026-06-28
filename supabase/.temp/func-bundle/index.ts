@@ -365,9 +365,9 @@ const isOcrArtifact = (sentence: string): boolean => {
   const s = sentence.trim();
   if (/^={2,}\s*PAGE\s+\d+/i.test(s)) return true;
   if (/^PAGE\s+\d+\s+(Case|of)\b/i.test(s)) return true;
-  if (/^Case\s+\d+[:\-]\d+/i.test(s)) return true;
+  if (/^Case\s+\d+[:-]\d+/i.test(s)) return true;
   if (/^Document\s+[#\d]/i.test(s) && /Page\s+\d+\s+of\s+\d+/i.test(s)) return true;
-  const cleaned = s.replace(/(?:PAGE|DOCUMENT|===|\d+\s*of\s*\d+|Case\s*\d+[:\-]\S+)/gi, '').trim();
+  const cleaned = s.replace(/(?:PAGE|DOCUMENT|===|\d+\s*of\s*\d+|Case\s*\d+[:-]\S+)/gi, '').trim();
   if (cleaned.length < 15) return true;
   return false;
 };
@@ -376,7 +376,7 @@ const buildTimelineTitle = (sentence: string, dateToken: string | null): string 
   let cleaned = sentence.replace(/={2,}\s*PAGE\s+\d+\s*={0,}/gi, '').trim();
   cleaned = cleaned.replace(/^PAGE\s+\d+\s*/i, '').trim();
   const withoutDate = dateToken ? cleaned.replace(dateToken, ' ') : cleaned;
-  const withoutCaseNum = withoutDate.replace(/Case\s+\d+[:\-]\d+[-\w]*/gi, ' ').trim();
+  const withoutCaseNum = withoutDate.replace(/Case\s+\d+[:-]\d+[-\w]*/gi, ' ').trim();
   const withoutDocRef = withoutCaseNum.replace(/Document\s+#?\s*\d+/gi, ' ').replace(/Page\s+\d+\s+of\s+\d+/gi, ' ').trim();
   const words = withoutDocRef.replace(/[^a-zA-Z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean).slice(0, 8);
   if (words.length === 0) return 'Document event';
@@ -583,7 +583,9 @@ serve(async (req) => {
       return createErrorResponse(new Error('Document not found'), 404, 'ocr-document', corsHeaders);
     }
 
-    const caseRelation = (documentData as any).cases;
+    interface DocOwnerData { case_id: string; name: string; cases: { user_id: string } | { user_id: string }[] }
+    const docData = documentData as unknown as DocOwnerData;
+    const caseRelation = docData.cases;
     const ownerId = Array.isArray(caseRelation) ? caseRelation[0]?.user_id : caseRelation?.user_id;
 
     if (!ownerId) {
@@ -599,7 +601,7 @@ serve(async (req) => {
     const { blob: fileBlob, contentType } = await loadFileBlob(supabase, validatedFileUrl);
     const resolvedContentType = contentType || fileBlob.type || '';
     let extractedText = '';
-    let extractedTables: unknown[] = [];
+    const extractedTables: unknown[] = [];
     let ocrProvider = '';
 
     // ===== OCR EXTRACTION - Triple-tier with Azure as primary =====
@@ -982,7 +984,7 @@ ${textChunk}`;
               favorableFindings: Array.isArray(parsed.favorable_findings) ? parsed.favorable_findings.map((i) => String(i)) : [],
               adverseFindings: Array.isArray(parsed.adverse_findings) ? parsed.adverse_findings.map((i) => String(i)) : [],
               actionItems: Array.isArray(parsed.action_items) ? parsed.action_items.map((i) => String(i)) : [],
-              timelineEvents: Array.isArray(parsed.timeline_events) ? (parsed.timeline_events as any[]) : [],
+              timelineEvents: Array.isArray(parsed.timeline_events) ? (parsed.timeline_events as unknown[]) : [],
               entities: Array.isArray(parsed.entities) ? parsed.entities : [],
             },
           };
@@ -1077,7 +1079,7 @@ ${textChunk}`;
 
     if (timelineEvents.length > 0) {
       console.log(`Inserting ${timelineEvents.length} timeline events...`);
-      const caseId = (documentData as any).case_id;
+      const caseId = docData.case_id;
 
       const dedupedEvents = new Map<string, TimelineEventInsertRow[]>();
       const normalizedEvents = (timelineEvents as TimelineEventCandidate[])

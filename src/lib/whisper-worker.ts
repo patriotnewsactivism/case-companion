@@ -1,4 +1,3 @@
-// @ts-nocheck
 export type WhisperModelSize = 'tiny' | 'base' | 'small' | 'medium';
 
 export interface WhisperConfig {
@@ -433,7 +432,7 @@ export async function captureAudio(durationMs: number = 5000): Promise<Float32Ar
       audioContext.close();
     }
     
-    (processor as any).onerror = (error: any) => {
+    (processor as unknown as { onerror: ((e: Error) => void) | null }).onerror = (error: Error) => {
       cleanup();
       reject(error);
     };
