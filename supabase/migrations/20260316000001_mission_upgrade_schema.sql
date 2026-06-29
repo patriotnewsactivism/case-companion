@@ -115,9 +115,11 @@ CREATE POLICY "Users own their generated motions"
   WITH CHECK (auth.uid() = user_id);
 
 -- ─── Mission 4: voice_transcripts table ─────────────────────────
+-- Note: trial_simulation_sessions is created in a later migration (20260320000000).
+-- The FK and RLS policy that reference it are deferred to that migration.
 CREATE TABLE IF NOT EXISTS public.voice_transcripts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  session_id UUID REFERENCES public.trial_simulation_sessions(id) ON DELETE CASCADE NOT NULL,
+  session_id UUID NOT NULL,
   speaker TEXT NOT NULL,
   content TEXT NOT NULL,
   timestamp_ms INTEGER,
@@ -126,22 +128,8 @@ CREATE TABLE IF NOT EXISTS public.voice_transcripts (
 );
 
 ALTER TABLE public.voice_transcripts ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Users own their voice transcripts"
-  ON public.voice_transcripts
-  USING (
-    EXISTS (
-      SELECT 1 FROM public.trial_simulation_sessions
-      WHERE trial_simulation_sessions.id = voice_transcripts.session_id
-        AND trial_simulation_sessions.user_id = auth.uid()
-    )
-  )
-  WITH CHECK (
-    EXISTS (
-      SELECT 1 FROM public.trial_simulation_sessions
-      WHERE trial_simulation_sessions.id = voice_transcripts.session_id
-        AND trial_simulation_sessions.user_id = auth.uid()
-    )
-  );
+-- RLS policy for voice_transcripts is applied in 20260320000000_trial_simulation_sessions.sql
+-- after trial_simulation_sessions is created.
 
 -- ─── Indexes ─────────────────────────────────────────────────────
 CREATE INDEX IF NOT EXISTS idx_case_context_case_id ON public.case_context(case_id);

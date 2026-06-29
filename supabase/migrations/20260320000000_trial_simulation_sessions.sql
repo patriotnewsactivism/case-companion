@@ -117,3 +117,42 @@ COMMENT ON COLUMN trial_simulation_sessions.objections_made IS 'JSON array of ob
 COMMENT ON COLUMN trial_simulation_sessions.performance_metrics IS 'JSON object with real-time performance data';
 COMMENT ON COLUMN trial_simulation_sessions.ai_coaching IS 'JSON array of coaching tips provided during session';
 COMMENT ON COLUMN trial_simulation_sessions.witness_profile IS 'JSON object describing the AI witness personality';
+
+-- Add FK from voice_transcripts.session_id → trial_simulation_sessions.id
+-- (voice_transcripts was created in 20260316000001 without the FK because this table
+-- didn't exist yet; we wire it up here after trial_simulation_sessions is created.)
+DO $$ BEGIN
+  IF EXISTS (SELECT FROM pg_tables WHERE schemaname = 'public' AND tablename = 'voice_transcripts')
+  AND NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'voice_transcripts_session_id_fkey'
+      AND conrelid = 'public.voice_transcripts'::regclass
+  ) THEN
+    ALTER TABLE public.voice_transcripts
+      ADD CONSTRAINT voice_transcripts_session_id_fkey
+      FOREIGN KEY (session_id) REFERENCES public.trial_simulation_sessions(id) ON DELETE CASCADE;
+  END IF;
+END $$;
+
+-- RLS policy for voice_transcripts (deferred from 20260316000001 because it references this table)
+DO $$ BEGIN
+  IF EXISTS (SELECT FROM pg_tables WHERE schemaname = 'public' AND tablename = 'voice_transcripts') THEN
+    CREATE POLICY "Users own their voice transcripts"
+      ON public.voice_transcripts
+      USING (
+        EXISTS (
+          SELECT 1 FROM public.trial_simulation_sessions
+          WHERE trial_simulation_sessions.id = voice_transcripts.session_id
+            AND trial_simulation_sessions.user_id = auth.uid()
+        )
+      )
+      WITH CHECK (
+        EXISTS (
+          SELECT 1 FROM public.trial_simulation_sessions
+          WHERE trial_simulation_sessions.id = voice_transcripts.session_id
+            AND trial_simulation_sessions.user_id = auth.uid()
+        )
+      );
+  END IF;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
