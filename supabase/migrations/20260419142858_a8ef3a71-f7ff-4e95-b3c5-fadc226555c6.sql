@@ -512,19 +512,19 @@ BEGIN
   FOREACH t IN ARRAY owner_tables LOOP
     BEGIN
       EXECUTE format('CREATE POLICY "Users view own %I" ON public.%I FOR SELECT USING (auth.uid() = user_id)', t, t);
-    EXCEPTION WHEN duplicate_object THEN NULL;
+    EXCEPTION WHEN duplicate_object OR sqlstate '42703' THEN NULL;
     END;
     BEGIN
       EXECUTE format('CREATE POLICY "Users insert own %I" ON public.%I FOR INSERT WITH CHECK (auth.uid() = user_id)', t, t);
-    EXCEPTION WHEN duplicate_object THEN NULL;
+    EXCEPTION WHEN duplicate_object OR sqlstate '42703' THEN NULL;
     END;
     BEGIN
       EXECUTE format('CREATE POLICY "Users update own %I" ON public.%I FOR UPDATE USING (auth.uid() = user_id)', t, t);
-    EXCEPTION WHEN duplicate_object THEN NULL;
+    EXCEPTION WHEN duplicate_object OR sqlstate '42703' THEN NULL;
     END;
     BEGIN
       EXECUTE format('CREATE POLICY "Users delete own %I" ON public.%I FOR DELETE USING (auth.uid() = user_id)', t, t);
-    EXCEPTION WHEN duplicate_object THEN NULL;
+    EXCEPTION WHEN duplicate_object OR sqlstate '42703' THEN NULL;
     END;
   END LOOP;
 END $$;
@@ -537,45 +537,45 @@ DO $$ BEGIN
     ) WITH CHECK (
       EXISTS (SELECT 1 FROM public.cases WHERE id = case_id AND user_id = auth.uid())
     );
-EXCEPTION WHEN duplicate_object THEN NULL;
+EXCEPTION WHEN duplicate_object OR sqlstate '42703' THEN NULL;
 END $$;
 
 DO $$ BEGIN
   CREATE POLICY "Members view own membership" ON public.case_members
     FOR SELECT USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL;
+EXCEPTION WHEN duplicate_object OR sqlstate '42703' THEN NULL;
 END $$;
 
 -- motion_templates: public templates viewable by all authenticated users; private owned
 DO $$ BEGIN
   CREATE POLICY "View public or own templates" ON public.motion_templates
     FOR SELECT USING (is_public = true OR auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL;
+EXCEPTION WHEN duplicate_object OR sqlstate '42703' THEN NULL;
 END $$;
 
 DO $$ BEGIN
   CREATE POLICY "Insert own templates" ON public.motion_templates
     FOR INSERT WITH CHECK (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL;
+EXCEPTION WHEN duplicate_object OR sqlstate '42703' THEN NULL;
 END $$;
 
 DO $$ BEGIN
   CREATE POLICY "Update own templates" ON public.motion_templates
     FOR UPDATE USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL;
+EXCEPTION WHEN duplicate_object OR sqlstate '42703' THEN NULL;
 END $$;
 
 DO $$ BEGIN
   CREATE POLICY "Delete own templates" ON public.motion_templates
     FOR DELETE USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL;
+EXCEPTION WHEN duplicate_object OR sqlstate '42703' THEN NULL;
 END $$;
 
 -- organizations: owner manages
 DO $$ BEGIN
   CREATE POLICY "Owner manages organization" ON public.organizations
     FOR ALL USING (auth.uid() = owner_id) WITH CHECK (auth.uid() = owner_id);
-EXCEPTION WHEN duplicate_object THEN NULL;
+EXCEPTION WHEN duplicate_object OR sqlstate '42703' THEN NULL;
 END $$;
 
 DO $$ BEGIN
@@ -584,7 +584,7 @@ DO $$ BEGIN
       EXISTS (SELECT 1 FROM public.organization_members
               WHERE organization_id = id AND user_id = auth.uid())
     );
-EXCEPTION WHEN duplicate_object THEN NULL;
+EXCEPTION WHEN duplicate_object OR sqlstate '42703' THEN NULL;
 END $$;
 
 DO $$ BEGIN
@@ -594,20 +594,20 @@ DO $$ BEGIN
     ) WITH CHECK (
       EXISTS (SELECT 1 FROM public.organizations WHERE id = organization_id AND owner_id = auth.uid())
     );
-EXCEPTION WHEN duplicate_object THEN NULL;
+EXCEPTION WHEN duplicate_object OR sqlstate '42703' THEN NULL;
 END $$;
 
 DO $$ BEGIN
   CREATE POLICY "Members view own org membership" ON public.organization_members
     FOR SELECT USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL;
+EXCEPTION WHEN duplicate_object OR sqlstate '42703' THEN NULL;
 END $$;
 
 -- client_portal_users: attorney manages their clients
 DO $$ BEGIN
   CREATE POLICY "Attorney manages clients" ON public.client_portal_users
     FOR ALL USING (auth.uid() = attorney_user_id) WITH CHECK (auth.uid() = attorney_user_id);
-EXCEPTION WHEN duplicate_object THEN NULL;
+EXCEPTION WHEN duplicate_object OR sqlstate '42703' THEN NULL;
 END $$;
 
 -- client magic links / resets: only accessible via service role (no public policies)
@@ -639,7 +639,7 @@ END $$;
 DO $$ BEGIN
   CREATE POLICY "Participant views self" ON public.video_room_participants
     FOR SELECT USING (auth.uid() = user_id);
-EXCEPTION WHEN duplicate_object THEN NULL;
+EXCEPTION WHEN duplicate_object OR sqlstate '42703' THEN NULL;
 END $$;
 
 -- =====================================================
