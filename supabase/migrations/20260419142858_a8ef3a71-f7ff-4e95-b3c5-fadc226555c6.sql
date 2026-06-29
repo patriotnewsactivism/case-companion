@@ -447,7 +447,7 @@ SET search_path = public
 AS $$
   SELECT EXISTS (
     SELECT 1 FROM public.case_members
-    WHERE case_id = _case_id AND user_id = _user_id AND status = 'active'
+    WHERE case_id = _case_id AND user_id = _user_id
   ) OR EXISTS (
     SELECT 1 FROM public.cases
     WHERE id = _case_id AND user_id = _user_id
