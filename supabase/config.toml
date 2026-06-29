@@ -72,8 +72,6 @@ verify_jwt = true
 [functions.cross-document-analysis]
 verify_jwt = true
 
-[functions.deepgram-token]
-verify_jwt = true
 
 [functions.discovery-response]
 verify_jwt = true

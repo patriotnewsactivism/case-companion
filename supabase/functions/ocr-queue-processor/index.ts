@@ -311,7 +311,7 @@ async function resolveGeminiModels(googleApiKey: string): Promise<string[]> {
   if (resolvedGeminiModels) return resolvedGeminiModels;
 
   try {
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${googleApiKey}`);
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models`, { headers: { 'x-goog-api-key': googleApiKey } });
     if (!response.ok) {
       resolvedGeminiModels = DEFAULT_GEMINI_MODELS;
       return resolvedGeminiModels;
@@ -341,10 +341,11 @@ async function invokeGeminiWithFallback(
   let lastError = 'No Gemini models attempted';
 
   for (const model of candidateModels) {
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${googleApiKey}`, {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'x-goog-api-key': googleApiKey,
       },
       body: JSON.stringify(body),
     });
@@ -583,10 +584,11 @@ ${chunk}`;
 
     if (hasGemini) {
       try {
-        const analysisResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${googleApiKey}`, {
+        const analysisResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            'x-goog-api-key': googleApiKey,
           },
           body: JSON.stringify({
             contents: [
@@ -1407,11 +1409,6 @@ serve(async (req) => {
 
       return new Response(
         JSON.stringify(userResult),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-
-      return new Response(
-        JSON.stringify(result),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }

@@ -6,7 +6,7 @@ import {
   checkRateLimit,
 } from '../_shared/errorHandler.ts';
 import { verifyAuth } from '../_shared/auth.ts';
-import { getFastAIProvider } from '../_shared/aiConfig.ts';
+import { getFastAIProvider, callChatCompletionWithFallback } from '../_shared/aiConfig.ts';
 
 const TIMEOUT_MS = 15000;
 
@@ -39,44 +39,57 @@ serve(async (req) => {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
+    const systemMessage = { role: "system", content: "You are a legal research assistant helping attorneys analyze documents, case law, and legal issues. Provide clear, concise, and actionable analysis. Always cite relevant case law and statutes when applicable." };
+
     try {
+      // Try the primary provider first
       const response = await fetch(config.apiUrl, {
         method: "POST",
         headers: config.headers,
         signal: controller.signal,
         body: JSON.stringify({
           model: config.model,
-          messages: [
-            { role: "system", content: "You are a legal research assistant helping attorneys analyze documents, case law, and legal issues. Provide clear, concise, and actionable analysis. Always cite relevant case law and statutes when applicable." },
-            ...messages,
-          ],
+          messages: [systemMessage, ...messages],
           max_tokens: config.maxTokens,
           temperature: 0.7,
         }),
       });
 
-      if (!response.ok) {
-        const t = await response.text();
-        console.error("AI error:", response.status, t);
-        let detail = "AI provider error";
-        try { const j = JSON.parse(t); detail = j.error?.message || j.error || t; } catch { detail = t; }
-        return new Response(JSON.stringify({ error: detail }), {
-          status: 500,
+      if (response.ok) {
+        const data = await response.json();
+        return new Response(JSON.stringify(data), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 
-      const data = await response.json();
-      return new Response(JSON.stringify(data), {
+      // Primary failed — log and fall through to cascade fallback
+      const t = await response.text();
+      console.warn(`[chat] Primary provider (${config.provider}) returned ${response.status}, cascading:`, t);
+      clearTimeout(timeoutId);
+
+      // Fallback: try all providers via callChatCompletionWithFallback
+      const { content } = await callChatCompletionWithFallback(
+        [systemMessage, ...messages],
+        { temperature: 0.7 }
+      );
+
+      return new Response(JSON.stringify({
+        choices: [{ message: { role: "assistant", content }, finish_reason: "stop" }],
+      }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
-    } finally {
+    } catch (cascadeErr) {
       clearTimeout(timeoutId);
+      if (cascadeErr instanceof DOMException && cascadeErr.name === 'AbortError') {
+        return createErrorResponse(new Error('AI provider timed out'), 504, 'chat', corsHeaders);
+      }
+      console.error("[chat] All AI providers failed:", cascadeErr);
+      return new Response(JSON.stringify({ error: "All AI providers exhausted. Please try again." }), {
+        status: 503,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
   } catch (e) {
-    if (e instanceof DOMException && e.name === 'AbortError') {
-      return createErrorResponse(new Error('AI provider timed out'), 504, 'chat', corsHeaders);
-    }
     console.error("chat error:", e);
     return createErrorResponse(e, 500, 'chat', corsHeaders);
   }
