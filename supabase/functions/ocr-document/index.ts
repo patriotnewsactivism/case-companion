@@ -756,7 +756,7 @@ serve(async (req) => {
       }
 
       try {
-        const modelsResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${googleApiKey}`);
+        const modelsResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models`, { headers: { 'x-goog-api-key': googleApiKey } });
         if (!modelsResponse.ok) {
           console.warn(`Unable to list Gemini models (${modelsResponse.status}). Falling back to preferred defaults.`);
           resolvedGeminiModels = preferredModels;
@@ -802,10 +802,10 @@ serve(async (req) => {
 
           try {
             const response = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${googleApiKey}`,
+              `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
               {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'x-goog-api-key': googleApiKey },
                 body: JSON.stringify(body),
               }
             );

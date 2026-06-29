@@ -132,17 +132,44 @@ Format your response as JSON with these fields:
       }),
     });
 
-    if (!aiResponse.ok) {
+    let aiResult: Record<string, unknown>;
+    
+    if (aiResponse.ok) {
+      const aiData = await aiResponse.json();
+      aiResult = JSON.parse(aiData.choices[0].message.content);
+    } else {
       const errorText = await aiResponse.text();
-      console.error("AI API error:", aiResponse.status, errorText);
-      return new Response(JSON.stringify({ error: "AI analysis failed" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      console.error("[settlement-analysis] Primary AI error:", aiResponse.status, errorText);
+      
+      // Fall back to OpenRouter on billing/auth errors
+      if ((aiResponse.status === 403 || aiResponse.status === 401) && OPENROUTER_API_KEY && !apiUrl.includes("openrouter")) {
+        console.warn("[settlement-analysis] Gemini billing error — falling back to OpenRouter");
+        const orModel = AI_GATEWAY_MODEL || "openai/gpt-oss-120b:free";
+        const orResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: orModel,
+            messages: [{ role: "user", content: prompt }],
+            response_format: { type: "json_object" },
+          }),
+        });
+        if (orResponse.ok) {
+          const orData = await orResponse.json();
+          aiResult = JSON.parse(orData.choices[0].message.content);
+        } else {
+          return new Response(JSON.stringify({ error: "AI analysis failed" }), {
+            status: 500,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+      } else {
+        return new Response(JSON.stringify({ error: "AI analysis failed" }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
     }
-
-    const aiData = await aiResponse.json();
-    const aiResult = JSON.parse(aiData.choices[0].message.content);
 
     // Update the settlement analysis record
     const { data: updated, error: updateError } = await supabase

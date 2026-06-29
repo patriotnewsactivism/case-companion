@@ -180,14 +180,44 @@ Guidelines:
       }),
     });
 
-    if (!aiResponse.ok) {
+    let generatedResponse = "";
+    
+    if (aiResponse.ok) {
+      const aiData = await aiResponse.json();
+      generatedResponse = aiData.choices?.[0]?.message?.content || "";
+    } else {
       const errorText = await aiResponse.text();
-      console.error("AI API error:", errorText);
-      throw new Error(`AI API error: ${aiResponse.status}`);
+      console.error("[discovery-response] Primary AI error:", aiResponse.status, errorText);
+      
+      // Fall back to OpenRouter on billing/auth errors
+      if ((aiResponse.status === 403 || aiResponse.status === 401) && OPENROUTER_API_KEY && !aiApiUrl.includes("openrouter")) {
+        console.warn("[discovery-response] Gemini billing error — falling back to OpenRouter");
+        const orModel = AI_GATEWAY_MODEL || "openai/gpt-oss-120b:free";
+        const orResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: orModel,
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: `Please draft a response to the following discovery request:\n\n${actualQuestion}` },
+            ],
+            temperature: 0.3,
+            max_tokens: 1500,
+          }),
+        });
+        if (orResponse.ok) {
+          const orData = await orResponse.json();
+          generatedResponse = orData.choices?.[0]?.message?.content || "";
+        } else {
+          throw new Error(`AI API error: ${aiResponse.status} (OpenRouter fallback also failed)`);
+        }
+      } else {
+        throw new Error(`AI API error: ${aiResponse.status}`);
+      }
     }
-
-    const aiData = await aiResponse.json();
-    const generatedResponse = aiData.choices?.[0]?.message?.content || "";
+    
+    if (!generatedResponse) throw new Error("AI returned empty response");
 
     const objectionsPrompt = `Based on the following discovery request, identify which objections might apply.
 Return ONLY a JSON array of objection types from this list (maximum 5):
