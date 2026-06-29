@@ -1001,6 +1001,104 @@ async function handleProcessAction(
   };
 }
 
+async function handleProcessUserAction(
+  supabase: SupabaseClient,
+  userId: string,
+  ocrSpaceApiKey: string | undefined,
+  googleApiKey: string | undefined,
+  openaiApiKey: string | undefined,
+  aiGatewayUrl: string | undefined,
+  openrouterApiKey?: string | undefined
+): Promise<QueueResponse> {
+  const now = new Date().toISOString();
+
+  const { data: pendingJobs, error: fetchError } = await supabase
+    .from('ocr_queue')
+    .select('*')
+    .eq('status', 'pending')
+    .eq('user_id', userId)
+    .or(`retry_after.is.null,retry_after.lte.${now}`)
+    .order('priority', { ascending: false })
+    .order('created_at', { ascending: true })
+    .limit(1);
+
+  if (fetchError) {
+    console.error('Failed to fetch pending jobs for user:', fetchError);
+    throw new Error(`Failed to fetch pending jobs: ${fetchError.message}`);
+  }
+
+  if (!pendingJobs || pendingJobs.length === 0) {
+    const { count } = await supabase
+      .from('ocr_queue')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'pending')
+      .eq('user_id', userId);
+
+    return { processed: 0, remaining: count || 0, failed: 0, jobs: [] };
+  }
+
+  const job = pendingJobs[0] as OcrQueueJob;
+
+  await supabase
+    .from('ocr_queue')
+    .update({ status: 'processing', updated_at: now })
+    .eq('id', job.id);
+
+  const result = await processOcrJob(
+    supabase, job, ocrSpaceApiKey, googleApiKey, openaiApiKey,
+    aiGatewayUrl, openrouterApiKey
+  );
+
+  if (result.success) {
+    await supabase
+      .from('ocr_queue')
+      .update({ status: 'completed', updated_at: new Date().toISOString() })
+      .eq('id', job.id);
+
+    return {
+      processed: 1, remaining: 0, failed: 0,
+      jobs: [{ id: job.id, documentId: job.document_id, status: 'completed' }]
+    };
+  }
+
+  const newAttempts = job.attempts + 1;
+  const isRateLimit = result.error?.includes('rate limit') || result.error?.includes('Rate limit');
+
+  if (newAttempts >= MAX_ATTEMPTS || !isRateLimit) {
+    await supabase
+      .from('ocr_queue')
+      .update({
+        status: 'failed', attempts: newAttempts,
+        error_message: result.error, updated_at: new Date().toISOString()
+      })
+      .eq('id', job.id);
+
+    return {
+      processed: 0, remaining: 0, failed: 1,
+      jobs: [{ id: job.id, documentId: job.document_id, status: 'failed', error: result.error }]
+    };
+  }
+
+  const backoffIndex = Math.min(job.attempts, BACKOFF_DELAYS.length - 1);
+  const retryAfter = new Date(Date.now() + BACKOFF_DELAYS[backoffIndex]).toISOString();
+
+  await supabase
+    .from('ocr_queue')
+    .update({
+      status: 'pending', attempts: newAttempts, retry_after: retryAfter,
+      error_message: result.error, updated_at: new Date().toISOString()
+    })
+    .eq('id', job.id);
+
+  return {
+    processed: 0, remaining: 1, failed: 0,
+    jobs: [{
+      id: job.id, documentId: job.document_id, status: 'pending',
+      error: `Rate limited, retry at ${retryAfter}`
+    }]
+  };
+}
+
 async function handleStatusAction(
   supabase: SupabaseClient,
   userId: string,
@@ -1280,17 +1378,36 @@ serve(async (req) => {
     const action = requestBody.action;
 
     if (action === 'process') {
-      if (!isServiceRole) {
-        return forbiddenResponse('Only service role can process queue', corsHeaders);
+      if (isServiceRole) {
+        const result = await handleProcessAction(
+          supabase,
+          ocrSpaceApiKey,
+          googleApiKey,
+          openaiApiKey,
+          aiGatewayUrl,
+          openrouterApiKey
+        );
+
+        return new Response(
+          JSON.stringify(result),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
       }
 
-      const result = await handleProcessAction(
+      // User-scoped processing: run one job belonging to the authenticated user
+      const userResult = await handleProcessUserAction(
         supabase,
+        userId,
         ocrSpaceApiKey,
         googleApiKey,
         openaiApiKey,
         aiGatewayUrl,
         openrouterApiKey
+      );
+
+      return new Response(
+        JSON.stringify(userResult),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
 
       return new Response(

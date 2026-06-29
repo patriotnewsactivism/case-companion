@@ -1118,11 +1118,7 @@ export default function CaseDetail() {
           const fileUrl = doc.file_url || uploadResult.storagePath 
             ? `${supabaseUrl}/storage/v1/object/public/case-documents/${uploadResult.storagePath}`
             : storageFallback;
-          if (fileUrl) {
-            enqueueForAnalysis(uploadResult.fileId, file.name, fileUrl);
-          } else {
-            console.warn('[Upload] Could not determine fileUrl for analysis — will need manual OCR trigger');
-          }
+          enqueueForAnalysis(uploadResult.fileId, file.name);
         }
       }
 
@@ -1530,12 +1526,8 @@ export default function CaseDetail() {
                             const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
                             for (const doc of uploadedDocs) {
                               const d = doc as unknown as UploadedDocumentMeta;
-                              const storageFallback = d.storage_path
-                                ? `${supabaseUrl}/storage/v1/object/public/case-documents/${d.storage_path}`
-                                : null;
-                              const fileUrl = d.file_url || storageFallback;
-                              if (d.id && fileUrl) {
-                                enqueueForAnalysis(d.id, d.name || d.file_name || 'document', fileUrl);
+                              if (d.id) {
+                                enqueueForAnalysis(d.id, d.name || d.file_name || 'document');
                               }
                             }
                           }}
