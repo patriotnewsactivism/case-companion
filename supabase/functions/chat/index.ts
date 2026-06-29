@@ -74,7 +74,7 @@ serve(async (req) => {
       );
 
       return new Response(JSON.stringify({
-        choices: [{ message: { role: "assistant", content }, finish_reason: "stop" } }],
+        choices: [{ message: { role: "assistant", content }, finish_reason: "stop" }],
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
