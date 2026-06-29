@@ -621,9 +621,7 @@ DO $$ BEGIN
     FOR SELECT USING (
       EXISTS (SELECT 1 FROM public.video_rooms WHERE id = room_id AND user_id = auth.uid())
     );
-EXCEPTION
-  WHEN duplicate_object THEN NULL
-  WHEN sqlstate '42703' THEN NULL;
+EXCEPTION WHEN duplicate_object OR sqlstate '42703' THEN NULL;
 END $$;
 
 DO $$ BEGIN
@@ -631,9 +629,7 @@ DO $$ BEGIN
     FOR INSERT WITH CHECK (
       EXISTS (SELECT 1 FROM public.video_rooms WHERE id = room_id AND user_id = auth.uid())
     );
-EXCEPTION
-  WHEN duplicate_object THEN NULL
-  WHEN sqlstate '42703' THEN NULL;
+EXCEPTION WHEN duplicate_object OR sqlstate '42703' THEN NULL;
 END $$;
 
 DO $$ BEGIN
