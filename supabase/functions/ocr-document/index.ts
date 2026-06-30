@@ -463,7 +463,7 @@ const buildHeuristicAnalysis = (text: string): HeuristicAnalysisResult => {
   const favorableCandidates = sentences.filter((s) => /\b(admit|confirmed|supports|favorable|complied|approved|paid|received|signed)\b/i.test(s));
   const adverseCandidates = sentences.filter((s) => /\b(deny|denied|dispute|late|overdue|breach|damaging|adverse|inconsistent|liability|default|failed)\b/i.test(s));
   const firstSentence = sentences[0]?.slice(0, 200) || '';
-  const generatedSummary = `Heuristic analysis of document text: ${firstSentence}${firstSentence ? '...' : ''} Identified ${timelineEvents.length} timeline events, ${factCandidates.length} potential facts.`;
+  const generatedSummary = `Document preview: ${firstSentence}${firstSentence ? '...' : ''} (Identified ${timelineEvents.length} timeline events, ${factCandidates.length} potential facts)`;
   return {
     summary: generatedSummary,
     keyFacts: uniqueTrimmed(factCandidates, 20),
