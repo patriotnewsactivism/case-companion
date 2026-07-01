@@ -657,6 +657,9 @@ serve(async (req) => {
     // All Gemini keys to try in order (filter out duplicates/empties)
     const allGeminiKeys = [...new Set([googleApiKey, geminiApiKey].filter(Boolean))] as string[];
 
+    const cohereApiKey = Deno.env.get('COHERE_API_KEY');
+    const hasCohere = !!cohereApiKey;
+
     // AI provider for analysis (OpenRouter free → Gemini → OpenAI)
     const openrouterApiKey = Deno.env.get('OPENROUTER_API_KEY');
     const openaiApiKey = Deno.env.get('OPENAI_API_KEY');
@@ -669,8 +672,8 @@ serve(async (req) => {
     const hasGoogleVision = isGoogleVisionConfigured();
     const geminiModelCandidates = getPreferredGeminiCandidates(Deno.env.get('GOOGLE_AI_MODEL'));
 
-    console.log(`OCR providers: GoogleVision=${hasGoogleVision}, Gemini=${hasGemini}, Tesseract=false, OCR.space=${hasOcrSpace}`);
-    console.log(`Analysis providers: OpenAI/OpenRouter=${hasOpenAI}, Gemini=${hasGemini}`);
+    console.log(`OCR providers: Cohere=${hasCohere}, GoogleVision=${hasGoogleVision}, Gemini=${hasGemini}, Tesseract=false, OCR.space=${hasOcrSpace}`);
+    console.log(`Analysis providers: Cohere=${hasCohere}, OpenAI/OpenRouter=${hasOpenAI}, Gemini=${hasGemini}`);
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || Deno.env.get('SERVICE_ROLE_KEY');
@@ -901,6 +904,53 @@ serve(async (req) => {
       return text;
     };
 
+    const cohereOcr = async (fileBlob: Blob, mimeType: string, isImage: boolean) => {
+      if (!cohereApiKey) throw new Error('Cohere API key not configured');
+      const arrayBuffer = await fileBlob.arrayBuffer();
+      const base64 = arrayBufferToBase64(arrayBuffer);
+
+      const prompt = isImage
+        ? `You are a professional legal document OCR system. Extract ALL text from this image with the highest possible accuracy. Preserve exact formatting, line breaks, headings, tables, stamps, dates, signatures, marginalia, Bates numbers, exhibit numbers, and document identifiers. Return plain text only.`
+        : `You are a professional legal document OCR system. Extract ALL text from every page of this document with the highest possible accuracy. Preserve exact formatting, line breaks, headings, tables, stamps, dates, signatures, marginalia, Bates numbers, exhibit numbers, and document identifiers. Prefix each page with "=== PAGE X ===". Return plain text only.`;
+
+      const response = await fetch('https://api.cohere.com/v2/chat', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${cohereApiKey}`,
+          'Content-Type': 'application/json',
+          'X-Client-Name': 'case-companion-ocr'
+        },
+        body: JSON.stringify({
+          model: 'command-a-vision-07-2025',
+          messages: [
+            {
+              role: 'user',
+              content: [
+                { type: 'text', text: prompt },
+                {
+                  type: 'image_url',
+                  image_url: { url: `data:${mimeType};base64,${base64}` }
+                }
+              ]
+            }
+          ],
+          temperature: 0.1,
+          max_tokens: 4000
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Cohere OCR failed: ${await response.text()}`);
+      }
+
+      const data = await response.json();
+      const text = data?.message?.content?.filter((p: any) => p.type === 'text').map((p: any) => p.text).join('').trim() || '';
+      
+      if (!text) throw new Error('Cohere returned empty OCR text');
+      console.log('Cohere OCR succeeded');
+      return text;
+    };
+
     const ocrSpaceExtract = async (blob, isImage, ct) => {
       if (!ocrSpaceApiKey) throw new Error('OCR.space API key not configured');
       console.log('Using OCR.space fallback...');
@@ -1005,6 +1055,19 @@ serve(async (req) => {
         }
       }
 
+      // Tier 1.5: Cohere Vision OCR
+      if (!extractedText && hasCohere && isImage) {
+        try {
+          console.log('Attempting Cohere OCR (command-a-vision)...');
+          const mimeType = resolvedContentType || 'image/jpeg';
+          extractedText = await cohereOcr(fileBlob, mimeType, isImage);
+          ocrProvider = 'cohere';
+        } catch (error) {
+          console.error('Cohere OCR error:', error);
+          errors.push(`Cohere: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+
       // Tier 2: Gemini 2.5 Pro (best multimodal AI for legal docs — tables, stamps, Bates numbers)
       if (!extractedText && hasGemini) {
         try {
@@ -1066,19 +1129,78 @@ serve(async (req) => {
       extractedText &&
       extractedText.length > 50 &&
       !extractedText.startsWith('[File type') &&
-      (hasOpenAI || hasGemini)
+      (hasOpenAI || hasGemini || hasCohere)
     );
 
     if (hasSubstantialText) {
       console.log('Analyzing extracted text with AI (chunked)...');
-      const textChunks = buildTextChunks(
-        extractedText,
-        ANALYSIS_CHUNK_CHAR_LIMIT,
-        ANALYSIS_CHUNK_OVERLAP
-      );
+      
+      const parseAnalysisJson = (content: string) => {
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) return null;
+        const parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
+        return {
+          summary: String(parsed.summary || ''),
+          keyFacts: Array.isArray(parsed.key_facts) ? parsed.key_facts.map((i) => String(i)) : [],
+          favorableFindings: Array.isArray(parsed.favorable_findings) ? parsed.favorable_findings.map((i) => String(i)) : [],
+          adverseFindings: Array.isArray(parsed.adverse_findings) ? parsed.adverse_findings.map((i) => String(i)) : [],
+          actionItems: Array.isArray(parsed.action_items) ? parsed.action_items.map((i) => String(i)) : [],
+          timelineEvents: Array.isArray(parsed.timeline_events) ? (parsed.timeline_events as unknown[]) : [],
+          entities: Array.isArray(parsed.entities) ? parsed.entities : [],
+        };
+      };
 
-      // ── Process chunks in parallel batches (max 3 concurrent AI calls) ──
-      const CHUNK_CONCURRENCY = 3;
+      // If we have Cohere and text is < 200,000 characters, do it in a single pass (bypassing chunks)
+      if (hasCohere && extractedText.length <= 200000) {
+        console.log('Using Cohere single-pass analysis due to large context window...');
+        const prompt = buildAnalysisPrompt(extractedText, '', MAX_TIMELINE_EVENTS);
+        try {
+          const response = await fetch('https://api.cohere.com/v2/chat', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${cohereApiKey}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              model: 'command-a-plus-05-2026',
+              messages: [{ role: 'user', content: prompt }],
+              temperature: 0.1,
+              max_tokens: 4000
+            })
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            const content = data?.message?.content?.filter((p: any) => p.type === 'text').map((p: any) => p.text).join('') || '';
+            const parsed = parseAnalysisJson(content);
+            if (parsed) {
+              analysisProvider = 'cohere';
+              summary = parsed.summary;
+              keyFacts = parsed.keyFacts;
+              favorableFindings = parsed.favorableFindings;
+              adverseFindings = parsed.adverseFindings;
+              actionItems = parsed.actionItems;
+              timelineEvents = parsed.timelineEvents;
+              extractedEntities = parsed.entities;
+            }
+          } else {
+            console.warn(`Cohere single-pass analysis failed: ${await response.text()}`);
+          }
+        } catch (e) {
+          console.error('Cohere single-pass analysis error:', e);
+        }
+      }
+      
+      if (analysisProvider === 'none') {
+        // Fall back to chunking logic
+        const textChunks = buildTextChunks(
+          extractedText,
+          ANALYSIS_CHUNK_CHAR_LIMIT,
+          ANALYSIS_CHUNK_OVERLAP
+        );
+
+        // ── Process chunks in parallel batches (max 3 concurrent AI calls) ──
+        const CHUNK_CONCURRENCY = 3;
 
       type ChunkProviderResult = { result: StructuredChunkAnalysis | null; provider: 'gemini' | 'openai' | null };
 
@@ -1199,20 +1321,11 @@ ${textChunk}`;
         if (!chunkContent) return { result: null, provider: null };
 
         try {
-          const jsonMatch = chunkContent.match(/\{[\s\S]*\}/);
-          if (!jsonMatch) return { result: null, provider: null };
-          const parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
+          const parsed = parseAnalysisJson(chunkContent);
+          if (!parsed) return { result: null, provider: null };
           return {
             provider: chunkProvider,
-            result: {
-              summary: String(parsed.summary || ''),
-              keyFacts: Array.isArray(parsed.key_facts) ? parsed.key_facts.map((i) => String(i)) : [],
-              favorableFindings: Array.isArray(parsed.favorable_findings) ? parsed.favorable_findings.map((i) => String(i)) : [],
-              adverseFindings: Array.isArray(parsed.adverse_findings) ? parsed.adverse_findings.map((i) => String(i)) : [],
-              actionItems: Array.isArray(parsed.action_items) ? parsed.action_items.map((i) => String(i)) : [],
-              timelineEvents: Array.isArray(parsed.timeline_events) ? (parsed.timeline_events as unknown[]) : [],
-              entities: Array.isArray(parsed.entities) ? parsed.entities : [],
-            },
+            result: parsed
           };
         } catch (err) {
           console.error(`Failed to parse chunk ${index + 1} JSON:`, err);
@@ -1247,6 +1360,7 @@ ${textChunk}`;
         timelineEvents = merged.timelineEvents;
         extractedEntities = merged.entities;
       }
+      } // Close if (analysisProvider === 'none')
     }
 
     // === Analysis Tier 3: Heuristic fallback ===
