@@ -55,6 +55,52 @@ Return a JSON object with this EXACT structure:
   "classification": "favorable|adverse|neutral|mixed"
 }`;
 
+
+async function callCohereDoc(text: string, context: string | undefined, apiKey: string): Promise<unknown> {
+  const systemPrompt = `You are an expert legal document analyst. You analyze documents with the precision and thoroughness expected by trial attorneys. You MUST return valid JSON matching the exact schema provided.
+
+Your analysis must:
+1. Extract every material fact with its significance to litigation
+2. Identify all entities (people, organizations, dates, locations, dollar amounts)
+3. Flag potential inconsistencies with other case materials
+4. Identify timeline events with specific dates
+5. Flag potential privilege issues (attorney-client, work product, etc.)
+6. Flag potential hearsay issues and note applicable exceptions
+7. Note authentication requirements (who can lay foundation for this exhibit)
+8. Classify the document's overall impact as favorable, adverse, neutral, or mixed
+
+CRITICAL: You are assisting, not replacing, legal judgment. Flag issues for attorney review.`;
+
+  const res = await fetch('https://api.cohere.com/v2/chat', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      'X-Client-Name': 'case-companion',
+    },
+    body: JSON.stringify({
+      model: 'command-a-plus-05-2026',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: LEGAL_ANALYSIS_USER_PROMPT(text, context) },
+      ],
+      max_tokens: 8192,
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(`Cohere error (${res.status}): ${(err as any).message}`);
+  }
+
+  const data = await res.json();
+  const parts = (data as any).message?.content || [];
+  const rawText = parts.filter((p: any) => p.type === 'text').map((p: any) => p.text || '').join('').trim();
+  const match = rawText.match(/\{[\s\S]*\}/);
+  if (!match) throw new Error('Cohere: no JSON in response');
+  return JSON.parse(match[0]);
+}
+
 export async function analyzeDocument(
   documentText: string,
   caseContext?: string,
@@ -70,7 +116,21 @@ export async function analyzeDocument(
     }
   }
   
-  // STEP 2: Try Gemini Flash first (FREE 1,500/day)
+  // STEP 2: Cohere command-a-plus-05-2026 (256K context — ideal for long case docs)
+  const cohereApiKey = typeof process !== 'undefined'
+    ? process.env?.COHERE_API_KEY
+    : undefined;
+  if (cohereApiKey) {
+    try {
+      const result = await callCohereDoc(documentText, caseContext, cohereApiKey);
+      await CacheManager.storeAICache(contentHash, 'legal_analysis', PROMPT_VERSION, result, 'command-a-plus-05-2026', 0);
+      return { ...result, model: 'command-a-plus-05-2026', cached: false };
+    } catch (e) {
+      console.warn('[case-companion] Cohere failed, falling through to Gemini:', e);
+    }
+  }
+
+  // STEP 3: Try Gemini Flash (FREE 1,500/day)
   if (await isProviderAvailable('gemini_ai')) {
     try {
       const result = await callGeminiFlash(documentText, caseContext);
