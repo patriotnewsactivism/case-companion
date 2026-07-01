@@ -663,17 +663,19 @@ serve(async (req) => {
     // AI provider for analysis (OpenRouter free → Gemini → OpenAI)
     const openrouterApiKey = Deno.env.get('OPENROUTER_API_KEY');
     const openaiApiKey = Deno.env.get('OPENAI_API_KEY');
+    const cohereApiKey = Deno.env.get('COHERE_API_KEY');
     const aiGatewayUrl = Deno.env.get('AI_GATEWAY_URL');
     const aiGatewayModel = Deno.env.get('AI_GATEWAY_MODEL') || 'openai/gpt-oss-120b:free';
     const hasOpenAI = !!(aiGatewayUrl || openrouterApiKey || openaiApiKey);
+    const hasCohere = !!cohereApiKey;
 
     const hasOcrSpace = !!ocrSpaceApiKey;
     const hasGemini = allGeminiKeys.length > 0;
     const hasGoogleVision = isGoogleVisionConfigured();
     const geminiModelCandidates = getPreferredGeminiCandidates(Deno.env.get('GOOGLE_AI_MODEL'));
 
-    console.log(`OCR providers: Cohere=${hasCohere}, GoogleVision=${hasGoogleVision}, Gemini=${hasGemini}, Tesseract=false, OCR.space=${hasOcrSpace}`);
-    console.log(`Analysis providers: Cohere=${hasCohere}, OpenAI/OpenRouter=${hasOpenAI}, Gemini=${hasGemini}`);
+    console.log(`OCR providers: GoogleVision=${hasGoogleVision}, Gemini=${hasGemini}, Tesseract=false, OCR.space=${hasOcrSpace}`);
+    console.log(`Analysis providers: OpenAI/OpenRouter=${hasOpenAI}, Gemini=${hasGemini}, Cohere=${hasCohere}`);
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || Deno.env.get('SERVICE_ROLE_KEY');
@@ -1115,7 +1117,7 @@ serve(async (req) => {
     }
 
     // ===== AI ANALYSIS =====
-    // Chain: Azure OpenAI (GPT-4o) → Gemini Flash → Heuristic
+    // Chain: Gemini Flash → OpenAI/OpenRouter → Cohere → Heuristic
     let keyFacts: string[] = [];
     let favorableFindings: string[] = [];
     let adverseFindings: string[] = [];
@@ -1123,7 +1125,7 @@ serve(async (req) => {
     let summary = '';
     let timelineEvents: unknown[] = [];
     let extractedEntities: unknown[] = [];
-    let analysisProvider: 'gemini' | 'openai' | 'heuristic' | 'none' = 'none';
+    let analysisProvider: 'gemini' | 'openai' | 'cohere' | 'heuristic' | 'none' = 'none';
 
     const hasSubstantialText = Boolean(
       extractedText &&
@@ -1202,7 +1204,7 @@ serve(async (req) => {
         // ── Process chunks in parallel batches (max 3 concurrent AI calls) ──
         const CHUNK_CONCURRENCY = 3;
 
-      type ChunkProviderResult = { result: StructuredChunkAnalysis | null; provider: 'gemini' | 'openai' | null };
+      type ChunkProviderResult = { result: StructuredChunkAnalysis | null; provider: 'gemini' | 'openai' | 'cohere' | null };
 
       const processChunk = async (index: number, textChunk: string): Promise<ChunkProviderResult> => {
         const totalChunks = textChunks.length;
@@ -1255,7 +1257,7 @@ Chunk ${index + 1} of ${totalChunks}:
 ${textChunk}`;
 
         let chunkContent = '';
-        let chunkProvider: 'gemini' | 'openai' | null = null;
+        let chunkProvider: 'gemini' | 'openai' | 'cohere' | null = null;
 
         if (hasGemini) {
           try {
@@ -1318,6 +1320,33 @@ ${textChunk}`;
           }
         }
 
+        if (!chunkContent && hasCohere) {
+          try {
+            const cohereResponse = await fetch('https://api.cohere.com/v2/chat', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${cohereApiKey}` },
+              body: JSON.stringify({
+                model: 'command-a-03-2025',
+                messages: [{ role: 'user', content: chunkPrompt }],
+                temperature: 0.1,
+                response_format: { type: 'json_object' },
+              }),
+            });
+            if (cohereResponse.ok) {
+              const cohereData = await cohereResponse.json();
+              const contentBlocks = cohereData?.message?.content;
+              chunkContent = Array.isArray(contentBlocks)
+                ? contentBlocks.map((b: { text?: string }) => b?.text || '').join('')
+                : '';
+              if (chunkContent) chunkProvider = 'cohere';
+            } else {
+              console.error(`Cohere chunk ${index + 1} failed:`, await cohereResponse.text());
+            }
+          } catch (err) {
+            console.error(`Cohere chunk ${index + 1} error:`, err);
+          }
+        }
+
         if (!chunkContent) return { result: null, provider: null };
 
         try {
@@ -1344,7 +1373,7 @@ ${textChunk}`;
           if (outcome.status === 'fulfilled' && outcome.value.result) {
             chunkResults.push(outcome.value.result);
             if (!analysisProvider || analysisProvider === 'none') {
-              analysisProvider = outcome.value.provider === 'gemini' ? 'gemini' : 'openai';
+              analysisProvider = outcome.value.provider ?? 'openai';
             }
           }
         }
