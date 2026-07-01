@@ -11,6 +11,7 @@ import { verifyAuth, forbiddenResponse } from '../_shared/auth.ts';
 import { validateUUID, validateURL } from '../_shared/validation.ts';
 import { getGenerateContentCapableGeminiModels, 
 getPreferredGeminiCandidates, rankGeminiModels } from '../_shared/gemini-model-utils.ts';
+import { googleVisionOcr, isGoogleVisionConfigured } from '../_shared/google-vision.ts';
 const STORAGE_BUCKET = 'case-documents';
 
 interface OcrSpaceParsedResult {
@@ -665,9 +666,10 @@ serve(async (req) => {
 
     const hasOcrSpace = !!ocrSpaceApiKey;
     const hasGemini = allGeminiKeys.length > 0;
+    const hasGoogleVision = isGoogleVisionConfigured();
     const geminiModelCandidates = getPreferredGeminiCandidates(Deno.env.get('GOOGLE_AI_MODEL'));
 
-    console.log(`OCR providers: Gemini=${hasGemini}, Tesseract=false, OCR.space=${hasOcrSpace}`);
+    console.log(`OCR providers: GoogleVision=${hasGoogleVision}, Gemini=${hasGemini}, Tesseract=false, OCR.space=${hasOcrSpace}`);
     console.log(`Analysis providers: OpenAI/OpenRouter=${hasOpenAI}, Gemini=${hasGemini}`);
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
@@ -990,7 +992,20 @@ serve(async (req) => {
         throw new Error(`Document is too large for edge OCR (${(fileBlob.size / 1024 / 1024).toFixed(2)}MB). The limit for scanned OCR processing is 12MB. Please compress the PDF or split it into smaller documents.`);
       }
 
-      // Tier 1: Gemini 2.5 Pro (best multimodal AI for legal docs — tables, stamps, Bates numbers)
+      // Tier 1: Google Cloud Vision (DOCUMENT_TEXT_DETECTION — purpose-built OCR,
+      // typically best for dense text, tables, stamps, and scanned legal documents)
+      if (!extractedText && hasGoogleVision) {
+        try {
+          console.log('Attempting Google Cloud Vision OCR (primary)...');
+          extractedText = await googleVisionOcr(fileBlob, isImage);
+          ocrProvider = 'google_cloud_vision';
+        } catch (error) {
+          console.error('Google Cloud Vision OCR error:', error);
+          errors.push(`Google Cloud Vision: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+
+      // Tier 2: Gemini 2.5 Pro (best multimodal AI for legal docs — tables, stamps, Bates numbers)
       if (!extractedText && hasGemini) {
         try {
           console.log('Attempting Gemini OCR (primary — best for legal documents)...');
@@ -1348,3 +1363,4 @@ ${textChunk}`;
     return createErrorResponse(error instanceof Error ? error : new Error('An unknown error occurred'), 500, 'ocr-document', getCorsHeaders(req));
   }
 });
+
