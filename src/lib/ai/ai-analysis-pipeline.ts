@@ -89,13 +89,13 @@ CRITICAL: You are assisting, not replacing, legal judgment. Flag issues for atto
   });
 
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(`Cohere error (${res.status}): ${(err as any).message}`);
+    const err = await res.json().catch(() => ({} as { message?: string }));
+    throw new Error(`Cohere error (${res.status}): ${(err as { message?: string }).message}`);
   }
 
-  const data = await res.json();
-  const parts = (data as any).message?.content || [];
-  const rawText = parts.filter((p: any) => p.type === 'text').map((p: any) => p.text || '').join('').trim();
+  const data = await res.json() as { message?: { content?: Array<{ type: string; text?: string }> } };
+  const parts = data.message?.content || [];
+  const rawText = parts.filter((p: { type: string; text?: string }) => p.type === 'text').map((p) => p.text || '').join('').trim();
   const match = rawText.match(/\{[\s\S]*\}/);
   if (!match) throw new Error('Cohere: no JSON in response');
   return JSON.parse(match[0]);

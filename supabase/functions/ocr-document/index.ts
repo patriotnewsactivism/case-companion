@@ -171,6 +171,7 @@ const arrayBufferToBase64 = (buffer: ArrayBuffer): string => {
 // OCR on scanned/corrupted PDFs. Keeps \t and \n.
 const sanitizeForPostgres = (text: string): string =>
   text
+    // eslint-disable-next-line no-control-regex
     .replace(/\u0000/g, '') // NUL — the specific cause of the Postgres error
     // eslint-disable-next-line no-control-regex
     .replace(/[\u0001-\u0008\u000B\u000C\u000E-\u001F]/g, '') // other C0 control chars
@@ -957,7 +958,7 @@ serve(async (req) => {
       }
 
       const data = await response.json();
-      const text = data?.message?.content?.filter((p: any) => p.type === 'text').map((p: any) => p.text).join('').trim() || '';
+      const text = data?.message?.content?.filter((p: { type: string; text?: string }) => p.type === 'text').map((p: { type: string; text?: string }) => p.text).join('').trim() || '';
       
       if (!text) throw new Error('Cohere returned empty OCR text');
       console.log('Cohere OCR succeeded');
@@ -1184,7 +1185,7 @@ serve(async (req) => {
           
           if (response.ok) {
             const data = await response.json();
-            const content = data?.message?.content?.filter((p: any) => p.type === 'text').map((p: any) => p.text).join('') || '';
+            const content = data?.message?.content?.filter((p: { type: string; text?: string }) => p.type === 'text').map((p: { type: string; text?: string }) => p.text).join('') || '';
             const parsed = parseAnalysisJson(content);
             if (parsed) {
               analysisProvider = 'cohere';
