@@ -1,6 +1,7 @@
 import { loadMemory, consolidateMemory } from "./agentMemory";
 import { loadWorkflows } from "./agentOrchestrator";
 import type { AgentId, BackgroundTask } from "./types";
+import { AGENT_CONFIG } from "@/config/agentConfig";
 
 type TaskListener = (tasks: BackgroundTask[]) => void;
 const taskListeners = new Set<TaskListener>();
@@ -114,7 +115,7 @@ async function processTask(task: BackgroundTask): Promise<void> {
     task.status = "failed";
     task.error = err instanceof Error ? err.message : String(err);
     task.retryCount = (task.retryCount ?? 0) + 1;
-    if ((task.retryCount ?? 0) < 3) {
+    if ((task.retryCount ?? 0) < AGENT_CONFIG.background.maxRetries) {
       task.status = "pending";
     }
   }
@@ -131,7 +132,7 @@ async function processQueue(): Promise<void> {
       return (p[a.priority] ?? 2) - (p[b.priority] ?? 2);
     });
 
-  for (const task of pending.slice(0, 3)) {
+  for (const task of pending.slice(0, AGENT_CONFIG.background.maxConcurrentTasks)) {
     await processTask(task);
   }
 }
@@ -156,7 +157,7 @@ async function processScheduled(): Promise<void> {
 
 export const backgroundEngine = {
   start(): void {
-    if (running) return;
+    if (running || !AGENT_CONFIG.background.enabled) return;
     running = true;
     tasks = loadTasks();
 
@@ -172,7 +173,7 @@ export const backgroundEngine = {
           activePairs.add(`${t.agentId}:${t.caseId}`);
         }
       }
-    }, 15000);
+    }, AGENT_CONFIG.background.schedulerIntervalMs);
   },
 
   stop(): void {

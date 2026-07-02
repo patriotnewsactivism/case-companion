@@ -4,8 +4,9 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getAgentById } from "@/agents/personas";
-import { runReasoning } from "@/services/agents/agentReasoning";
-import { selectReasoningMode } from "@/services/agents/agentReasoning";
+import { runReasoning, selectReasoningMode } from "@/services/agents/agentReasoning";
+import { recordFeedback } from "@/services/agents/agentLearning";
+import { ThumbsUp, ThumbsDown } from "lucide-react";
 import type { AgentId, ReasoningMode } from "@/services/agents/types";
 
 interface ChatMessage {
@@ -13,6 +14,8 @@ interface ChatMessage {
   role: "user" | "agent";
   content: string;
   timestamp: number;
+  feedback?: "positive" | "negative";
+  mode?: ReasoningMode;
 }
 
 interface AgentChatProps {
@@ -46,6 +49,21 @@ export function AgentChat({ agentId, caseId, caseContext }: AgentChatProps) {
     ]);
   }, [agentId, agent?.name, agent?.title]);
 
+  const handleFeedback = (msgId: string, feedback: "positive" | "negative") => {
+    const msg = messages.find((m) => m.id === msgId);
+    if (!msg || msg.feedback) return; // Can't change feedback once given
+
+    setMessages((prev) =>
+      prev.map((m) => (m.id === msgId ? { ...m, feedback } : m))
+    );
+
+    // Record feedback for the learning engine
+    recordFeedback(agentId, caseId, messages.indexOf(msg), feedback, {
+      mode: msg.mode,
+      contentLength: msg.content.length,
+    }).catch(() => { /* silent — learning is best-effort */ });
+  };
+
   const handleSend = async () => {
     if (!input.trim() || loading) return;
 
@@ -75,6 +93,7 @@ export function AgentChat({ agentId, caseId, caseContext }: AgentChatProps) {
         role: "agent",
         content: result.synthesis,
         timestamp: Date.now(),
+        mode,
       };
 
       setMessages((prev) => [...prev, agentMsg]);
@@ -106,6 +125,7 @@ export function AgentChat({ agentId, caseId, caseContext }: AgentChatProps) {
           >
             <option value="standard">Standard</option>
             <option value="deep-think">Deep Think</option>
+            <option value="expert-panel">Expert Panel</option>
             <option value="adversarial">Adversarial</option>
           </select>
         </div>
@@ -118,19 +138,51 @@ export function AgentChat({ agentId, caseId, caseContext }: AgentChatProps) {
                 key={msg.id}
                 className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
               >
-                <div
-                  className={`max-w-[80%] rounded-lg px-4 py-2 text-sm ${
-                    msg.role === "user"
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted"
-                  }`}
-                >
-                  {msg.role === "agent" && (
-                    <span className="text-xs font-medium text-muted-foreground block mb-1">
-                      {agent?.name || "Agent"}
-                    </span>
+                <div className="max-w-[80%]">
+                  <div
+                    className={`rounded-lg px-4 py-2 text-sm ${
+                      msg.role === "user"
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted"
+                    }`}
+                  >
+                    {msg.role === "agent" && (
+                      <span className="text-xs font-medium text-muted-foreground block mb-1">
+                        {agent?.name || "Agent"}
+                        {msg.mode && msg.mode !== "standard" && (
+                          <span className="ml-2 text-accent">· {msg.mode}</span>
+                        )}
+                      </span>
+                    )}
+                    <div className="whitespace-pre-wrap">{msg.content}</div>
+                  </div>
+                  {/* Feedback buttons for agent responses (not welcome/error messages) */}
+                  {msg.role === "agent" && msg.id !== "welcome" && !msg.id.startsWith("error_") && (
+                    <div className="flex gap-2 mt-1 ml-1">
+                      <button
+                        onClick={() => handleFeedback(msg.id, "positive")}
+                        className={`p-1 rounded transition-colors ${
+                          msg.feedback === "positive"
+                            ? "text-green-600 bg-green-50"
+                            : "text-muted-foreground hover:text-foreground"
+                        }`}
+                        title="Good response"
+                      >
+                        <ThumbsUp className="h-3 w-3" />
+                      </button>
+                      <button
+                        onClick={() => handleFeedback(msg.id, "negative")}
+                        className={`p-1 rounded transition-colors ${
+                          msg.feedback === "negative"
+                            ? "text-red-600 bg-red-50"
+                            : "text-muted-foreground hover:text-foreground"
+                        }`}
+                        title="Poor response"
+                      >
+                        <ThumbsDown className="h-3 w-3" />
+                      </button>
+                    </div>
                   )}
-                  <div className="whitespace-pre-wrap">{msg.content}</div>
                 </div>
               </div>
             ))}
