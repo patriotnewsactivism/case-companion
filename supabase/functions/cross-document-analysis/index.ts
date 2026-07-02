@@ -144,7 +144,7 @@ Respond with ONLY valid JSON in this exact structure:
     // AI provider selection via shared config
     const config = getFastAIProvider();
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
 
     const response = await fetch(config.apiUrl, {
       method: "POST",
@@ -162,7 +162,7 @@ Respond with ONLY valid JSON in this exact structure:
     if (!response.ok) {
       const t = await response.text();
       console.error("AI error:", response.status, t);
-      return new Response(JSON.stringify({ error: "AI analysis failed" }), {
+      return new Response(JSON.stringify({ error: `AI analysis failed (${response.status}): ${t.slice(0, 200)}` }), {
         status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }

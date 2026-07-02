@@ -1419,13 +1419,35 @@ ${textChunk}`;
 
     const hasAnalysis = summary.length > 0 || keyFacts.length > 0 || favorableFindings.length > 0 || adverseFindings.length > 0 || actionItems.length > 0 || timelineEvents.length > 0;
 
-    // Safety net: sanitize all AI-derived string fields too, in case any
-    // raw OCR artifacts (NUL bytes, control chars) leaked through analysis.
+    // Safety net: sanitize ALL text that goes into Postgres — OCR output
+    // frequently contains NUL bytes, lone surrogates, and C0 control chars
+    // that Postgres rejects with "unsupported Unicode escape sequence".
+    extractedText = sanitizeForPostgres(extractedText);
     summary = sanitizeForPostgres(summary);
     keyFacts = keyFacts.map(sanitizeForPostgres);
     favorableFindings = favorableFindings.map(sanitizeForPostgres);
     adverseFindings = adverseFindings.map(sanitizeForPostgres);
     actionItems = actionItems.map(sanitizeForPostgres);
+    // Recursively sanitize string values inside entities and tables
+    extractedEntities = extractedEntities.map(e => {
+      if (typeof e === 'string') return sanitizeForPostgres(e);
+      if (e && typeof e === 'object') {
+        const obj = e as Record<string, unknown>;
+        for (const k of Object.keys(obj)) {
+          if (typeof obj[k] === 'string') obj[k] = sanitizeForPostgres(obj[k] as string);
+        }
+      }
+      return e;
+    });
+    extractedTables = extractedTables.map(t => {
+      if (t && typeof t === 'object') {
+        const obj = t as Record<string, unknown>;
+        for (const k of Object.keys(obj)) {
+          if (typeof obj[k] === 'string') obj[k] = sanitizeForPostgres(obj[k] as string);
+        }
+      }
+      return t;
+    });
 
     const updateData: Record<string, unknown> = {
       ocr_text: extractedText,
