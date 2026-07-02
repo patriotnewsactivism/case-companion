@@ -166,8 +166,19 @@ const arrayBufferToBase64 = (buffer: ArrayBuffer): string => {
   return btoa(binary);
 };
 
+// Strip NUL bytes, lone surrogates, and other control chars that Postgres/JSONB
+// rejects with "unsupported Unicode escape sequence" — common artifacts from
+// OCR on scanned/corrupted PDFs. Keeps \t and \n.
+const sanitizeForPostgres = (text: string): string =>
+  text
+    .replace(/\u0000/g, '') // NUL — the specific cause of the Postgres error
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0001-\u0008\u000B\u000C\u000E-\u001F]/g, '') // other C0 control chars
+    .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, ''); // lone surrogates
+
 const normalizeExtractedText = (text: string) =>
-  text.replace(/\r\n/g, '\n').replace(/[ \t]+\n/g, '\n').replace(/\n{4,}/g, '\n\n\n').trim();
+  sanitizeForPostgres(text)
+    .replace(/\r\n/g, '\n').replace(/[ \t]+\n/g, '\n').replace(/\n{4,}/g, '\n\n\n').trim();
 
 const extractGeminiText = (payload: GeminiResponse): string => {
   const parts = payload?.candidates?.[0]?.content?.parts;
@@ -1406,6 +1417,14 @@ ${textChunk}`;
     }
 
     const hasAnalysis = summary.length > 0 || keyFacts.length > 0 || favorableFindings.length > 0 || adverseFindings.length > 0 || actionItems.length > 0 || timelineEvents.length > 0;
+
+    // Safety net: sanitize all AI-derived string fields too, in case any
+    // raw OCR artifacts (NUL bytes, control chars) leaked through analysis.
+    summary = sanitizeForPostgres(summary);
+    keyFacts = keyFacts.map(sanitizeForPostgres);
+    favorableFindings = favorableFindings.map(sanitizeForPostgres);
+    adverseFindings = adverseFindings.map(sanitizeForPostgres);
+    actionItems = actionItems.map(sanitizeForPostgres);
 
     const updateData: Record<string, unknown> = {
       ocr_text: extractedText,
