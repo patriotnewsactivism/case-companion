@@ -17,7 +17,31 @@ export type AgentId =
   | "drafting-agent"
   | "jury-agent"
   | "timeline-agent"
-  | "client-agent";
+  | "client-agent"
+  | "paralegal-criminal-1"
+  | "paralegal-criminal-2"
+  | "paralegal-pi-1"
+  | "paralegal-pi-2"
+  | "paralegal-family-1"
+  | "paralegal-family-2"
+  | "paralegal-immigration-1"
+  | "paralegal-immigration-2"
+  | "paralegal-ip-1"
+  | "paralegal-ip-2"
+  | "paralegal-corporate-1"
+  | "paralegal-corporate-2"
+  | "paralegal-employment-1"
+  | "paralegal-employment-2"
+  | "paralegal-realestate-1"
+  | "paralegal-realestate-2"
+  | "paralegal-bankruptcy-1"
+  | "paralegal-bankruptcy-2"
+  | "paralegal-civil-1"
+  | "paralegal-civil-2"
+  | "paralegal-estate-1"
+  | "paralegal-estate-2"
+  | "paralegal-tax-1"
+  | "paralegal-tax-2";
 
 export type AgentStatus = "idle" | "working" | "done" | "error";
 export type WorkflowStatus = "pending" | "running" | "completed" | "failed";
