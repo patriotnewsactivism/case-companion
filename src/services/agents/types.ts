@@ -88,6 +88,24 @@ export interface AgentPattern {
   category: string;
 }
 
+export interface LearningEvent {
+  id: string;
+  agentId: AgentId;
+  caseId: string;
+  action: string;
+  outcome: 'success' | 'failure' | 'neutral';
+  userFeedback?: 'positive' | 'negative';
+  context: Record<string, unknown>;
+  timestamp: number;
+}
+
+export interface ReasoningModeConfig {
+  enabled: boolean;
+  maxTokens: number;
+  steps?: number;
+  selfCritique?: boolean;
+}
+
 export interface WorkflowStep {
   id: string;
   agentId: AgentId;

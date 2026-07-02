@@ -31,6 +31,7 @@ import {
   Layers,
   FlaskConical,
   Clock,
+  BarChart3,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
@@ -52,6 +53,8 @@ const navItems = [
   { path: "/conflicts", label: "Conflict Check", icon: Shield },
   { path: "/judicial-intelligence", label: "Judicial Intel", icon: Landmark },
   { path: "/intake", label: "Intake Inbox", icon: Mail },
+  { path: "/analytics", label: "Analytics", icon: BarChart3 },
+  { path: "/mock-jury", label: "Mock Jury", icon: Scale },
   { path: "/settings", label: "Settings", icon: Settings },
 ];
 
