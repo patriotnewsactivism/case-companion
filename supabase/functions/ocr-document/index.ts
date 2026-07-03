@@ -675,11 +675,9 @@ serve(async (req) => {
     // AI provider for analysis (OpenRouter free → Gemini → OpenAI)
     const openrouterApiKey = Deno.env.get('OPENROUTER_API_KEY');
     const openaiApiKey = Deno.env.get('OPENAI_API_KEY');
-    const cohereApiKey = Deno.env.get('COHERE_API_KEY');
     const aiGatewayUrl = Deno.env.get('AI_GATEWAY_URL');
     const aiGatewayModel = Deno.env.get('AI_GATEWAY_MODEL') || 'openai/gpt-oss-120b:free';
     const hasOpenAI = !!(aiGatewayUrl || openrouterApiKey || openaiApiKey);
-    const hasCohere = !!cohereApiKey;
 
     const hasOcrSpace = !!ocrSpaceApiKey;
     const hasGemini = allGeminiKeys.length > 0;
@@ -763,7 +761,7 @@ serve(async (req) => {
     const { blob: fileBlob, contentType } = await loadFileBlob(supabase, validatedFileUrl);
     const resolvedContentType = contentType || fileBlob.type || '';
     let extractedText = '';
-    const extractedTables: unknown[] = [];
+    let extractedTables: unknown[] = [];
     let ocrProvider = '';
 
     // ===== OCR EXTRACTION - Triple-tier with Azure as primary =====
