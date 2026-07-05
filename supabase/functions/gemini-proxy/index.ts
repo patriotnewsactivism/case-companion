@@ -17,7 +17,7 @@ serve(async (req) => {
   }
 
   try {
-    const { model = Deno.env.get('GOOGLE_AI_MODEL') || 'gemini-2.0-flash', contents, system_instruction, generationConfig } = await req.json()
+    const { model = Deno.env.get('GOOGLE_AI_MODEL') || 'gemini-2.5-flash', contents, system_instruction, generationConfig } = await req.json()
 
     // Try Gemini native API first (if key is set) using x-goog-api-key header
     const googleApiKey = Deno.env.get('GOOGLE_AI_API_KEY')

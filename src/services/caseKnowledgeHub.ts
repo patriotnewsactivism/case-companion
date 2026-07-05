@@ -95,7 +95,7 @@ export async function buildCaseKnowledge(caseId: string): Promise<CaseKnowledge>
     .select(
       "id, name, ai_suggested_name, document_type, document_date, bates_number, " +
       "summary, key_facts, favorable_findings, adverse_findings, action_items, " +
-      "ocr_provider, ai_analyzed, entities, ocr_text, created_at"
+      "ocr_provider, ai_analyzed, entities, created_at"
     )
     .eq("case_id", caseId)
     .order("created_at", { ascending: true });

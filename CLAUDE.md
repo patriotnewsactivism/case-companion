@@ -149,7 +149,7 @@ Required in `.env` (see `.env.example`):
 
 Total: 30,000+ free OCRs/month with automatic failover!
 
-Current project ID: `plcvjadartxntnurhcua`
+Current project ID: `jpzkumgndqsdwimbvjku`
 
 ## Common Development Workflows
 

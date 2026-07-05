@@ -1,13 +1,14 @@
 import React from "react";
+import { useQuery } from "@tanstack/react-query";
 import { AlertCircle, Calendar, CheckCircle, Clock } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { getTimelineEventsByCase } from "@/lib/api";
 import type { DiscoveryDeadline, DiscoveryType } from "@/lib/discovery-api";
 import { DISCOVERY_TYPE_LABELS } from "@/lib/discovery-api";
 import { getLitigationPhaseLabel, groupTimelineByPhase } from "@/lib/timeline-phase";
 import { cn } from "@/lib/utils";
-import { useCaseFactsStore } from "@/store/useCaseFactsStore";
 
 interface DiscoveryTimelineProps {
   deadlines: DiscoveryDeadline[];
@@ -43,7 +44,11 @@ export function DiscoveryTimeline({
   const filteredDeadlines =
     filterType === "all" ? deadlines : deadlines.filter((d) => d.requestType === filterType);
 
-  const caseEvents = useCaseFactsStore((state) => (caseId ? state.getEvents(caseId) : []));
+  const { data: caseEvents = [] } = useQuery({
+    queryKey: ["timeline_events", caseId],
+    queryFn: () => getTimelineEventsByCase(caseId!),
+    enabled: !!caseId,
+  });
 
   const allEvents: TimelineDisplayEvent[] = [
     ...filteredDeadlines.map((deadline) => ({
@@ -65,15 +70,15 @@ export function DiscoveryTimeline({
       requestType: deadline.requestType as DiscoveryType,
     })),
     ...caseEvents.map((event) => ({
-      id: crypto.randomUUID(),
-      date: event.date,
-      title: event.event_title,
-      description: event.description,
+      id: event.id,
+      date: event.event_date,
+      title: event.title,
+      description: event.description || "",
       type: "case_event" as const,
-      sourceDocId: event.source_doc_id,
+      sourceDocId: event.linked_document_id,
       status: "upcoming" as const,
       daysRemaining: Math.ceil(
-        (new Date(event.date).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)
+        (new Date(event.event_date).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)
       ),
       phase: event.phase || "discovery",
       eventType: event.event_type || "general",

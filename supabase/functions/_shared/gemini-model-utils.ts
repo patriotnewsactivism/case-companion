@@ -15,8 +15,10 @@ export function getPreferredGeminiCandidates(configuredModel: string | undefined
   const configured = (configuredModel || '').trim();
   return Array.from(new Set([
     configured,
+    'gemini-3-flash-preview',
+    'gemini-2.5-flash',
+    'gemini-2.5-flash-lite',
     'gemini-2.0-flash',
-    'gemini-1.5-flash',
   ].filter(Boolean)));
 }
 

@@ -7,6 +7,7 @@ import { GoogleDriveFolderImport } from "@/components/GoogleDriveFolderImport";
 import { ImportJobsViewer } from "@/components/ImportJobsViewer";
 import { BulkDocumentUpload } from "@/components/BulkDocumentUpload";
 import { TrialSimulator } from "@/components/TrialSimulator";
+import { MasterCaseBrief } from "@/components/MasterCaseBrief";
 import { VideoRoom } from "@/components/VideoRoom";
 import { VideoConference } from "@/components/VideoConference";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -2527,6 +2528,8 @@ export default function CaseDetail() {
 
               {/* Intelligence Tab */}
               <TabsContent value="intelligence" className="space-y-4">
+                <MasterCaseBrief caseId={id} />
+
                 <Card className="glass-card">
                   <CardHeader>
                     <div className="flex items-center justify-between">

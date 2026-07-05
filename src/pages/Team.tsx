@@ -233,20 +233,15 @@ function Team() {
       );
 
       if (error) {
-        // Fallback: insert directly as a pending invite
-        const { error: insertError } = await supabase
-          .from("organization_members")
-          .insert({
-            organization_id: organization.id,
-            user_id: user?.id || "",
-            role: inviteRole,
-            invited_email: trimmedEmail,
-            status: "pending",
-          });
-
-        if (insertError) throw insertError;
-        return { pending: true };
+        // Surface the server's error message when available
+        const context = (error as { context?: Response }).context;
+        if (context) {
+          const body = await context.json().catch(() => null);
+          if (body?.error) throw new Error(body.error);
+        }
+        throw new Error(error.message || "Failed to send invitation");
       }
+      if (data?.error) throw new Error(data.error);
 
       return data;
     },
@@ -258,7 +253,7 @@ function Team() {
       setInviteEmail("");
       setInviteRole("member");
       const message = data?.pending
-        ? "Invitation sent. Pending acceptance."
+        ? data?.message || "That email has no account yet — ask them to sign up first."
         : "Member added to organization.";
       toast.success(message);
     },

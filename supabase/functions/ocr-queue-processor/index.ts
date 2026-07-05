@@ -26,6 +26,12 @@ interface TimelineEventCandidate {
   event_type?: string;
 }
 
+interface EntityCandidate {
+  name?: string;
+  type?: string;
+  context?: string;
+}
+
 interface ChunkAnalysisResult {
   summary: string;
   keyFacts: string[];
@@ -33,7 +39,30 @@ interface ChunkAnalysisResult {
   adverseFindings: string[];
   actionItems: string[];
   timelineEvents: TimelineEventCandidate[];
+  entities: EntityCandidate[];
 }
+
+const ENTITY_TYPES = new Set([
+  'person', 'organization', 'date', 'location', 'amount', 'statute', 'case-citation', 'other',
+]);
+
+const normalizeEntities = (entities: EntityCandidate[], maxItems: number): EntityCandidate[] => {
+  const seen = new Set<string>();
+  const result: EntityCandidate[] = [];
+  for (const entity of entities) {
+    const name = (entity?.name || '').trim().replace(/\s+/g, ' ');
+    if (!name) continue;
+    const type = ENTITY_TYPES.has((entity.type || '').trim().toLowerCase())
+      ? (entity.type || '').trim().toLowerCase()
+      : 'other';
+    const key = `${name.toLowerCase()}|${type}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push({ name, type, context: (entity.context || '').trim().slice(0, 300) });
+    if (result.length >= maxItems) break;
+  }
+  return result;
+};
 
 const ANALYSIS_CHUNK_CHAR_LIMIT = 12000;
 const ANALYSIS_CHUNK_OVERLAP = 500;
@@ -174,6 +203,7 @@ const mergeChunkAnalyses = (analyses: ChunkAnalysisResult[]): ChunkAnalysisResul
     timelineEvents: Array.from(timelineMap.values()).sort((a, b) =>
       (toDateOnlyString(a.event_date) || '9999-12-31').localeCompare(toDateOnlyString(b.event_date) || '9999-12-31')
     ),
+    entities: normalizeEntities(analyses.flatMap((analysis) => analysis.entities || []), 25),
   };
 };
 
@@ -518,14 +548,7 @@ async function analyzeWithAI(
   aiGatewayUrl: string | undefined,
   googleApiKey: string | undefined,
   openrouterApiKey?: string | undefined
-): Promise<{
-  summary: string;
-  keyFacts: string[];
-  favorableFindings: string[];
-  adverseFindings: string[];
-  actionItems: string[];
-  timelineEvents: TimelineEventCandidate[];
-}> {
+): Promise<ChunkAnalysisResult> {
   const hasOpenAI = !!(aiGatewayUrl || openrouterApiKey || openaiApiKey);
   const hasGemini = !!googleApiKey;
   const aiGatewayModel = Deno.env.get('AI_GATEWAY_MODEL') || 'openai/gpt-oss-120b:free';
@@ -537,6 +560,7 @@ async function analyzeWithAI(
     adverseFindings: [],
     actionItems: [],
     timelineEvents: [],
+    entities: [],
   };
 
   if (extractedText.length <= 50 || (!hasOpenAI && !hasGemini)) {
@@ -564,6 +588,10 @@ ANALYSIS REQUIREMENTS:
    - "description": Detailed description (1-2 sentences)
    - "importance": "high", "medium", or "low"
    - "event_type": e.g., "communication", "filing", "incident", "meeting"
+7. ENTITIES: up to 10 named entities in this chunk. For each provide:
+   - "name": the entity name exactly as written
+   - "type": one of "person", "organization", "date", "location", "amount", "statute", "case-citation", "other"
+   - "context": brief phrase describing the entity's role in the document
 
 Respond ONLY with valid JSON in this exact format:
 {
@@ -574,6 +602,9 @@ Respond ONLY with valid JSON in this exact format:
   "action_items": ["action1", "action2"],
   "timeline_events": [
     { "event_date": "2023-01-01", "title": "...", "description": "...", "importance": "high", "event_type": "..." }
+  ],
+  "entities": [
+    { "name": "John Smith", "type": "person", "context": "arresting officer" }
   ]
 }
 
@@ -583,33 +614,37 @@ ${chunk}`;
     let content = '';
 
     if (hasGemini) {
-      try {
-        const analysisResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-goog-api-key': googleApiKey,
-          },
-          body: JSON.stringify({
-            contents: [
-              {
-                parts: [{ text: analysisPrompt }]
+      // Smartest free-tier model first, falling back to the higher-quota one
+      for (const geminiModel of ['gemini-2.5-flash', 'gemini-2.0-flash']) {
+        try {
+          const analysisResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-goog-api-key': googleApiKey,
+            },
+            body: JSON.stringify({
+              contents: [
+                {
+                  parts: [{ text: analysisPrompt }]
+                }
+              ],
+              generationConfig: {
+                temperature: 0.1,
+                maxOutputTokens: 2500,
+                responseMimeType: 'application/json',
               }
-            ],
-            generationConfig: {
-              temperature: 0.1,
-              maxOutputTokens: 2500,
-              responseMimeType: 'application/json',
-            }
-          }),
-        });
+            }),
+          });
 
-        if (analysisResponse.ok) {
-          const analysisData = await analysisResponse.json();
-          content = extractGeminiText(analysisData);
+          if (analysisResponse.ok) {
+            const analysisData = await analysisResponse.json();
+            content = extractGeminiText(analysisData);
+            if (content) break;
+          }
+        } catch (error) {
+          console.error(`Gemini analysis error (${geminiModel}, chunk ${index + 1}):`, error);
         }
-      } catch (error) {
-        console.error(`Gemini analysis error (chunk ${index + 1}):`, error);
       }
     }
 
@@ -678,6 +713,9 @@ ${chunk}`;
           : [],
         timelineEvents: Array.isArray(analysis.timeline_events)
           ? (analysis.timeline_events as TimelineEventCandidate[])
+          : [],
+        entities: Array.isArray(analysis.entities)
+          ? (analysis.entities as EntityCandidate[])
           : [],
       });
     } catch (parseError) {
@@ -778,7 +816,7 @@ async function processOcrJob(
       return { success: false, error: 'OCR extraction returned too little text' };
     }
 
-    const { summary, keyFacts, favorableFindings, adverseFindings, actionItems, timelineEvents } =
+    const { summary, keyFacts, favorableFindings, adverseFindings, actionItems, timelineEvents, entities } =
       await analyzeWithAI(extractedText, openaiApiKey, aiGatewayUrl, googleApiKey, openrouterApiKey);
 
     const hasAnalysis =
@@ -800,6 +838,7 @@ async function processOcrJob(
         favorable_findings: favorableFindings.length > 0 ? favorableFindings : null,
         adverse_findings: adverseFindings.length > 0 ? adverseFindings : null,
         action_items: actionItems.length > 0 ? actionItems : null,
+        entities: entities.length > 0 ? entities : null,
       })
       .eq('id', doc.id);
 

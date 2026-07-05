@@ -521,44 +521,47 @@ async function callGemini(
   temperature: number
 ): Promise<string | null> {
   // Try Gemini native API first with x-goog-api-key header (works with AQ. prefix keys)
+  // Smartest free-tier model first, falling back to the higher-quota one
   if (googleApiKey) {
-    try {
-      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent`;
-      const response = await fetch(geminiUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-goog-api-key': googleApiKey,
-        },
-        body: JSON.stringify({
-          contents: [{ role: 'user', parts: [{ text: prompt }] }],
-          generationConfig: {
-            maxOutputTokens,
-            temperature,
+    for (const geminiModel of ['gemini-2.5-flash', 'gemini-2.0-flash']) {
+      try {
+        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent`;
+        const response = await fetch(geminiUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': googleApiKey,
           },
-        }),
-      });
+          body: JSON.stringify({
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            generationConfig: {
+              maxOutputTokens,
+              temperature,
+            },
+          }),
+        });
 
-      if (response.ok) {
-        const data = await response.json() as Record<string, unknown>;
-        const candidates = Array.isArray(data.candidates) ? data.candidates : [];
-        const firstCandidate = candidates[0] as Record<string, unknown> | undefined;
-        const contentObj = (firstCandidate?.content || {}) as Record<string, unknown>;
-        const parts = Array.isArray(contentObj.parts) ? contentObj.parts : [];
-        const text = parts
-          .map((part) => {
-            if (!part || typeof part !== 'object') return '';
-            return String((part as Record<string, unknown>).text || '');
-          })
-          .join('')
-          .trim();
-        if (text) return text;
-      } else {
-        const errorText = await response.text().catch(() => '');
-        console.warn(`[trial-simulation] Gemini returned ${response.status}, falling back:`, errorText);
+        if (response.ok) {
+          const data = await response.json() as Record<string, unknown>;
+          const candidates = Array.isArray(data.candidates) ? data.candidates : [];
+          const firstCandidate = candidates[0] as Record<string, unknown> | undefined;
+          const contentObj = (firstCandidate?.content || {}) as Record<string, unknown>;
+          const parts = Array.isArray(contentObj.parts) ? contentObj.parts : [];
+          const text = parts
+            .map((part) => {
+              if (!part || typeof part !== 'object') return '';
+              return String((part as Record<string, unknown>).text || '');
+            })
+            .join('')
+            .trim();
+          if (text) return text;
+        } else {
+          const errorText = await response.text().catch(() => '');
+          console.warn(`[trial-simulation] Gemini ${geminiModel} returned ${response.status}, trying next:`, errorText);
+        }
+      } catch (error) {
+        console.warn(`[trial-simulation] Gemini ${geminiModel} request failed, trying next:`, error);
       }
-    } catch (error) {
-      console.warn('[trial-simulation] Gemini request failed, trying fallback:', error);
     }
   }
 

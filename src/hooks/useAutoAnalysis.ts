@@ -174,12 +174,26 @@ export function useAutoAnalysis(caseId: string | undefined): UseAutoAnalysisRetu
 
             try {
               if (docData.ocr_text) {
+                // Use the timeline events extracted from this document to
+                // improve document-date detection
+                const { data: eventData } = await supabase
+                  .from("timeline_events")
+                  .select("event_date, title")
+                  .eq("linked_document_id", docId)
+                  .order("event_date", { ascending: true })
+                  .limit(20);
+
+                const timelineEvents = (eventData || []).map((e) => ({
+                  date: String(e.event_date).split("T")[0],
+                  event: String(e.title || ""),
+                }));
+
                 intelligence = await runDocumentIntelligence(
                   docId,
                   docData.ocr_text,
                   docData.summary,
                   docData.key_facts,
-                  [],
+                  timelineEvents,
                   docData.entities || []
                 );
               }

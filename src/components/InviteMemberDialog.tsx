@@ -59,7 +59,6 @@ export function InviteMemberDialog({
         throw new Error("Please enter a valid email address");
       }
 
-      // Try invoking the invite edge function first
       const { data, error: fnError } = await supabase.functions.invoke(
         "invite-member",
         {
@@ -72,52 +71,22 @@ export function InviteMemberDialog({
       );
 
       if (fnError) {
-        // Fallback: directly add to case_members if user exists
-        const { data: userData } = await supabase.auth.getUser();
-        if (!userData.user) throw new Error("Not authenticated");
-
-        // Look up the user by email in profiles (best-effort)
-        const { data: profileData, error: profileError } = await supabase
-          .from("profiles")
-          .select("user_id")
-          .ilike("full_name", `%${trimmedEmail}%`)
-          .maybeSingle();
-
-        if (profileError || !profileData) {
-          // Insert as a pending invitation
-          const { error: insertError } = await supabase
-            .from("case_members")
-            .insert({
-              case_id: caseId,
-              user_id: userData.user.id,
-              role,
-              invited_email: trimmedEmail,
-              status: "pending",
-            });
-
-          if (insertError) throw insertError;
-          return { invited: true, pending: true };
+        // Surface the server's error message when available
+        const context = (fnError as { context?: Response }).context;
+        if (context) {
+          const body = await context.json().catch(() => null);
+          if (body?.error) throw new Error(body.error);
         }
-
-        // User found, add them directly
-        const { error: insertError } = await supabase
-          .from("case_members")
-          .insert({
-            case_id: caseId,
-            user_id: profileData.user_id,
-            role,
-          });
-
-        if (insertError) throw insertError;
-        return { invited: true, pending: false };
+        throw new Error(fnError.message || "Failed to send invitation");
       }
+      if (data?.error) throw new Error(data.error);
 
       return data;
     },
     onSuccess: (data) => {
       const message =
         data?.pending
-          ? "Invitation sent. The user will be added when they accept."
+          ? data?.message || "That email has no account yet — ask them to sign up first."
           : "Team member added to case.";
       toast.success(message);
       setEmail("");

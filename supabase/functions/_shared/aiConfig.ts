@@ -1,11 +1,15 @@
 /**
  * Shared AI provider configuration for all Supabase Edge Functions.
  *
- * Provider priority:
- *   0. AI_GATEWAY_URL     → Custom gateway   (override, if set)
- *   1. GOOGLE_AI_API_KEY  → Gemini 2.5 Pro  (primary)
- *   2. OPENAI_API_KEY     → GPT-4o           (fallback)
- *   3. OPENROUTER_API_KEY → free Gemini/GPT  (last resort)
+ * Provider priority — free tiers first, paid API only as last resort so the
+ * platform runs at $0 until there is revenue to justify paid models:
+ *   0. AI_GATEWAY_URL     → Custom gateway            (override, if set)
+ *   1. GOOGLE_AI_API_KEY  → Gemini flash (free tier)  (primary)
+ *   2. OPENROUTER_API_KEY → free open-weights models  (fallback, $0)
+ *   3. OPENAI_API_KEY     → OPENAI_MODEL/gpt-4o-mini  (paid, last resort)
+ *
+ * Scaling cost up later requires no code change: set OPENAI_API_KEY (and
+ * optionally OPENAI_MODEL) or attach billing to the Gemini key.
  *
  * callChatCompletion()             — calls a single provider, cycles Gemini models on 404/503
  * callChatCompletionWithFallback() — tries every configured provider in order until one succeeds
@@ -34,20 +38,25 @@ export interface CallOptions {
 const GEMINI_OPENAI_COMPAT =
   'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
 
+// Newest/smartest first; callChatCompletion cycles to the next entry when a
+// model is unavailable to this key (404/403/503), so preview IDs are safe.
+// All of these have Gemini API free tiers — flash models carry the highest
+// free request quotas, which is why they lead.
 export const GEMINI_MODEL_PREFERENCE: readonly string[] = [
-  'gemini-2.5-pro-preview-06-05',
-  'gemini-2.5-pro',
-  'gemini-2.5-flash-preview-05-20',
+  'gemini-3-flash-preview',
   'gemini-2.5-flash',
+  'gemini-2.5-flash-lite',
   'gemini-2.0-flash',
-  'gemini-1.5-pro-latest',
+  'gemini-2.5-pro',
 ];
 
 // Billing / auth errors — skip this provider entirely and cascade to the next one.
-const BILLING_ERROR_STATUSES = new Set([401, 402, 403]);
+// 403 is NOT included: Gemini returns 403 for models a free-tier key can't
+// access, which should fall through to the next model, not abort the provider.
+const BILLING_ERROR_STATUSES = new Set([401, 402]);
 
 // Model unavailable within the same provider — try next model in preference list.
-const MODEL_UNAVAILABLE_STATUSES = new Set([404, 503]);
+const MODEL_UNAVAILABLE_STATUSES = new Set([403, 404, 503]);
 
 export function getAIProvider(): AIProviderConfig {
   const GOOGLE_AI_API_KEY  = Deno.env.get('GOOGLE_AI_API_KEY');
@@ -87,22 +96,10 @@ export function getAIProvider(): AIProviderConfig {
     };
   }
 
-  if (OPENAI_API_KEY) {
-    return {
-      apiUrl: 'https://api.openai.com/v1/chat/completions',
-      apiKey: OPENAI_API_KEY,
-      model: 'gpt-4o',
-      provider: 'openai',
-      maxTokens: 4096,
-      headers: {
-        'Authorization': `Bearer ${OPENAI_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-    };
-  }
-
+  // Free tier before paid: OpenRouter free models cost $0, so they outrank
+  // the paid OpenAI fallback until there are paying customers.
   if (OPENROUTER_API_KEY) {
-    const model = Deno.env.get('AI_GATEWAY_MODEL') || 'google/gemini-2.5-pro:free';
+    const model = Deno.env.get('OPENROUTER_MODEL') || AI_GATEWAY_MODEL || 'openai/gpt-oss-120b:free';
     return {
       apiUrl: 'https://openrouter.ai/api/v1/chat/completions',
       apiKey: OPENROUTER_API_KEY,
@@ -114,6 +111,20 @@ export function getAIProvider(): AIProviderConfig {
         'Content-Type': 'application/json',
         'HTTP-Referer': 'https://casebuddy.live',
         'X-Title': 'CaseBuddy Legal AI',
+      },
+    };
+  }
+
+  if (OPENAI_API_KEY) {
+    return {
+      apiUrl: 'https://api.openai.com/v1/chat/completions',
+      apiKey: OPENAI_API_KEY,
+      model: Deno.env.get('OPENAI_MODEL') || 'gpt-4o-mini',
+      provider: 'openai',
+      maxTokens: 4096,
+      headers: {
+        'Authorization': `Bearer ${OPENAI_API_KEY}`,
+        'Content-Type': 'application/json',
       },
     };
   }
@@ -167,22 +178,10 @@ export function getAllAIProviders(): AIProviderConfig[] {
     });
   }
 
-  if (OPENAI_API_KEY) {
-    providers.push({
-      apiUrl: 'https://api.openai.com/v1/chat/completions',
-      apiKey: OPENAI_API_KEY,
-      model: 'gpt-4o',
-      provider: 'openai',
-      maxTokens: 4096,
-      headers: {
-        'Authorization': `Bearer ${OPENAI_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-    });
-  }
-
+  // Free tier before paid: OpenRouter free models cost $0, so they outrank
+  // the paid OpenAI fallback until there are paying customers.
   if (OPENROUTER_API_KEY) {
-    const model = AI_GATEWAY_MODEL || 'google/gemini-2.5-pro:free';
+    const model = Deno.env.get('OPENROUTER_MODEL') || AI_GATEWAY_MODEL || 'openai/gpt-oss-120b:free';
     providers.push({
       apiUrl: 'https://openrouter.ai/api/v1/chat/completions',
       apiKey: OPENROUTER_API_KEY,
@@ -194,6 +193,20 @@ export function getAllAIProviders(): AIProviderConfig[] {
         'Content-Type': 'application/json',
         'HTTP-Referer': 'https://casebuddy.live',
         'X-Title': 'CaseBuddy Legal AI',
+      },
+    });
+  }
+
+  if (OPENAI_API_KEY) {
+    providers.push({
+      apiUrl: 'https://api.openai.com/v1/chat/completions',
+      apiKey: OPENAI_API_KEY,
+      model: Deno.env.get('OPENAI_MODEL') || 'gpt-4o-mini',
+      provider: 'openai',
+      maxTokens: 4096,
+      headers: {
+        'Authorization': `Bearer ${OPENAI_API_KEY}`,
+        'Content-Type': 'application/json',
       },
     });
   }

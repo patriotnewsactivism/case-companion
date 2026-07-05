@@ -75,7 +75,7 @@ serve(async (req) => {
     } else if (GOOGLE_AI_API_KEY) {
       apiUrl = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
       apiKey = GOOGLE_AI_API_KEY;
-      model = "gemini-2.0-flash";
+      model = "gemini-2.5-flash";
     } else if (OPENROUTER_API_KEY) {
       apiUrl = "https://openrouter.ai/api/v1/chat/completions";
       apiKey = OPENROUTER_API_KEY;

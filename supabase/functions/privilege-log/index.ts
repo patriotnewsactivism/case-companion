@@ -131,7 +131,7 @@ Respond with ONLY a valid JSON array. For each document include:
         apiUrl = AI_GATEWAY_URL; apiKey = OPENAI_API_KEY || OPENROUTER_API_KEY || GOOGLE_AI_API_KEY || ""; model = Deno.env.get("AI_GATEWAY_MODEL") || "gpt-4o-mini";
       } else if (GOOGLE_AI_API_KEY) {
         apiUrl = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
-        apiKey = GOOGLE_AI_API_KEY; model = "gemini-2.0-flash";
+        apiKey = GOOGLE_AI_API_KEY; model = "gemini-2.5-flash";
       } else if (OPENROUTER_API_KEY) {
         apiUrl = "https://openrouter.ai/api/v1/chat/completions";
         apiKey = OPENROUTER_API_KEY; model = Deno.env.get("AI_GATEWAY_MODEL") || "openai/gpt-oss-120b:free";

@@ -118,3 +118,6 @@ verify_jwt = true
 
 [functions.witness-prep]
 verify_jwt = true
+
+[functions.invite-member]
+verify_jwt = true

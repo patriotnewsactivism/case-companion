@@ -111,7 +111,7 @@ serve(async (req) => {
     } else if (GOOGLE_AI_API_KEY) {
       aiApiUrl = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
       aiApiKey = GOOGLE_AI_API_KEY;
-      aiModel = "gemini-2.0-flash";
+      aiModel = "gemini-2.5-flash";
     } else if (OPENROUTER_API_KEY) {
       aiApiUrl = "https://openrouter.ai/api/v1/chat/completions";
       aiApiKey = OPENROUTER_API_KEY;
@@ -241,14 +241,14 @@ Request: ${actualQuestion}
 
 Return only the JSON array, no other text.`;
 
-    const objectionsResponse = await fetch(aiGatewayUrl, {
+    const objectionsResponse = await fetch(aiApiUrl, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${openaiApiKey}`,
+        Authorization: `Bearer ${aiApiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
+        model: aiModel,
         messages: [
           { role: "user", content: objectionsPrompt },
         ],
@@ -274,14 +274,14 @@ Return ONLY a JSON object: {"hasPrivilegeConcern": boolean, "reason": "brief exp
 Request: ${actualQuestion}`;
 
     let privilegeCheck = { hasPrivilegeConcern: false, reason: "" };
-    const privilegeResponse = await fetch(aiGatewayUrl, {
+    const privilegeResponse = await fetch(aiApiUrl, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${openaiApiKey}`,
+        Authorization: `Bearer ${aiApiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
+        model: aiModel,
         messages: [
           { role: "user", content: privilegeCheckPrompt },
         ],

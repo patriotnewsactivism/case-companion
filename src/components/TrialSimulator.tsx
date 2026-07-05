@@ -14,7 +14,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { Document } from "@/lib/api";
 import { supabase } from "@/integrations/supabase/client";
-import { useCaseFactsStore } from "@/store/useCaseFactsStore";
+import { useCaseKnowledge } from "@/services/caseKnowledgeHub";
 import { useVoiceEngine } from "@/hooks/useVoiceEngine";
 
 interface CaseData {
@@ -331,6 +331,9 @@ export function TrialSimulator({ caseData, documents = [] }: TrialSimulatorProps
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const { toast } = useToast();
 
+  // Aggregated case knowledge (facts, timeline, entities) from analyzed documents
+  const { knowledge } = useCaseKnowledge(caseData?.id);
+
   // Browser-native TTS — replaces Azure TTS placeholder
   const ttsRef = useRef<SpeechSynthesisUtterance | null>(null);
   const [isTTSSpeaking, setIsTTSSpeaking] = useState(false);
@@ -481,15 +484,23 @@ export function TrialSimulator({ caseData, documents = [] }: TrialSimulatorProps
     setIsLoading(true);
 
     try {
-      const caseEvents = useCaseFactsStore.getState().getEvents(caseData.id);
-      const caseFacts = useCaseFactsStore.getState().getFacts(caseData.id);
+      const caseFacts = knowledge?.facts || [];
+      const caseEvents = knowledge?.timeline || [];
 
       const contextParts: string[] = [];
       if (caseFacts.length > 0) {
-        contextParts.push(`CASE FACTS:\n${caseFacts.slice(0, 10).map((f) => `- ${f.text}`).join("\n")}`);
+        contextParts.push(`CASE FACTS:\n${caseFacts.slice(0, 15).map((f) => `- [${f.significance.toUpperCase()}] ${f.fact} (${f.source})`).join("\n")}`);
       }
       if (caseEvents.length > 0) {
-        contextParts.push(`KEY EVENTS:\n${caseEvents.slice(0, 8).map((e) => `- ${e.date}: ${e.event_title}`).join("\n")}`);
+        contextParts.push(`KEY EVENTS:\n${caseEvents.slice(0, 12).map((e) => `- ${e.date}: ${e.title}`).join("\n")}`);
+      }
+      if (knowledge && (knowledge.favorableFactors.length > 0 || knowledge.adverseFactors.length > 0)) {
+        if (knowledge.favorableFactors.length > 0) {
+          contextParts.push(`FAVORABLE FACTORS:\n${knowledge.favorableFactors.slice(0, 8).map((f) => `- ${f}`).join("\n")}`);
+        }
+        if (knowledge.adverseFactors.length > 0) {
+          contextParts.push(`ADVERSE FACTORS:\n${knowledge.adverseFactors.slice(0, 8).map((f) => `- ${f}`).join("\n")}`);
+        }
       }
       if (documents.length > 0) {
         contextParts.push(`DOCUMENTS:\n${documents.slice(0, 8).map((d) => `- ${d.name}: ${d.summary || "no summary"}`).join("\n")}`);
@@ -541,7 +552,7 @@ export function TrialSimulator({ caseData, documents = [] }: TrialSimulatorProps
       setIsLoading(false);
       setTimeout(() => inputRef.current?.focus(), 50);
     }
-  }, [userInput, caseData, isLoading, messages, selectedMode, documents, toast, isTTSEnabled, browserTTSSpeak]);
+  }, [userInput, caseData, isLoading, messages, selectedMode, documents, knowledge, toast, isTTSEnabled, browserTTSSpeak]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
