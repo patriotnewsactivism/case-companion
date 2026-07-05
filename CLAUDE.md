@@ -112,15 +112,14 @@ Located in `supabase/functions/`:
 1. **`create-video-room`** - Creates Jitsi Meet room with JWT token
 2. **`join-video-room`** - Joins existing video room
 3. **`import-google-drive`** - Recursively imports folders from Google Drive to Supabase Storage
-4. **`ocr-document`** - OCR processing with triple-tier fallback
-   - **Primary**: Microsoft Azure Computer Vision (5,000/month free, best quality)
-   - **Fallback**: OCR.space (25,000/month free)
-   - **Last Resort**: Google Gemini 2.0 Flash (1,500/day free)
+4. **`ocr-document`** - OCR processing with multi-tier fallback (NO Azure — not used in this project)
+   - **Primary**: Google Cloud Vision (1,000 pages/month free; requires `GOOGLE_CLOUD_VISION_CREDENTIALS`)
+   - **Fallback**: Google Gemini multi-model (free tier; cycles gemini-3-flash-preview → 2.5-flash → 2.5-flash-lite → 2.0-flash on 429/5xx)
+   - **Last Resort**: OCR.space (25,000/month free, but 3-page/1MB limit per file on free plan)
    - Extracts text from PDFs (multi-page), images, and text files
-   - Performs AI legal analysis: summary, key facts, favorable/adverse findings, action items
+   - Performs AI legal analysis: summary, key facts, favorable/adverse findings, action items, entities
    - Auto-generates timeline events from dates found in documents
    - Handles Bates numbers, exhibits, redactions, tables, and marginalia
-   - Automatically cascades through providers on failure (Azure → OCR.space → Gemini)
 5. **`transcribe-media`** - Calls OpenAI Whisper API for audio/video transcription
 6. **`trial-simulation`** - AI-powered trial simulation with coaching (cross-exam, depositions, etc.)
 
@@ -136,18 +135,16 @@ Required in `.env` (see `.env.example`):
 - `VITE_GOOGLE_API_KEY` - Google API key for Drive integration
 
 **Supabase Secrets** (set via `npx supabase secrets set KEY=value`):
-- `AZURE_VISION_ENDPOINT` - Primary OCR (Azure Computer Vision, 5,000/month free) ✅ CONFIGURED
-- `AZURE_VISION_API_KEY` - Azure API key ✅ CONFIGURED
-- `OCR_SPACE_API_KEY` - Fallback OCR (25,000/month free) ✅ CONFIGURED
-- `GOOGLE_AI_API_KEY` - Last resort OCR (Gemini, 1,500/day free, optional)
-- `OPENAI_API_KEY` - For Whisper audio/video transcription (optional)
+- `GOOGLE_AI_API_KEY` - Gemini for OCR + AI analysis (free tier) ✅ CONFIGURED
+- `GEMINI_API_KEY` - Backup Gemini key ✅ CONFIGURED
+- `OPENROUTER_API_KEY` - Free open-weights models fallback ✅ CONFIGURED
+- `COHERE_API_KEY` - Large-context (256K) document analysis ✅ CONFIGURED
+- `OCR_SPACE_API_KEY` - OCR fallback (25,000/month free; 3-page/1MB per-file limit) ✅ CONFIGURED
+- `GOOGLE_CLOUD_VISION_CREDENTIALS` - Optional: GCP service-account JSON for Cloud Vision OCR (1,000 pages/month free; currently EMPTY)
+- `OPENAI_API_KEY` - Optional paid last resort (also enables Whisper transcription); set `OPENAI_MODEL` to choose the model
 
-**OCR Strategy**: Triple-tier fallback for maximum reliability:
-1. Azure Computer Vision (best quality, industry-leading)
-2. OCR.space (good quality, high limits)
-3. Gemini (AI-powered, last resort)
-
-Total: 30,000+ free OCRs/month with automatic failover!
+**AI/OCR Policy — NO AZURE.** This project does not use any Microsoft Azure service.
+Free tiers first (Gemini → OpenRouter free models), paid providers only when explicitly configured.
 
 Current project ID: `jpzkumgndqsdwimbvjku`
 
