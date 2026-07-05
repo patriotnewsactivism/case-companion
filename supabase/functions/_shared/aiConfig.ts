@@ -5,8 +5,10 @@
  * platform runs at $0 until there is revenue to justify paid models:
  *   0. AI_GATEWAY_URL     → Custom gateway            (override, if set)
  *   1. GOOGLE_AI_API_KEY  → Gemini flash (free tier)  (primary)
- *   2. OPENROUTER_API_KEY → free open-weights models  (fallback, $0)
- *   3. OPENAI_API_KEY     → OPENAI_MODEL/gpt-4o-mini  (paid, last resort)
+ *   2. GROQ_API_KEY       → Llama 3.3 70B (free tier, very fast)
+ *   3. CEREBRAS_API_KEY   → Llama 3.3 70B (free tier, very fast)
+ *   4. OPENROUTER_API_KEY → free open-weights models  (fallback, $0)
+ *   5. OPENAI_API_KEY     → OPENAI_MODEL/gpt-4o-mini  (paid, last resort)
  *
  * Scaling cost up later requires no code change: set OPENAI_API_KEY (and
  * optionally OPENAI_MODEL) or attach billing to the Gemini key.
@@ -19,7 +21,7 @@ export interface AIProviderConfig {
   apiUrl: string;
   apiKey: string;
   model: string;
-  provider: 'gemini' | 'openai' | 'openrouter' | 'gateway';
+  provider: 'gemini' | 'groq' | 'cerebras' | 'openai' | 'openrouter' | 'gateway';
   headers: Record<string, string>;
   maxTokens: number;
 }
@@ -57,6 +59,33 @@ const BILLING_ERROR_STATUSES = new Set([401, 402]);
 
 // Model unavailable within the same provider — try next model in preference list.
 const MODEL_UNAVAILABLE_STATUSES = new Set([403, 404, 503]);
+
+/** Free, fast open-weights providers (OpenAI-compatible endpoints). */
+function getGroqConfig(): AIProviderConfig | null {
+  const key = Deno.env.get('GROQ_API_KEY');
+  if (!key) return null;
+  return {
+    apiUrl: 'https://api.groq.com/openai/v1/chat/completions',
+    apiKey: key,
+    model: Deno.env.get('GROQ_MODEL') || 'llama-3.3-70b-versatile',
+    provider: 'groq',
+    maxTokens: 8192,
+    headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
+  };
+}
+
+function getCerebrasConfig(): AIProviderConfig | null {
+  const key = Deno.env.get('CEREBRAS_API_KEY');
+  if (!key) return null;
+  return {
+    apiUrl: 'https://api.cerebras.ai/v1/chat/completions',
+    apiKey: key,
+    model: Deno.env.get('CEREBRAS_MODEL') || 'llama-3.3-70b',
+    provider: 'cerebras',
+    maxTokens: 8192,
+    headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
+  };
+}
 
 export function getAIProvider(): AIProviderConfig {
   const GOOGLE_AI_API_KEY  = Deno.env.get('GOOGLE_AI_API_KEY');
@@ -96,8 +125,14 @@ export function getAIProvider(): AIProviderConfig {
     };
   }
 
-  // Free tier before paid: OpenRouter free models cost $0, so they outrank
+  // Free tier before paid: Groq/Cerebras/OpenRouter cost $0, so they outrank
   // the paid OpenAI fallback until there are paying customers.
+  const groq = getGroqConfig();
+  if (groq) return groq;
+
+  const cerebras = getCerebrasConfig();
+  if (cerebras) return cerebras;
+
   if (OPENROUTER_API_KEY) {
     const model = Deno.env.get('OPENROUTER_MODEL') || AI_GATEWAY_MODEL || 'openai/gpt-oss-120b:free';
     return {

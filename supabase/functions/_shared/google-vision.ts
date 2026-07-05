@@ -117,7 +117,30 @@ export async function getGoogleVisionAccessToken(): Promise<string | null> {
 }
 
 export function isGoogleVisionConfigured(): boolean {
-  return getServiceAccount() !== null;
+  return !!getVisionApiKey() || getServiceAccount() !== null;
+}
+
+/** Simple API-key auth — works if the Cloud Vision API is enabled on the key's project. */
+function getVisionApiKey(): string | null {
+  return Deno.env.get('GOOGLE_CLOUD_VISION_API_KEY') || null;
+}
+
+interface VisionAuth {
+  headers: Record<string, string>;
+  urlSuffix: string; // "?key=..." for API-key auth, "" for OAuth
+}
+
+async function getVisionAuth(): Promise<VisionAuth | null> {
+  const apiKey = getVisionApiKey();
+  if (apiKey) {
+    return { headers: { 'Content-Type': 'application/json' }, urlSuffix: `?key=${apiKey}` };
+  }
+  const accessToken = await getGoogleVisionAccessToken();
+  if (!accessToken) return null;
+  return {
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    urlSuffix: '',
+  };
 }
 
 function arrayBufferToBase64(buf: ArrayBuffer): string {
@@ -130,13 +153,10 @@ function arrayBufferToBase64(buf: ArrayBuffer): string {
 /**
  * OCR a single image via images:annotate (DOCUMENT_TEXT_DETECTION).
  */
-async function visionAnnotateImage(base64Content: string, accessToken: string): Promise<string> {
-  const res = await fetch('https://vision.googleapis.com/v1/images:annotate', {
+async function visionAnnotateImage(base64Content: string, auth: VisionAuth): Promise<string> {
+  const res = await fetch(`https://vision.googleapis.com/v1/images:annotate${auth.urlSuffix}`, {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-    },
+    headers: auth.headers,
     body: JSON.stringify({
       requests: [
         {
@@ -163,7 +183,7 @@ async function visionAnnotateImage(base64Content: string, accessToken: string): 
  * OCR a PDF via files:annotate (sync — supports up to 5 pages per request).
  * Batches pages in groups of 5 and concatenates with page markers.
  */
-async function visionAnnotatePdf(base64Content: string, accessToken: string, maxPages = 30): Promise<string> {
+async function visionAnnotatePdf(base64Content: string, auth: VisionAuth, maxPages = 30): Promise<string> {
   const batches: number[][] = [];
   for (let start = 1; start <= maxPages; start += 5) {
     batches.push(Array.from({ length: Math.min(5, maxPages - start + 1) }, (_, i) => start + i));
@@ -172,12 +192,9 @@ async function visionAnnotatePdf(base64Content: string, accessToken: string, max
   const pageTexts: string[] = [];
 
   for (const pages of batches) {
-    const res = await fetch('https://vision.googleapis.com/v1/files:annotate', {
+    const res = await fetch(`https://vision.googleapis.com/v1/files:annotate${auth.urlSuffix}`, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
+      headers: auth.headers,
       body: JSON.stringify({
         requests: [
           {
@@ -222,15 +239,15 @@ async function visionAnnotatePdf(base64Content: string, accessToken: string, max
  * this as one tier in a fallback chain.
  */
 export async function googleVisionOcr(fileBlob: Blob, isImage: boolean): Promise<string> {
-  const accessToken = await getGoogleVisionAccessToken();
-  if (!accessToken) throw new Error('Google Cloud Vision not configured (GOOGLE_CLOUD_VISION_CREDENTIALS unset)');
+  const auth = await getVisionAuth();
+  if (!auth) throw new Error('Google Cloud Vision not configured (set GOOGLE_CLOUD_VISION_API_KEY or GOOGLE_CLOUD_VISION_CREDENTIALS)');
 
   const arrayBuffer = await fileBlob.arrayBuffer();
   const base64Content = arrayBufferToBase64(arrayBuffer);
 
   const text = isImage
-    ? await visionAnnotateImage(base64Content, accessToken)
-    : await visionAnnotatePdf(base64Content, accessToken);
+    ? await visionAnnotateImage(base64Content, auth)
+    : await visionAnnotatePdf(base64Content, auth);
 
   if (!text?.trim()) throw new Error('Google Cloud Vision returned empty OCR text');
   return text;
