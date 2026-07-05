@@ -6,7 +6,7 @@ import {
   checkRateLimit,
 } from '../_shared/errorHandler.ts';
 import { verifyAuth } from '../_shared/auth.ts';
-import { getFastAIProvider } from '../_shared/aiConfig.ts';
+import { callChatCompletionWithFallback } from '../_shared/aiConfig.ts';
 
 // DiscoveryLens stores results in the `analysis` JSONB column on the shared
 // documents table. Normalize so its documents participate in chat context.
@@ -177,43 +177,19 @@ INSTRUCTIONS:
 - Format responses clearly with headers when appropriate
 - Keep legal advice accurate and grounded in the provided facts`;
 
-    // AI provider via shared config
-    const config = getFastAIProvider();
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
-
-    const response = await fetch(config.apiUrl, {
-      method: "POST",
-      headers: config.headers,
-      signal: controller.signal,
-      body: JSON.stringify({
-        model: config.model,
-        messages: [
-          { role: "system", content: systemPrompt },
-          ...messages,
-        ],
-        max_tokens: config.maxTokens,
-        temperature: 0.7,
-      }),
+    // Resilient AI call: cycles Gemini models on 429/503, then cascades to
+    // OpenRouter free models / OpenAI — a single provider hiccup no longer 500s.
+    const { content, provider } = await callChatCompletionWithFallback(messages, {
+      systemPrompt,
+      temperature: 0.7,
     });
-    clearTimeout(timeoutId);
 
-    if (!response.ok) {
-      if (response.status === 429) {
-        return new Response(JSON.stringify({ error: "Rate limits exceeded, please try again later." }), {
-          status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      const t = await response.text();
-      console.error("AI gateway error:", response.status, t);
-      return new Response(JSON.stringify({ error: "AI gateway error" }), {
-        status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const data = await response.json();
-    // Include document count metadata in response
-    return new Response(JSON.stringify({ ...data, _documentCount: documentCount }), {
+    // Preserve the OpenAI-style shape the frontend expects
+    return new Response(JSON.stringify({
+      choices: [{ message: { role: "assistant", content } }],
+      _documentCount: documentCount,
+      _provider: provider,
+    }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {

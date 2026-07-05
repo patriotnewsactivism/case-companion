@@ -857,10 +857,15 @@ serve(async (req) => {
                 (response.status === 404 || response.status === 400) &&
                 /model|not found|not supported/i.test(errorText);
 
-              if (response.status === 429) {
+              // 429 (rate limit) and 5xx (capacity/"high demand", e.g. 503 on
+              // preview models) are transient: retry with backoff, then move
+              // to the next candidate model instead of aborting everything.
+              if (response.status === 429 || response.status >= 500) {
                 if (attempt < maxRetries - 1) continue;
-                lastError = `${model}: rate limit exceeded after ${maxRetries} attempts`;
-                console.warn(lastError);
+                lastError = response.status === 429
+                  ? `${model}: rate limit exceeded after ${maxRetries} attempts`
+                  : `${model}: server error ${response.status} after ${maxRetries} attempts`;
+                console.warn(`${lastError} — trying next model`);
                 break;
               }
 
@@ -1276,7 +1281,8 @@ ${textChunk}`;
                 contents: [{ parts: [{ text: chunkPrompt }] }],
                 generationConfig: {
                   temperature: 0.1,
-                  maxOutputTokens: 2500,
+                  // 2500 truncated the JSON (summary+timeline+entities), causing parse failures
+                  maxOutputTokens: 6000,
                   responseMimeType: 'application/json',
                 },
               },

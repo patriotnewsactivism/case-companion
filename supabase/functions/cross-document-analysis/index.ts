@@ -6,7 +6,7 @@ import {
   checkRateLimit,
 } from '../_shared/errorHandler.ts';
 import { verifyAuth } from '../_shared/auth.ts';
-import { getFastAIProvider } from '../_shared/aiConfig.ts';
+import { callChatCompletionWithFallback } from '../_shared/aiConfig.ts';
 
 serve(async (req) => {
   const corsHeaders = getCorsHeaders(req);
@@ -151,34 +151,12 @@ Respond with ONLY valid JSON in this exact structure:
   "executiveSummary": "2-3 sentence overall assessment of the case record"
 }`;
 
-    // AI provider selection via shared config
-    const config = getFastAIProvider();
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
-
-    const response = await fetch(config.apiUrl, {
-      method: "POST",
-      headers: config.headers,
-      signal: controller.signal,
-      body: JSON.stringify({
-        model: config.model,
-        messages: [{ role: "user", content: systemPrompt }],
-        max_tokens: config.maxTokens,
-        temperature: 0.7,
-      }),
-    });
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      const t = await response.text();
-      console.error("AI error:", response.status, t);
-      return new Response(JSON.stringify({ error: `AI analysis failed (${response.status}): ${t.slice(0, 200)}` }), {
-        status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const aiData = await response.json();
-    const rawContent = aiData?.choices?.[0]?.message?.content || "{}";
+    // Resilient AI call: cycles Gemini models on 429/503, then cascades to
+    // OpenRouter free models / OpenAI — a single provider hiccup no longer 500s.
+    const { content: rawContent } = await callChatCompletionWithFallback(
+      [{ role: "user", content: systemPrompt }],
+      { temperature: 0.3, responseFormat: "json" },
+    );
 
     let analysis: Record<string, unknown>;
     try {

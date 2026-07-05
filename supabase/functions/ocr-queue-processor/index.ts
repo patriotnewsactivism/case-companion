@@ -631,7 +631,8 @@ ${chunk}`;
               ],
               generationConfig: {
                 temperature: 0.1,
-                maxOutputTokens: 2500,
+                // 2500 truncated the JSON (summary+timeline+entities), causing parse failures
+                maxOutputTokens: 6000,
                 responseMimeType: 'application/json',
               }
             }),
