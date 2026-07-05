@@ -213,8 +213,14 @@ export function getAllAIProviders(): AIProviderConfig[] {
     });
   }
 
-  // Free tier before paid: OpenRouter free models cost $0, so they outrank
+  // Free tier before paid: Groq/Cerebras/OpenRouter cost $0, so they outrank
   // the paid OpenAI fallback until there are paying customers.
+  const groq = getGroqConfig();
+  if (groq) providers.push(groq);
+
+  const cerebras = getCerebrasConfig();
+  if (cerebras) providers.push(cerebras);
+
   if (OPENROUTER_API_KEY) {
     const model = Deno.env.get('OPENROUTER_MODEL') || AI_GATEWAY_MODEL || 'openai/gpt-oss-120b:free';
     providers.push({
