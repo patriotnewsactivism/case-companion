@@ -95,7 +95,9 @@ export async function buildCaseKnowledge(caseId: string): Promise<CaseKnowledge>
     .select(
       "id, name, ai_suggested_name, document_type, document_date, bates_number, " +
       "summary, key_facts, favorable_findings, adverse_findings, action_items, " +
-      "ocr_provider, ai_analyzed, entities, created_at"
+      "ocr_provider, ai_analyzed, entities, created_at, " +
+      // DiscoveryLens mirror fields (shared documents table)
+      "analysis, bates_formatted, status"
     )
     .eq("case_id", caseId)
     .order("created_at", { ascending: true });
@@ -116,23 +118,46 @@ export async function buildCaseKnowledge(caseId: string): Promise<CaseKnowledge>
   const docs = (documents || []) as unknown as Array<Record<string, unknown>>;
   const events = (timelineData || []) as unknown as Array<Record<string, unknown>>;
 
+  // DiscoveryLens stores its results in the `analysis` JSONB column
+  // ({summary, evidenceType, entities: string[], relevantFacts: string[], ...}).
+  // Normalize so DiscoveryLens-analyzed documents are first-class case knowledge.
+  interface DiscoveryLensAnalysis {
+    summary?: string;
+    evidenceType?: string;
+    entities?: string[];
+    relevantFacts?: string[];
+  }
+  const getDLAnalysis = (doc: Record<string, unknown>): DiscoveryLensAnalysis | null =>
+    doc.analysis && typeof doc.analysis === 'object' && !Array.isArray(doc.analysis)
+      ? doc.analysis as DiscoveryLensAnalysis
+      : null;
+  const isAnalyzed = (doc: Record<string, unknown>): boolean =>
+    !!doc.ai_analyzed || (doc.status === 'complete' && !!getDLAnalysis(doc));
+
   // Build document summaries
-  const documentSummaries: CaseDocumentSummary[] = docs.map((doc) => ({
-    id: String(doc.id ?? ''),
-    name: String(doc.name ?? ''),
-    aiSuggestedName: typeof doc.ai_suggested_name === 'string' ? doc.ai_suggested_name : null,
-    documentType: typeof doc.document_type === 'string' ? doc.document_type : null,
-    documentDate: typeof doc.document_date === 'string' ? doc.document_date : null,
-    batesNumber: typeof doc.bates_number === 'string' ? doc.bates_number : null,
-    summary: typeof doc.summary === 'string' ? doc.summary : null,
-    classification: null,
-    keyFacts: Array.isArray(doc.key_facts) ? doc.key_facts as string[] : [],
-    favorableFindings: Array.isArray(doc.favorable_findings) ? doc.favorable_findings as string[] : [],
-    adverseFindings: Array.isArray(doc.adverse_findings) ? doc.adverse_findings as string[] : [],
-    actionItems: Array.isArray(doc.action_items) ? doc.action_items as string[] : [],
-    ocrProvider: typeof doc.ocr_provider === 'string' ? doc.ocr_provider : null,
-    aiAnalyzed: !!doc.ai_analyzed,
-  }));
+  const documentSummaries: CaseDocumentSummary[] = docs.map((doc) => {
+    const dl = getDLAnalysis(doc);
+    return {
+      id: String(doc.id ?? ''),
+      name: String(doc.name ?? ''),
+      aiSuggestedName: typeof doc.ai_suggested_name === 'string' ? doc.ai_suggested_name : null,
+      documentType: (typeof doc.document_type === 'string' ? doc.document_type : null) || dl?.evidenceType || null,
+      documentDate: typeof doc.document_date === 'string' ? doc.document_date : null,
+      batesNumber:
+        (typeof doc.bates_number === 'string' ? doc.bates_number : null) ||
+        (typeof doc.bates_formatted === 'string' ? doc.bates_formatted : null),
+      summary: (typeof doc.summary === 'string' ? doc.summary : null) || dl?.summary || null,
+      classification: null,
+      keyFacts: Array.isArray(doc.key_facts)
+        ? doc.key_facts as string[]
+        : (Array.isArray(dl?.relevantFacts) ? dl.relevantFacts : []),
+      favorableFindings: Array.isArray(doc.favorable_findings) ? doc.favorable_findings as string[] : [],
+      adverseFindings: Array.isArray(doc.adverse_findings) ? doc.adverse_findings as string[] : [],
+      actionItems: Array.isArray(doc.action_items) ? doc.action_items as string[] : [],
+      ocrProvider: typeof doc.ocr_provider === 'string' ? doc.ocr_provider : null,
+      aiAnalyzed: isAnalyzed(doc),
+    };
+  });
 
   // Aggregate entities from all documents
   const allEntities: CaseEntity[] = [];
@@ -147,14 +172,31 @@ export async function buildCaseKnowledge(caseId: string): Promise<CaseKnowledge>
           sourceDocumentName: String(doc.ai_suggested_name || doc.name),
         });
       }
+    } else {
+      // Fall back to DiscoveryLens entity strings
+      const dl = getDLAnalysis(doc);
+      for (const name of dl?.entities || []) {
+        if (typeof name === 'string' && name.trim()) {
+          allEntities.push({
+            name: name.trim(),
+            type: "other",
+            context: "DiscoveryLens analysis",
+            sourceDocumentId: String(doc.id),
+            sourceDocumentName: String(doc.ai_suggested_name || doc.name),
+          });
+        }
+      }
     }
   }
 
-  // Aggregate facts from key_facts across documents
+  // Aggregate facts from key_facts across documents (with DiscoveryLens fallback)
   const allFacts: CaseFact[] = [];
   for (const doc of docs) {
-    if (doc.key_facts && Array.isArray(doc.key_facts)) {
-      for (const fact of doc.key_facts) {
+    const factSource = (doc.key_facts && Array.isArray(doc.key_facts))
+      ? doc.key_facts
+      : (getDLAnalysis(doc)?.relevantFacts || []);
+    if (Array.isArray(factSource) && factSource.length > 0) {
+      for (const fact of factSource) {
         const factObj = fact as unknown as { fact?: string; significance?: string } | string;
         const factStr = typeof factObj === "string" ? factObj : factObj.fact || JSON.stringify(factObj);
         const sig = typeof factObj === "object" && factObj.significance
@@ -200,7 +242,7 @@ export async function buildCaseKnowledge(caseId: string): Promise<CaseKnowledge>
     adverseFactors,
     actionItems,
     documentCount: docs.length,
-    analyzedCount: docs.filter((d) => !!d.ai_analyzed).length,
+    analyzedCount: docs.filter(isAnalyzed).length,
     lastUpdated: new Date().toISOString(),
   };
 }

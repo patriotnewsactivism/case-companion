@@ -51,12 +51,13 @@ serve(async (req) => {
       });
     }
 
-    // Fetch all analyzed documents
+    // Fetch all analyzed documents — CaseBuddy-analyzed (ai_analyzed) OR
+    // DiscoveryLens-analyzed (analysis JSONB from the shared documents table)
     const { data: documents } = await supabase
       .from('documents')
-      .select('id, name, bates_number, summary, key_facts, favorable_findings, adverse_findings, created_at')
+      .select('id, name, bates_number, bates_formatted, summary, key_facts, favorable_findings, adverse_findings, analysis, status, ai_analyzed, created_at')
       .eq('case_id', caseId)
-      .eq('ai_analyzed', true)
+      .or('ai_analyzed.eq.true,analysis.not.is.null')
       .order('bates_number', { ascending: true, nullsFirst: false })
       .limit(40);
 
@@ -68,11 +69,20 @@ serve(async (req) => {
       }), { status: 422, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    // Build document summaries for AI (using already-extracted fields only — no OCR bulk)
+    // Build document summaries for AI (using already-extracted fields only — no OCR bulk).
+    // Falls back to DiscoveryLens `analysis` JSON fields when CaseBuddy columns are empty.
     const docSummaries = docs.slice(0, 30).map((d: Record<string, unknown>) => {
-      const parts: string[] = [`DOCUMENT: ${d.bates_number || d.name}`];
-      if (d.summary) parts.push(`Summary: ${d.summary}`);
-      if (Array.isArray(d.key_facts) && d.key_facts.length) parts.push(`Key Facts: ${d.key_facts.join('; ')}`);
+      const dl = (d.analysis && typeof d.analysis === 'object' && !Array.isArray(d.analysis))
+        ? d.analysis as { summary?: string; relevantFacts?: string[]; evidenceType?: string }
+        : null;
+      const parts: string[] = [`DOCUMENT: ${d.bates_number || d.bates_formatted || d.name}`];
+      const summary = (typeof d.summary === 'string' && d.summary) || dl?.summary;
+      if (summary) parts.push(`Summary: ${summary}`);
+      if (dl?.evidenceType) parts.push(`Evidence Type: ${dl.evidenceType}`);
+      const keyFacts = (Array.isArray(d.key_facts) && d.key_facts.length)
+        ? d.key_facts
+        : (Array.isArray(dl?.relevantFacts) ? dl.relevantFacts : []);
+      if (keyFacts.length) parts.push(`Key Facts: ${keyFacts.join('; ')}`);
       if (Array.isArray(d.favorable_findings) && d.favorable_findings.length) parts.push(`Favorable: ${d.favorable_findings.join('; ')}`);
       if (Array.isArray(d.adverse_findings) && d.adverse_findings.length) parts.push(`Adverse: ${d.adverse_findings.join('; ')}`);
       return parts.join('\n');
