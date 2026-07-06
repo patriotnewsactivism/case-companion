@@ -6,9 +6,9 @@ import {
   checkRateLimit,
 } from '../_shared/errorHandler.ts';
 import { verifyAuth } from '../_shared/auth.ts';
-import { getFastAIProvider, callChatCompletion } from '../_shared/aiConfig.ts';
+import { getFastAIProvider, callChatCompletionWithFallback } from '../_shared/aiConfig.ts';
 
-const SYSTEM_PROMPT = "You are a legal research assistant helping attorneys analyze documents, case law, and legal issues. Provide clear, concise, and actionable analysis. Always cite relevant case law and statutes when applicable.";
+const TIMEOUT_MS = 15000;
 
 serve(async (req) => {
   const corsHeaders = getCorsHeaders(req);
@@ -34,37 +34,59 @@ serve(async (req) => {
     }
 
     const { messages } = await req.json();
+    const config = getFastAIProvider();
 
-    let config;
-    try {
-      config = getFastAIProvider();
-    } catch {
-      return new Response(
-        JSON.stringify({ error: 'AI not configured. Please set GOOGLE_AI_API_KEY in your Supabase secrets.' }),
-        { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
+    const systemMessage = { role: "system", content: "You are a legal research assistant helping attorneys analyze documents, case law, and legal issues. Provide clear, concise, and actionable analysis. Always cite relevant case law and statutes when applicable." };
 
     try {
-      const content = await callChatCompletion(
-        config,
-        messages,
-        { systemPrompt: SYSTEM_PROMPT, temperature: 0.7 }
-      );
-      return new Response(
-        JSON.stringify({ choices: [{ message: { role: 'assistant', content } }] }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    } catch (aiErr) {
-      const errMsg = aiErr instanceof Error ? aiErr.message : String(aiErr);
-      console.error("chat AI error:", errMsg);
-      if (errMsg.includes('rate limit') || errMsg.includes('429')) {
-        return new Response(JSON.stringify({ error: 'Rate limits exceeded, please try again later.' }), {
-          status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      // Try the primary provider first
+      const response = await fetch(config.apiUrl, {
+        method: "POST",
+        headers: config.headers,
+        signal: controller.signal,
+        body: JSON.stringify({
+          model: config.model,
+          messages: [systemMessage, ...messages],
+          max_tokens: config.maxTokens,
+          temperature: 0.7,
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        return new Response(JSON.stringify(data), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      return new Response(JSON.stringify({ error: `AI error: ${errMsg}` }), {
-        status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+
+      // Primary failed — log and fall through to cascade fallback
+      const t = await response.text();
+      console.warn(`[chat] Primary provider (${config.provider}) returned ${response.status}, cascading:`, t);
+      clearTimeout(timeoutId);
+
+      // Fallback: try all providers via callChatCompletionWithFallback
+      const { content } = await callChatCompletionWithFallback(
+        [systemMessage, ...messages],
+        { temperature: 0.7 }
+      );
+
+      return new Response(JSON.stringify({
+        choices: [{ message: { role: "assistant", content }, finish_reason: "stop" }],
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    } catch (cascadeErr) {
+      clearTimeout(timeoutId);
+      if (cascadeErr instanceof DOMException && cascadeErr.name === 'AbortError') {
+        return createErrorResponse(new Error('AI provider timed out'), 504, 'chat', corsHeaders);
+      }
+      console.error("[chat] All AI providers failed:", cascadeErr);
+      return new Response(JSON.stringify({ error: "All AI providers exhausted. Please try again." }), {
+        status: 503,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
   } catch (e) {

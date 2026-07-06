@@ -2,6 +2,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { AGENT_SYSTEM_PROMPTS, getAgentById } from "@/agents/personas";
 import { buildMemoryContext, addInsight } from "./agentMemory";
 import type { AgentId, ReasoningMode, ReasoningResult, ReasoningStep } from "./types";
+import { AGENT_CONFIG } from "@/config/agentConfig";
 
 async function callChat(systemPrompt: string, userPrompt: string, opts?: {
   temperature?: number;
@@ -32,7 +33,7 @@ async function standardReasoning(
   const start = Date.now();
   const synthesis = await callChat(systemInstruction + memCtx, task, {
     temperature: 0.7,
-    maxTokens: 1024,
+    maxTokens: AGENT_CONFIG.reasoning.standard.maxTokens,
   });
   return { mode: "standard", synthesis, confidence: 70, durationMs: Date.now() - start };
 }
@@ -43,6 +44,7 @@ async function deepThinkReasoning(
   memCtx: string,
   steps: number
 ): Promise<ReasoningResult> {
+  if (!AGENT_CONFIG.reasoning.deepThink.enabled) return standardReasoning(systemInstruction, task, memCtx);
   const start = Date.now();
   const reasoningSteps: ReasoningStep[] = [];
 
@@ -91,6 +93,7 @@ async function adversarialReasoning(
   caseCtx: string,
   memCtx: string
 ): Promise<ReasoningResult> {
+  if (!AGENT_CONFIG.reasoning.adversarial.enabled) return standardReasoning(systemInstruction + memCtx, task, "");
   const start = Date.now();
 
   const [redTeam, blueTeam] = await Promise.all([
@@ -121,6 +124,53 @@ async function adversarialReasoning(
   };
 }
 
+async function expertPanelReasoning(
+  systemInstruction: string,
+  task: string,
+  memCtx: string,
+  caseContext: string
+): Promise<ReasoningResult> {
+  if (!AGENT_CONFIG.reasoning.expertPanel.enabled) return standardReasoning(systemInstruction, task, memCtx);
+  const start = Date.now();
+  const maxSpec = AGENT_CONFIG.reasoning.expertPanel.maxSpecialists ?? 3;
+
+  const panelText = await callChat(
+    systemInstruction + memCtx,
+    `Identify the ${maxSpec} most relevant legal specialty areas for this task. Return as a JSON array of strings.
+
+Task: ${task}`,
+    { temperature: 0.3, maxTokens: 256, jsonMode: true }
+  );
+
+  let specialties: string[];
+  try { specialties = JSON.parse(panelText).slice(0, maxSpec); } catch { specialties = ["Evidence", "Procedure", "Strategy"]; }
+
+  const opinions = await Promise.all(
+    specialties.map(spec =>
+      callChat(
+        `You are an expert in ${spec}. Provide your specialist perspective on this legal task.`,
+        `Task: ${task}
+
+Case context: ${caseContext}`
+      )
+    )
+  );
+
+  const synthesis = await callChat(
+    systemInstruction + memCtx,
+    `Synthesize these expert opinions into a unified recommendation:\n\n${specialties.map((s, i) => `[${s}]: ${opinions[i]}`).join("\n\n")}\n\nTask: ${task}`,
+    { temperature: 0.4, maxTokens: AGENT_CONFIG.reasoning.expertPanel.maxTokens }
+  );
+
+  return {
+    mode: "expert-panel",
+    steps: specialties.map((s, i) => ({ subtask: `${s} opinion`, reasoning: opinions[i], timestamp: start + i * 100 })),
+    synthesis,
+    confidence: 88,
+    durationMs: Date.now() - start,
+  };
+}
+
 export interface ReasoningRequest {
   mode: ReasoningMode;
   agentId: AgentId;
@@ -139,10 +189,13 @@ export async function runReasoning(req: ReasoningRequest): Promise<ReasoningResu
 
   switch (mode) {
     case "deep-think":
-      result = await deepThinkReasoning(systemInstruction, task, memCtx, 4);
+      result = await deepThinkReasoning(systemInstruction, task, memCtx, AGENT_CONFIG.reasoning.deepThink.steps ?? 4);
       break;
     case "adversarial":
       result = await adversarialReasoning(systemInstruction, task, caseContext, memCtx);
+      break;
+    case "expert-panel":
+      result = await expertPanelReasoning(systemInstruction, task, memCtx, caseContext);
       break;
     default:
       result = await standardReasoning(systemInstruction, task, memCtx);
@@ -165,6 +218,7 @@ export function selectReasoningMode(task: string, explicitMode?: ReasoningMode):
   if (explicitMode) return explicitMode;
   const t = task.toLowerCase();
   if (/settl|risk assess|adversar|vulnerab|attack|oppose/.test(t)) return "adversarial";
+  if (/panel|expert|multi.*special|comprehensive.*review|second.*opinion/.test(t)) return "expert-panel";
   if (/strateg|compre|deep|thorough|analy|motion|trial plan|full analysis/.test(t) && task.length > 100) return "deep-think";
   return "standard";
 }

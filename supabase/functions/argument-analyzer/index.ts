@@ -124,7 +124,7 @@ Analyze this brief and respond with ONLY valid JSON:
       apiUrl = AI_GATEWAY_URL; apiKey = OPENAI_API_KEY || GOOGLE_AI_API_KEY || ""; model = Deno.env.get("AI_GATEWAY_MODEL") || "gpt-4o-mini";
     } else if (GOOGLE_AI_API_KEY) {
       apiUrl = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
-      apiKey = GOOGLE_AI_API_KEY; model = "gemini-2.0-flash";
+      apiKey = GOOGLE_AI_API_KEY; model = "gemini-2.5-flash";
     } else if (OPENROUTER_API_KEY) {
       apiUrl = "https://openrouter.ai/api/v1/chat/completions"; apiKey = OPENROUTER_API_KEY; model = Deno.env.get("AI_GATEWAY_MODEL") || "openai/gpt-oss-120b:free";
     } else if (OPENAI_API_KEY) {
@@ -147,7 +147,34 @@ Analyze this brief and respond with ONLY valid JSON:
 
     if (!response.ok) {
       const t = await response.text();
-      console.error("AI error:", response.status, t);
+      console.error(`[${func_name}] Primary AI error:`, response.status, t);
+      
+      // If billing/auth error (403/401) and OpenRouter is available, fall back
+      if ((response.status === 403 || response.status === 401) && OPENROUTER_API_KEY && !apiUrl.includes("openrouter")) {
+        console.warn(`[${func_name}] Gemini billing error — falling back to OpenRouter`);
+        const orModel = Deno.env.get("AI_GATEWAY_MODEL") || "openai/gpt-oss-120b:free";
+        const orResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: orModel,
+            messages: [{ role: "user", content: systemPrompt }],
+            stream: false,
+          }),
+        });
+        if (orResponse.ok) {
+          const orData = await orResponse.json();
+          const orContent = orData?.choices?.[0]?.message?.content || "{}";
+          let orAnalysis: Record<string, unknown>;
+          try { orAnalysis = JSON.parse(orContent); } catch { orAnalysis = { raw: orContent }; }
+          return new Response(JSON.stringify(orAnalysis), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        const orErr = await orResponse.text();
+        console.error(`[${func_name}] OpenRouter fallback also failed:`, orResponse.status, orErr);
+      }
+      
       return new Response(JSON.stringify({ error: "AI analysis failed" }), {
         status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

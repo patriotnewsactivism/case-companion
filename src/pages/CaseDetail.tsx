@@ -8,6 +8,7 @@ import { ImportJobsViewer } from "@/components/ImportJobsViewer";
 import { BulkDocumentUpload } from "@/components/BulkDocumentUpload";
 import { DocumentAnalysisDialog } from "@/components/DocumentAnalysisDialog";
 import { TrialSimulator } from "@/components/TrialSimulator";
+import { MasterCaseBrief } from "@/components/MasterCaseBrief";
 import { VideoRoom } from "@/components/VideoRoom";
 import { VideoConference } from "@/components/VideoConference";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -40,7 +41,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { motion } from "framer-motion";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { batchAnalyzeDocuments, getBriefsByCase, createBrief, updateBrief, deleteBrief, type LegalBrief, type CreateBriefInput } from "@/lib/api";
+import { batchAnalyzeDocuments, getBriefsByCase, createBrief, updateBrief, deleteBrief, isDocumentAnalyzed, type LegalBrief, type CreateBriefInput } from "@/lib/api";
 import { generateMotionDraft } from "@/services/documentGenerator";
 import { uploadAndProcessFile } from "@/lib/upload/unified-upload-handler";
 import { ProcessingStatusBar } from "@/components/processing/ProcessingStatusBar";
@@ -1133,11 +1134,7 @@ export default function CaseDetail() {
           const fileUrl = doc.file_url || uploadResult.storagePath 
             ? `${supabaseUrl}/storage/v1/object/public/case-documents/${uploadResult.storagePath}`
             : storageFallback;
-          if (fileUrl) {
-            enqueueForAnalysis(uploadResult.fileId, file.name, fileUrl);
-          } else {
-            console.warn('[Upload] Could not determine fileUrl for analysis — will need manual OCR trigger');
-          }
+          enqueueForAnalysis(uploadResult.fileId, file.name);
         }
       }
 
@@ -1545,12 +1542,8 @@ export default function CaseDetail() {
                             const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
                             for (const doc of uploadedDocs) {
                               const d = doc as unknown as UploadedDocumentMeta;
-                              const storageFallback = d.storage_path
-                                ? `${supabaseUrl}/storage/v1/object/public/case-documents/${d.storage_path}`
-                                : null;
-                              const fileUrl = d.file_url || storageFallback;
-                              if (d.id && fileUrl) {
-                                enqueueForAnalysis(d.id, d.name || d.file_name || 'document', fileUrl);
+                              if (d.id) {
+                                enqueueForAnalysis(d.id, d.name || d.file_name || 'document');
                               }
                             }
                           }}
@@ -2546,7 +2539,7 @@ export default function CaseDetail() {
                       </div>
                     )}
 
-                    {documents.filter((d) => d.ai_analyzed).length === 0 && (
+                    {documents.filter(isDocumentAnalyzed).length === 0 && (
                       <div className="text-center py-8 text-muted-foreground">
                         <Brain className="h-8 w-8 mx-auto mb-2 opacity-30" />
                         <p className="text-sm">Analyze documents first — the AI will find all references to the witness across your case record</p>
@@ -2558,6 +2551,8 @@ export default function CaseDetail() {
 
               {/* Intelligence Tab */}
               <TabsContent value="intelligence" className="space-y-4">
+                <MasterCaseBrief caseId={id} />
+
                 <Card className="glass-card">
                   <CardHeader>
                     <div className="flex items-center justify-between">
@@ -2572,7 +2567,7 @@ export default function CaseDetail() {
                       </div>
                       <Button
                         onClick={runCrossDocIntelligence}
-                        disabled={runningIntelligence || documents.filter((d) => d.ai_analyzed).length < 2}
+                        disabled={runningIntelligence || documents.filter(isDocumentAnalyzed).length < 2}
                       >
                         {runningIntelligence ? (
                           <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Analyzing...</>
@@ -2588,7 +2583,7 @@ export default function CaseDetail() {
                       <div className="flex items-center justify-center py-12">
                         <div className="text-center space-y-3">
                           <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto" />
-                          <p className="text-sm text-muted-foreground">Analyzing {documents.filter((d) => d.ai_analyzed).length} documents for contradictions, admissions, and gaps...</p>
+                          <p className="text-sm text-muted-foreground">Analyzing {documents.filter(isDocumentAnalyzed).length} documents for contradictions, admissions, and gaps...</p>
                         </div>
                       </div>
                     </CardContent>
@@ -2600,9 +2595,9 @@ export default function CaseDetail() {
                         <Brain className="h-12 w-12 text-muted-foreground/30 mb-4" />
                         <h3 className="font-medium mb-2">Run Cross-Document Analysis</h3>
                         <p className="text-sm text-muted-foreground max-w-sm">
-                          {documents.filter((d) => d.ai_analyzed).length < 2
-                            ? `Need at least 2 analyzed documents (currently ${documents.filter((d) => d.ai_analyzed).length}). Analyze your documents first.`
-                            : `Analyzes all ${documents.filter((d) => d.ai_analyzed).length} analyzed documents to surface contradictions, admissions, and strategic intelligence.`
+                          {documents.filter(isDocumentAnalyzed).length < 2
+                            ? `Need at least 2 analyzed documents (currently ${documents.filter(isDocumentAnalyzed).length}). Analyze your documents first.`
+                            : `Analyzes all ${documents.filter(isDocumentAnalyzed).length} analyzed documents to surface contradictions, admissions, and strategic intelligence.`
                           }
                         </p>
                       </div>

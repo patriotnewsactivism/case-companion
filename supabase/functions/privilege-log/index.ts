@@ -131,7 +131,7 @@ Respond with ONLY a valid JSON array. For each document include:
         apiUrl = AI_GATEWAY_URL; apiKey = OPENAI_API_KEY || OPENROUTER_API_KEY || GOOGLE_AI_API_KEY || ""; model = Deno.env.get("AI_GATEWAY_MODEL") || "gpt-4o-mini";
       } else if (GOOGLE_AI_API_KEY) {
         apiUrl = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
-        apiKey = GOOGLE_AI_API_KEY; model = "gemini-2.0-flash";
+        apiKey = GOOGLE_AI_API_KEY; model = "gemini-2.5-flash";
       } else if (OPENROUTER_API_KEY) {
         apiUrl = "https://openrouter.ai/api/v1/chat/completions";
         apiKey = OPENROUTER_API_KEY; model = Deno.env.get("AI_GATEWAY_MODEL") || "openai/gpt-oss-120b:free";
@@ -153,10 +153,30 @@ Respond with ONLY a valid JSON array. For each document include:
         }),
       });
 
-      if (!response.ok) continue;
-
-      const aiData = await response.json();
-      const rawContent = aiData?.choices?.[0]?.message?.content || "[]";
+      let rawContent = "[]";
+      
+      if (response.ok) {
+        const aiData = await response.json();
+        rawContent = aiData?.choices?.[0]?.message?.content || "[]";
+      } else if ((response.status === 403 || response.status === 401) && OPENROUTER_API_KEY && !apiUrl.includes("openrouter")) {
+        // Gemini billing error — fall back to OpenRouter
+        console.warn("[privilege-log] Gemini billing error — falling back to OpenRouter");
+        const orModel = Deno.env.get("AI_GATEWAY_MODEL") || "openai/gpt-oss-120b:free";
+        const orResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: orModel,
+            messages: [{ role: "user", content: prompt }],
+            stream: false,
+          }),
+        });
+        if (!orResponse.ok) continue;
+        const orData = await orResponse.json();
+        rawContent = orData?.choices?.[0]?.message?.content || "[]";
+      } else {
+        continue;
+      }
 
       try {
         const jsonMatch = rawContent.match(/```(?:json)?\s*([\s\S]*?)```/) || rawContent.match(/(\[[\s\S]*\])/);

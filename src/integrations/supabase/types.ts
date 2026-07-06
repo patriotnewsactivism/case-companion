@@ -12,6 +12,31 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.1"
   }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
       _loot: {
@@ -68,6 +93,329 @@ export type Database = {
           resource_id?: string
           resource_type?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      agent_cron_logs: {
+        Row: {
+          alerts_sent: number | null
+          cases_loaded: number | null
+          deadlines_checked: number | null
+          emails_sent: number | null
+          error: string | null
+          id: string
+          job: string
+          log: string | null
+          ran_at: string
+        }
+        Insert: {
+          alerts_sent?: number | null
+          cases_loaded?: number | null
+          deadlines_checked?: number | null
+          emails_sent?: number | null
+          error?: string | null
+          id?: string
+          job: string
+          log?: string | null
+          ran_at?: string
+        }
+        Update: {
+          alerts_sent?: number | null
+          cases_loaded?: number | null
+          deadlines_checked?: number | null
+          emails_sent?: number | null
+          error?: string | null
+          id?: string
+          job?: string
+          log?: string | null
+          ran_at?: string
+        }
+        Relationships: []
+      }
+      agent_deadlines: {
+        Row: {
+          alert_sent: boolean
+          alert_sent_at: string | null
+          case_title: string
+          completed: boolean
+          completed_at: string | null
+          created_at: string
+          due_date: string
+          firm_id: string
+          id: string
+          label: string
+          notes: string | null
+          reminder_days: number
+          type: string
+        }
+        Insert: {
+          alert_sent?: boolean
+          alert_sent_at?: string | null
+          case_title?: string
+          completed?: boolean
+          completed_at?: string | null
+          created_at?: string
+          due_date: string
+          firm_id?: string
+          id?: string
+          label?: string
+          notes?: string | null
+          reminder_days?: number
+          type?: string
+        }
+        Update: {
+          alert_sent?: boolean
+          alert_sent_at?: string | null
+          case_title?: string
+          completed?: boolean
+          completed_at?: string | null
+          created_at?: string
+          due_date?: string
+          firm_id?: string
+          id?: string
+          label?: string
+          notes?: string | null
+          reminder_days?: number
+          type?: string
+        }
+        Relationships: []
+      }
+      agent_insights: {
+        Row: {
+          agent_id: string
+          case_id: string
+          confidence: number
+          content: string
+          created_at: string | null
+          id: string
+          insight_type: string
+          read: boolean
+          source: string
+          title: string
+        }
+        Insert: {
+          agent_id: string
+          case_id: string
+          confidence?: number
+          content: string
+          created_at?: string | null
+          id?: string
+          insight_type?: string
+          read?: boolean
+          source?: string
+          title: string
+        }
+        Update: {
+          agent_id?: string
+          case_id?: string
+          confidence?: number
+          content?: string
+          created_at?: string | null
+          id?: string
+          insight_type?: string
+          read?: boolean
+          source?: string
+          title?: string
+        }
+        Relationships: []
+      }
+      agent_memory: {
+        Row: {
+          agent_id: string
+          case_id: string
+          created_at: string | null
+          id: string
+          memory_data: Json
+          updated_at: string | null
+        }
+        Insert: {
+          agent_id: string
+          case_id: string
+          created_at?: string | null
+          id?: string
+          memory_data?: Json
+          updated_at?: string | null
+        }
+        Update: {
+          agent_id?: string
+          case_id?: string
+          created_at?: string | null
+          id?: string
+          memory_data?: Json
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      agent_notifications: {
+        Row: {
+          agent_id: string
+          body: string
+          created_at: string
+          firm_id: string
+          id: string
+          link: string | null
+          read: boolean
+          title: string
+          type: string
+        }
+        Insert: {
+          agent_id: string
+          body: string
+          created_at?: string
+          firm_id?: string
+          id?: string
+          link?: string | null
+          read?: boolean
+          title: string
+          type?: string
+        }
+        Update: {
+          agent_id?: string
+          body?: string
+          created_at?: string
+          firm_id?: string
+          id?: string
+          link?: string | null
+          read?: boolean
+          title?: string
+          type?: string
+        }
+        Relationships: []
+      }
+      agent_research_flags: {
+        Row: {
+          case_id: string
+          case_title: string
+          created_at: string
+          firm_id: string
+          id: string
+          query: string
+          researched: boolean
+          results: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          case_id: string
+          case_title?: string
+          created_at?: string
+          firm_id?: string
+          id?: string
+          query: string
+          researched?: boolean
+          results?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          case_id?: string
+          case_title?: string
+          created_at?: string
+          firm_id?: string
+          id?: string
+          query?: string
+          researched?: boolean
+          results?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      agent_tasks: {
+        Row: {
+          agent_id: string
+          case_id: string
+          completed_at: string | null
+          created_at: string
+          error: string | null
+          firm_id: string
+          id: string
+          input: Json
+          intake_id: string | null
+          output: Json
+          started_at: string | null
+          status: string
+          task_type: string
+          updated_at: string
+        }
+        Insert: {
+          agent_id: string
+          case_id: string
+          completed_at?: string | null
+          created_at?: string
+          error?: string | null
+          firm_id?: string
+          id?: string
+          input?: Json
+          intake_id?: string | null
+          output?: Json
+          started_at?: string | null
+          status?: string
+          task_type: string
+          updated_at?: string
+        }
+        Update: {
+          agent_id?: string
+          case_id?: string
+          completed_at?: string | null
+          created_at?: string
+          error?: string | null
+          firm_id?: string
+          id?: string
+          input?: Json
+          intake_id?: string | null
+          output?: Json
+          started_at?: string | null
+          status?: string
+          task_type?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_tasks_intake_id_fkey"
+            columns: ["intake_id"]
+            isOneToOne: false
+            referencedRelation: "intake_cases"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      agent_workflows: {
+        Row: {
+          case_id: string | null
+          case_title: string | null
+          completed_at: string | null
+          created_at: string | null
+          description: string | null
+          id: string
+          name: string
+          result: Json | null
+          status: string
+          steps: Json
+          trigger_event: string | null
+        }
+        Insert: {
+          case_id?: string | null
+          case_title?: string | null
+          completed_at?: string | null
+          created_at?: string | null
+          description?: string | null
+          id: string
+          name: string
+          result?: Json | null
+          status?: string
+          steps?: Json
+          trigger_event?: string | null
+        }
+        Update: {
+          case_id?: string | null
+          case_title?: string | null
+          completed_at?: string | null
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          name?: string
+          result?: Json | null
+          status?: string
+          steps?: Json
+          trigger_event?: string | null
         }
         Relationships: []
       }
@@ -266,6 +614,60 @@ export type Database = {
           token_expires_at?: string | null
           updated_at?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      call_recordings: {
+        Row: {
+          call_sid: string
+          case_id: string | null
+          created_at: string
+          duration: number | null
+          firm_id: string
+          from_number: string
+          id: string
+          key_facts: Json | null
+          metadata: Json | null
+          recording_sid: string | null
+          recording_url: string | null
+          status: string | null
+          summary: string | null
+          to_number: string
+          transcript: string | null
+        }
+        Insert: {
+          call_sid: string
+          case_id?: string | null
+          created_at?: string
+          duration?: number | null
+          firm_id?: string
+          from_number?: string
+          id?: string
+          key_facts?: Json | null
+          metadata?: Json | null
+          recording_sid?: string | null
+          recording_url?: string | null
+          status?: string | null
+          summary?: string | null
+          to_number?: string
+          transcript?: string | null
+        }
+        Update: {
+          call_sid?: string
+          case_id?: string | null
+          created_at?: string
+          duration?: number | null
+          firm_id?: string
+          from_number?: string
+          id?: string
+          key_facts?: Json | null
+          metadata?: Json | null
+          recording_sid?: string | null
+          recording_url?: string | null
+          status?: string | null
+          summary?: string | null
+          to_number?: string
+          transcript?: string | null
         }
         Relationships: []
       }
@@ -612,6 +1014,80 @@ export type Database = {
           },
         ]
       }
+      case_messages: {
+        Row: {
+          attachment_name: string | null
+          attachment_type: string | null
+          attachment_url: string | null
+          automation_result: string | null
+          automation_status: string
+          automation_target: string | null
+          body: string
+          case_id: string
+          created_at: string
+          direction: string
+          firm_id: string
+          id: string
+          metadata: Json
+          read: boolean
+          sender_id: string
+          sender_name: string
+          sender_type: string
+          thread_id: string
+          triggers_automation: boolean
+        }
+        Insert: {
+          attachment_name?: string | null
+          attachment_type?: string | null
+          attachment_url?: string | null
+          automation_result?: string | null
+          automation_status?: string
+          automation_target?: string | null
+          body: string
+          case_id: string
+          created_at?: string
+          direction: string
+          firm_id?: string
+          id?: string
+          metadata?: Json
+          read?: boolean
+          sender_id: string
+          sender_name?: string
+          sender_type: string
+          thread_id: string
+          triggers_automation?: boolean
+        }
+        Update: {
+          attachment_name?: string | null
+          attachment_type?: string | null
+          attachment_url?: string | null
+          automation_result?: string | null
+          automation_status?: string
+          automation_target?: string | null
+          body?: string
+          case_id?: string
+          created_at?: string
+          direction?: string
+          firm_id?: string
+          id?: string
+          metadata?: Json
+          read?: boolean
+          sender_id?: string
+          sender_name?: string
+          sender_type?: string
+          thread_id?: string
+          triggers_automation?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "case_messages_thread_id_fkey"
+            columns: ["thread_id"]
+            isOneToOne: false
+            referencedRelation: "case_threads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       case_presence: {
         Row: {
           case_id: string
@@ -735,6 +1211,54 @@ export type Database = {
           },
         ]
       }
+      case_threads: {
+        Row: {
+          case_id: string
+          case_title: string
+          created_at: string
+          firm_id: string
+          id: string
+          last_message_at: string
+          metadata: Json
+          participants: string[]
+          priority: string
+          status: string
+          subject: string
+          unread_count: number
+          updated_at: string
+        }
+        Insert: {
+          case_id: string
+          case_title?: string
+          created_at?: string
+          firm_id?: string
+          id?: string
+          last_message_at?: string
+          metadata?: Json
+          participants?: string[]
+          priority?: string
+          status?: string
+          subject?: string
+          unread_count?: number
+          updated_at?: string
+        }
+        Update: {
+          case_id?: string
+          case_title?: string
+          created_at?: string
+          firm_id?: string
+          id?: string
+          last_message_at?: string
+          metadata?: Json
+          participants?: string[]
+          priority?: string
+          status?: string
+          subject?: string
+          unread_count?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       cases: {
         Row: {
           case_number: string | null
@@ -744,8 +1268,10 @@ export type Database = {
           client_version: number | null
           court_name: string | null
           created_at: string
+          data: Json
           defendants: string[] | null
           description: string | null
+          firm_id: string
           id: string
           judge: string | null
           key_issues: string[] | null
@@ -778,8 +1304,10 @@ export type Database = {
           client_version?: number | null
           court_name?: string | null
           created_at?: string
+          data?: Json
           defendants?: string[] | null
           description?: string | null
+          firm_id?: string
           id?: string
           judge?: string | null
           key_issues?: string[] | null
@@ -812,8 +1340,10 @@ export type Database = {
           client_version?: number | null
           court_name?: string | null
           created_at?: string
+          data?: Json
           defendants?: string[] | null
           description?: string | null
+          firm_id?: string
           id?: string
           judge?: string | null
           key_issues?: string[] | null
@@ -989,6 +1519,54 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      client_invites: {
+        Row: {
+          client_email: string
+          client_name: string
+          client_phone: string
+          completed_at: string | null
+          created_at: string
+          created_by: string | null
+          firm_id: string
+          id: string
+          intake_case_id: string | null
+          notes: string
+          opened_at: string | null
+          status: string
+          token: string
+        }
+        Insert: {
+          client_email?: string
+          client_name?: string
+          client_phone?: string
+          completed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          firm_id: string
+          id?: string
+          intake_case_id?: string | null
+          notes?: string
+          opened_at?: string | null
+          status?: string
+          token: string
+        }
+        Update: {
+          client_email?: string
+          client_name?: string
+          client_phone?: string
+          completed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          firm_id?: string
+          id?: string
+          intake_case_id?: string | null
+          notes?: string
+          opened_at?: string | null
+          status?: string
+          token?: string
+        }
+        Relationships: []
       }
       client_magic_links: {
         Row: {
@@ -1334,6 +1912,57 @@ export type Database = {
           },
         ]
       }
+      deadlines: {
+        Row: {
+          assigned_agent: string | null
+          case_id: string | null
+          case_name: string
+          created_at: string
+          deadline_type: string
+          due_date: string
+          firm_id: string
+          id: string
+          notes: string | null
+          priority: string
+          reminder_sent: boolean
+          status: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          assigned_agent?: string | null
+          case_id?: string | null
+          case_name?: string
+          created_at?: string
+          deadline_type?: string
+          due_date: string
+          firm_id?: string
+          id?: string
+          notes?: string | null
+          priority?: string
+          reminder_sent?: boolean
+          status?: string
+          title?: string
+          updated_at?: string
+        }
+        Update: {
+          assigned_agent?: string | null
+          case_id?: string | null
+          case_name?: string
+          created_at?: string
+          deadline_type?: string
+          due_date?: string
+          firm_id?: string
+          id?: string
+          notes?: string | null
+          priority?: string
+          reminder_sent?: boolean
+          status?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       depositions: {
         Row: {
           case_id: string
@@ -1645,6 +2274,7 @@ export type Database = {
           action_items: string[] | null
           adverse_findings: string[] | null
           ai_analyzed: boolean | null
+          ai_suggested_name: string | null
           analysis: Json | null
           bates_formatted: string | null
           bates_number: string | null
@@ -1655,9 +2285,11 @@ export type Database = {
           created_at: string
           current_version: number | null
           custom_fields: Json | null
+          document_date: string | null
           document_type: string | null
           entities: Json | null
           evidentiary_value: string | null
+          extracted_tables: Json | null
           extracted_text: string | null
           favorable_findings: string[] | null
           file_size: number | null
@@ -1670,6 +2302,8 @@ export type Database = {
           legal_importance: string | null
           mime_type: string | null
           name: string
+          ocr_processed_at: string | null
+          ocr_provider: string | null
           ocr_text: string | null
           processing_progress: number | null
           project_id: string | null
@@ -1690,6 +2324,7 @@ export type Database = {
           action_items?: string[] | null
           adverse_findings?: string[] | null
           ai_analyzed?: boolean | null
+          ai_suggested_name?: string | null
           analysis?: Json | null
           bates_formatted?: string | null
           bates_number?: string | null
@@ -1700,9 +2335,11 @@ export type Database = {
           created_at?: string
           current_version?: number | null
           custom_fields?: Json | null
+          document_date?: string | null
           document_type?: string | null
           entities?: Json | null
           evidentiary_value?: string | null
+          extracted_tables?: Json | null
           extracted_text?: string | null
           favorable_findings?: string[] | null
           file_size?: number | null
@@ -1715,6 +2352,8 @@ export type Database = {
           legal_importance?: string | null
           mime_type?: string | null
           name: string
+          ocr_processed_at?: string | null
+          ocr_provider?: string | null
           ocr_text?: string | null
           processing_progress?: number | null
           project_id?: string | null
@@ -1735,6 +2374,7 @@ export type Database = {
           action_items?: string[] | null
           adverse_findings?: string[] | null
           ai_analyzed?: boolean | null
+          ai_suggested_name?: string | null
           analysis?: Json | null
           bates_formatted?: string | null
           bates_number?: string | null
@@ -1745,9 +2385,11 @@ export type Database = {
           created_at?: string
           current_version?: number | null
           custom_fields?: Json | null
+          document_date?: string | null
           document_type?: string | null
           entities?: Json | null
           evidentiary_value?: string | null
+          extracted_tables?: Json | null
           extracted_text?: string | null
           favorable_findings?: string[] | null
           file_size?: number | null
@@ -1760,6 +2402,8 @@ export type Database = {
           legal_importance?: string | null
           mime_type?: string | null
           name?: string
+          ocr_processed_at?: string | null
+          ocr_provider?: string | null
           ocr_text?: string | null
           processing_progress?: number | null
           project_id?: string | null
@@ -1799,6 +2443,51 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      email_queue: {
+        Row: {
+          agent_id: string
+          body_html: string | null
+          body_text: string | null
+          case_id: string | null
+          created_at: string | null
+          error: string | null
+          firm_id: string | null
+          id: string
+          sent_at: string | null
+          status: string
+          subject: string
+          to_email: string
+        }
+        Insert: {
+          agent_id?: string
+          body_html?: string | null
+          body_text?: string | null
+          case_id?: string | null
+          created_at?: string | null
+          error?: string | null
+          firm_id?: string | null
+          id?: string
+          sent_at?: string | null
+          status?: string
+          subject: string
+          to_email: string
+        }
+        Update: {
+          agent_id?: string
+          body_html?: string | null
+          body_text?: string | null
+          case_id?: string | null
+          created_at?: string | null
+          error?: string | null
+          firm_id?: string | null
+          id?: string
+          sent_at?: string | null
+          status?: string
+          subject?: string
+          to_email?: string
+        }
+        Relationships: []
       }
       encryption_keys: {
         Row: {
@@ -2059,6 +2748,219 @@ export type Database = {
           },
         ]
       }
+      firm_emails: {
+        Row: {
+          agent_id: string
+          body: string
+          direction: string
+          firm_id: string
+          from_address: string
+          from_name: string
+          id: string
+          intent: string
+          metadata: Json
+          read: boolean
+          received_at: string
+          replied: boolean
+          starred: boolean
+          subject: string
+          thread_id: string | null
+          to_address: string
+        }
+        Insert: {
+          agent_id?: string
+          body?: string
+          direction: string
+          firm_id?: string
+          from_address?: string
+          from_name?: string
+          id?: string
+          intent?: string
+          metadata?: Json
+          read?: boolean
+          received_at?: string
+          replied?: boolean
+          starred?: boolean
+          subject?: string
+          thread_id?: string | null
+          to_address?: string
+        }
+        Update: {
+          agent_id?: string
+          body?: string
+          direction?: string
+          firm_id?: string
+          from_address?: string
+          from_name?: string
+          id?: string
+          intent?: string
+          metadata?: Json
+          read?: boolean
+          received_at?: string
+          replied?: boolean
+          starred?: boolean
+          subject?: string
+          thread_id?: string | null
+          to_address?: string
+        }
+        Relationships: []
+      }
+      firm_memberships: {
+        Row: {
+          claimed_at: string
+          firm_id: string
+          intake_token: string | null
+          user_id: string
+        }
+        Insert: {
+          claimed_at?: string
+          firm_id: string
+          intake_token?: string | null
+          user_id: string
+        }
+        Update: {
+          claimed_at?: string
+          firm_id?: string
+          intake_token?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      firm_reports: {
+        Row: {
+          case_id: string | null
+          created_at: string
+          firm_id: string
+          generated_by: string
+          id: string
+          raw_data: Json
+          report_type: string
+          sections: Json
+          status: string
+          summary: string | null
+          title: string
+        }
+        Insert: {
+          case_id?: string | null
+          created_at?: string
+          firm_id?: string
+          generated_by?: string
+          id?: string
+          raw_data?: Json
+          report_type?: string
+          sections?: Json
+          status?: string
+          summary?: string | null
+          title?: string
+        }
+        Update: {
+          case_id?: string | null
+          created_at?: string
+          firm_id?: string
+          generated_by?: string
+          id?: string
+          raw_data?: Json
+          report_type?: string
+          sections?: Json
+          status?: string
+          summary?: string | null
+          title?: string
+        }
+        Relationships: []
+      }
+      firm_runs: {
+        Row: {
+          case_id: string
+          completed_at: string | null
+          created_at: string | null
+          id: string
+          specialist_id: string | null
+          status: string
+          user_id: string
+        }
+        Insert: {
+          case_id: string
+          completed_at?: string | null
+          created_at?: string | null
+          id?: string
+          specialist_id?: string | null
+          status?: string
+          user_id: string
+        }
+        Update: {
+          case_id?: string
+          completed_at?: string | null
+          created_at?: string | null
+          id?: string
+          specialist_id?: string | null
+          status?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      foia_requests: {
+        Row: {
+          agency: string
+          assigned_agent: string | null
+          case_id: string | null
+          created_at: string
+          description: string | null
+          documents_received: number | null
+          due_date: string | null
+          firm_id: string
+          id: string
+          notes: string | null
+          request_date: string
+          requester_name: string
+          response_date: string | null
+          response_received: boolean
+          status: string
+          subject: string
+          tracking_number: string | null
+          updated_at: string
+        }
+        Insert: {
+          agency?: string
+          assigned_agent?: string | null
+          case_id?: string | null
+          created_at?: string
+          description?: string | null
+          documents_received?: number | null
+          due_date?: string | null
+          firm_id?: string
+          id?: string
+          notes?: string | null
+          request_date?: string
+          requester_name?: string
+          response_date?: string | null
+          response_received?: boolean
+          status?: string
+          subject?: string
+          tracking_number?: string | null
+          updated_at?: string
+        }
+        Update: {
+          agency?: string
+          assigned_agent?: string | null
+          case_id?: string | null
+          created_at?: string
+          description?: string | null
+          documents_received?: number | null
+          due_date?: string | null
+          firm_id?: string
+          id?: string
+          notes?: string | null
+          request_date?: string
+          requester_name?: string
+          response_date?: string | null
+          response_received?: boolean
+          status?: string
+          subject?: string
+          tracking_number?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       generated_documents: {
         Row: {
           case_id: string
@@ -2270,6 +3172,113 @@ export type Database = {
           },
         ]
       }
+      intake_cases: {
+        Row: {
+          client_invite_id: string | null
+          contact: string | null
+          created_at: string
+          disposition: string
+          firm_id: string
+          full_name: string
+          id: string
+          intake: Json
+          jurisdiction: string | null
+          matter_type: string | null
+          processed_at: string | null
+          recommended_agent_id: string | null
+          recommended_department: string | null
+          score: number
+          score_detail: Json
+          status: string
+          summary: string | null
+          transcript: Json
+          urgency: string | null
+        }
+        Insert: {
+          client_invite_id?: string | null
+          contact?: string | null
+          created_at?: string
+          disposition?: string
+          firm_id?: string
+          full_name?: string
+          id?: string
+          intake?: Json
+          jurisdiction?: string | null
+          matter_type?: string | null
+          processed_at?: string | null
+          recommended_agent_id?: string | null
+          recommended_department?: string | null
+          score?: number
+          score_detail?: Json
+          status?: string
+          summary?: string | null
+          transcript?: Json
+          urgency?: string | null
+        }
+        Update: {
+          client_invite_id?: string | null
+          contact?: string | null
+          created_at?: string
+          disposition?: string
+          firm_id?: string
+          full_name?: string
+          id?: string
+          intake?: Json
+          jurisdiction?: string | null
+          matter_type?: string | null
+          processed_at?: string | null
+          recommended_agent_id?: string | null
+          recommended_department?: string | null
+          score?: number
+          score_detail?: Json
+          status?: string
+          summary?: string | null
+          transcript?: Json
+          urgency?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "intake_cases_client_invite_id_fkey"
+            columns: ["client_invite_id"]
+            isOneToOne: false
+            referencedRelation: "client_invites"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      invite_codes: {
+        Row: {
+          code: string
+          created_at: string
+          created_by: string | null
+          expires_at: string
+          firm_id: string
+          is_used: boolean
+          used_at: string | null
+          used_by: string | null
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          created_by?: string | null
+          expires_at?: string
+          firm_id: string
+          is_used?: boolean
+          used_at?: string | null
+          used_by?: string | null
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          created_by?: string | null
+          expires_at?: string
+          firm_id?: string
+          is_used?: boolean
+          used_at?: string | null
+          used_by?: string | null
+        }
+        Relationships: []
+      }
       invoices: {
         Row: {
           amount_cents: number
@@ -2332,6 +3341,73 @@ export type Database = {
             columns: ["case_id"]
             isOneToOne: false
             referencedRelation: "v_trial_prep_cases"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      job_queue: {
+        Row: {
+          attempts: number
+          created_at: string | null
+          document_id: string | null
+          error_message: string | null
+          id: string
+          job_type: string
+          max_attempts: number
+          priority: number
+          project_id: string | null
+          result: Json | null
+          status: string
+          updated_at: string | null
+        }
+        Insert: {
+          attempts?: number
+          created_at?: string | null
+          document_id?: string | null
+          error_message?: string | null
+          id?: string
+          job_type: string
+          max_attempts?: number
+          priority?: number
+          project_id?: string | null
+          result?: Json | null
+          status?: string
+          updated_at?: string | null
+        }
+        Update: {
+          attempts?: number
+          created_at?: string | null
+          document_id?: string | null
+          error_message?: string | null
+          id?: string
+          job_type?: string
+          max_attempts?: number
+          priority?: number
+          project_id?: string | null
+          result?: Json | null
+          status?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "job_queue_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "job_queue_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "v_discovery_case_sync"
+            referencedColumns: ["document_id"]
+          },
+          {
+            foreignKeyName: "job_queue_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
             referencedColumns: ["id"]
           },
         ]
@@ -3245,6 +4321,45 @@ export type Database = {
         }
         Relationships: []
       }
+      sms_messages: {
+        Row: {
+          body: string
+          created_at: string
+          direction: string
+          firm_id: string
+          from_number: string
+          id: string
+          message_sid: string | null
+          metadata: Json | null
+          status: string | null
+          to_number: string
+        }
+        Insert: {
+          body?: string
+          created_at?: string
+          direction: string
+          firm_id?: string
+          from_number?: string
+          id?: string
+          message_sid?: string | null
+          metadata?: Json | null
+          status?: string | null
+          to_number?: string
+        }
+        Update: {
+          body?: string
+          created_at?: string
+          direction?: string
+          firm_id?: string
+          from_number?: string
+          id?: string
+          message_sid?: string | null
+          metadata?: Json | null
+          status?: string | null
+          to_number?: string
+        }
+        Relationships: []
+      }
       synced_calendar_events: {
         Row: {
           court_date_id: string | null
@@ -3298,6 +4413,7 @@ export type Database = {
           date: string
           description: string
           duration_minutes: number
+          hourly_rate: number | null
           id: string
           invoice_id: string | null
           rate_cents: number
@@ -3312,6 +4428,7 @@ export type Database = {
           date?: string
           description: string
           duration_minutes?: number
+          hourly_rate?: number | null
           id?: string
           invoice_id?: string | null
           rate_cents?: number
@@ -3326,6 +4443,7 @@ export type Database = {
           date?: string
           description?: string
           duration_minutes?: number
+          hourly_rate?: number | null
           id?: string
           invoice_id?: string | null
           rate_cents?: number
@@ -4016,6 +5134,59 @@ export type Database = {
           },
         ]
       }
+      work_products: {
+        Row: {
+          agent_id: string
+          agent_name: string
+          color_class: string | null
+          completed_at: number | null
+          content: string | null
+          emoji: string | null
+          id: string
+          run_id: string
+          started_at: number | null
+          status: string
+          task_id: string
+          title: string
+        }
+        Insert: {
+          agent_id: string
+          agent_name: string
+          color_class?: string | null
+          completed_at?: number | null
+          content?: string | null
+          emoji?: string | null
+          id?: string
+          run_id: string
+          started_at?: number | null
+          status?: string
+          task_id: string
+          title: string
+        }
+        Update: {
+          agent_id?: string
+          agent_name?: string
+          color_class?: string | null
+          completed_at?: number | null
+          content?: string | null
+          emoji?: string | null
+          id?: string
+          run_id?: string
+          started_at?: number | null
+          status?: string
+          task_id?: string
+          title?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "work_products_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "firm_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       v_discovery_case_sync: {
@@ -4154,6 +5325,10 @@ export type Database = {
           similarity_score: number
         }[]
       }
+      claim_firm_with_invite: {
+        Args: { p_invite_code: string }
+        Returns: boolean
+      }
       claim_next_job: {
         Args: { worker_id?: string }
         Returns: {
@@ -4227,6 +5402,8 @@ export type Database = {
           win_probability: number
         }[]
       }
+      get_user_firm_id: { Args: never; Returns: string }
+      get_user_id_by_email: { Args: { lookup_email: string }; Returns: string }
       increment_cache_access: {
         Args: { cache_table: string; hash: string }
         Returns: undefined
@@ -4418,6 +5595,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
       analysis_type: ["swot", "outcome_prediction", "timeline", "settlement"],

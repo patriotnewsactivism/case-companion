@@ -60,6 +60,68 @@ verify_jwt = true
 [functions.synthesize-timeline]
 verify_jwt = true
 
+[functions.argument-analyzer]
+verify_jwt = true
+
+[functions.case-strategy]
+verify_jwt = true
+
+[functions.client-auth]
+verify_jwt = true
+
+[functions.cross-document-analysis]
+verify_jwt = true
+
+
+[functions.discovery-response]
+verify_jwt = true
+
+[functions.document-aware-chat]
+verify_jwt = true
+
+[functions.evidence-analysis]
+verify_jwt = true
+
+[functions.gemini-proxy]
+verify_jwt = true
+
+[functions.judicial-research]
+verify_jwt = true
+
+[functions.legal-research]
+verify_jwt = true
+
+# Internal queue processor — triggered by cron/pg_net, no user JWT
+[functions.ocr-queue-processor]
+verify_jwt = false
+
+[functions.privilege-log]
+verify_jwt = true
+
+[functions.process-queue]
+verify_jwt = true
+
+[functions.save-session]
+verify_jwt = true
+
+[functions.send-email]
+verify_jwt = true
+
+[functions.trial-assistant]
+verify_jwt = true
+
+[functions.upload-to-r2]
+verify_jwt = true
+
+[functions.voice-agent-call]
+verify_jwt = true
+
+[functions.witness-prep]
+verify_jwt = true
+
+[functions.invite-member]
+verify_jwt = true
+
 # Outbound request generation (public records / FOIA, discovery demands, preservation letters, subpoenas)
 [functions.generate-request]
 verify_jwt = true

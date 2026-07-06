@@ -6,7 +6,7 @@ import {
   checkRateLimit,
 } from '../_shared/errorHandler.ts';
 import { verifyAuth } from '../_shared/auth.ts';
-import { getFastAIProvider, callChatCompletion } from '../_shared/aiConfig.ts';
+import { callChatCompletionWithFallback } from '../_shared/aiConfig.ts';
 
 serve(async (req) => {
   const corsHeaders = getCorsHeaders(req);
@@ -51,12 +51,13 @@ serve(async (req) => {
       });
     }
 
-    // Fetch all analyzed documents
+    // Fetch all analyzed documents — CaseBuddy-analyzed (ai_analyzed) OR
+    // DiscoveryLens-analyzed (analysis JSONB from the shared documents table)
     const { data: documents } = await supabase
       .from('documents')
-      .select('id, name, bates_number, summary, key_facts, favorable_findings, adverse_findings, created_at')
+      .select('id, name, bates_number, bates_formatted, summary, key_facts, favorable_findings, adverse_findings, analysis, status, ai_analyzed, created_at')
       .eq('case_id', caseId)
-      .eq('ai_analyzed', true)
+      .or('ai_analyzed.eq.true,analysis.not.is.null')
       .order('bates_number', { ascending: true, nullsFirst: false })
       .limit(40);
 
@@ -68,11 +69,20 @@ serve(async (req) => {
       }), { status: 422, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    // Build document summaries for AI (using already-extracted fields only — no OCR bulk)
+    // Build document summaries for AI (using already-extracted fields only — no OCR bulk).
+    // Falls back to DiscoveryLens `analysis` JSON fields when CaseBuddy columns are empty.
     const docSummaries = docs.slice(0, 30).map((d: Record<string, unknown>) => {
-      const parts: string[] = [`DOCUMENT: ${d.bates_number || d.name}`];
-      if (d.summary) parts.push(`Summary: ${d.summary}`);
-      if (Array.isArray(d.key_facts) && d.key_facts.length) parts.push(`Key Facts: ${d.key_facts.join('; ')}`);
+      const dl = (d.analysis && typeof d.analysis === 'object' && !Array.isArray(d.analysis))
+        ? d.analysis as { summary?: string; relevantFacts?: string[]; evidenceType?: string }
+        : null;
+      const parts: string[] = [`DOCUMENT: ${d.bates_number || d.bates_formatted || d.name}`];
+      const summary = (typeof d.summary === 'string' && d.summary) || dl?.summary;
+      if (summary) parts.push(`Summary: ${summary}`);
+      if (dl?.evidenceType) parts.push(`Evidence Type: ${dl.evidenceType}`);
+      const keyFacts = (Array.isArray(d.key_facts) && d.key_facts.length)
+        ? d.key_facts
+        : (Array.isArray(dl?.relevantFacts) ? dl.relevantFacts : []);
+      if (keyFacts.length) parts.push(`Key Facts: ${keyFacts.join('; ')}`);
       if (Array.isArray(d.favorable_findings) && d.favorable_findings.length) parts.push(`Favorable: ${d.favorable_findings.join('; ')}`);
       if (Array.isArray(d.adverse_findings) && d.adverse_findings.length) parts.push(`Adverse: ${d.adverse_findings.join('; ')}`);
       return parts.join('\n');
@@ -141,26 +151,12 @@ Respond with ONLY valid JSON in this exact structure:
   "executiveSummary": "2-3 sentence overall assessment of the case record"
 }`;
 
-    // AI provider selection via shared config with model fallback
-    let config;
-    try {
-      config = getFastAIProvider();
-    } catch {
-      return new Response(
-        JSON.stringify({ error: 'AI not configured. Please set GOOGLE_AI_API_KEY in your Supabase secrets.' }),
-        { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    let rawContent: string;
-    try {
-      rawContent = await callChatCompletion(config, [{ role: 'user', content: systemPrompt }], { responseFormat: 'json', temperature: 0.7 });
-    } catch (aiErr) {
-      console.error("cross-document-analysis AI error:", aiErr);
-      return new Response(JSON.stringify({ error: "AI analysis failed" }), {
-        status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    // Resilient AI call: cycles Gemini models on 429/503, then cascades to
+    // OpenRouter free models / OpenAI — a single provider hiccup no longer 500s.
+    const { content: rawContent } = await callChatCompletionWithFallback(
+      [{ role: "user", content: systemPrompt }],
+      { temperature: 0.3, responseFormat: "json" },
+    );
 
     let analysis: Record<string, unknown>;
     try {

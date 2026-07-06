@@ -8,6 +8,7 @@ import {
 } from "../_shared/errorHandler.ts";
 import { verifyAuth, forbiddenResponse } from "../_shared/auth.ts";
 import { validateUUID, validateEnum } from "../_shared/validation.ts";
+import { callChatCompletionWithFallback } from "../_shared/aiConfig.ts";
 
 const MODES = [
   "cross-examination",
@@ -26,14 +27,6 @@ interface TrialCoachRequest {
   transcript?: string;
   lastUtterance?: string;
   askedQuestions?: string[];
-}
-
-interface GeminiResponse {
-  candidates?: Array<{
-    content?: {
-      parts?: Array<{ text?: string }>;
-    };
-  }>;
 }
 
 interface CaseData {
@@ -91,8 +84,6 @@ const modeQuestions: Record<Mode, string[]> = {
   ],
 };
 
-const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
 const toList = (value: unknown, maxItems = 6) =>
   Array.isArray(value)
     ? value.map((item) => String(item || "").trim()).filter(Boolean).slice(0, maxItems)
@@ -102,12 +93,6 @@ const toScore = (value: unknown) => {
   const num = Number(value);
   if (!Number.isFinite(num)) return 65;
   return Math.max(0, Math.min(100, Math.round(num)));
-};
-
-const extractGeminiText = (payload: GeminiResponse) => {
-  const parts = payload?.candidates?.[0]?.content?.parts;
-  if (!Array.isArray(parts)) return "";
-  return parts.map((part) => String(part?.text || "")).join("").trim();
 };
 
 const parseJsonObject = (text: string) => {
@@ -139,7 +124,8 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    validateEnvVars(["SUPABASE_URL", "SUPABASE_ANON_KEY", "GOOGLE_AI_API_KEY"]);
+    // GOOGLE_AI_API_KEY is optional — aiConfig cascades to OPENAI_API_KEY / OPENROUTER_API_KEY
+    validateEnvVars(["SUPABASE_URL", "SUPABASE_ANON_KEY"]);
 
     const authResult = await verifyAuth(req);
     if (!authResult.authorized || !authResult.user || !authResult.supabase) {
@@ -240,36 +226,16 @@ JSON schema:
   "rationale": "short tactical explanation"
 }`;
 
-    const googleApiKey = Deno.env.get("GOOGLE_AI_API_KEY")!;
-    const aiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${googleApiKey}`;
-
     let aiText = "";
-    let lastError = "";
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
-      const aiResponse = await fetch(aiUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: {
-            temperature: 0.25,
-            maxOutputTokens: 2048,
-            responseMimeType: "application/json",
-          },
-        }),
-      });
-
-      if (aiResponse.ok) {
-        aiText = extractGeminiText(await aiResponse.json());
-        break;
-      }
-
-      lastError = await aiResponse.text();
-      if (attempt < 3 && (aiResponse.status === 429 || aiResponse.status >= 500)) {
-        await wait(250 * attempt);
-        continue;
-      }
-      break;
+    try {
+      const { content } = await callChatCompletionWithFallback(
+        [{ role: "user", content: prompt }],
+        { temperature: 0.25, responseFormat: "json" }
+      );
+      aiText = content;
+    } catch (aiErr) {
+      console.error("All AI providers failed for trial-coach:", aiErr);
+      // aiText stays "" — fallbackResponse() is used below
     }
 
     const fallback = fallbackResponse(mode);
@@ -296,8 +262,8 @@ JSON schema:
         }
       : fallback;
 
-    if (!parsed && lastError) {
-      console.warn("trial-coach fallback used due to AI response issue:", lastError);
+    if (!parsed) {
+      console.warn("trial-coach: AI returned no parseable response — using fallback");
     }
 
     return new Response(JSON.stringify(responseBody), {

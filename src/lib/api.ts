@@ -121,8 +121,18 @@ export interface Document {
   ocr_processed_at: string | null;
   ocr_provider: string | null;
   extracted_tables: unknown | null;
+  // DiscoveryLens mirror fields (shared documents table)
+  analysis?: Record<string, unknown> | null;
+  bates_formatted?: string | null;
+  extracted_text?: string | null;
+  status?: string | null;
   created_at: string;
   updated_at: string;
+}
+
+/** True when a document has AI analysis from either CaseBuddy or DiscoveryLens. */
+export function isDocumentAnalyzed(doc: Document): boolean {
+  return !!doc.ai_analyzed || !!doc.analysis;
 }
 
 export interface CreateDocumentInput {

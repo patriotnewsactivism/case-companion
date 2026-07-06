@@ -7,7 +7,7 @@ import {
   validateRequestBody,
 } from "../_shared/errorHandler.ts";
 import { verifyAuth } from "../_shared/auth.ts";
-import { getFastAIProvider, callChatCompletion, type ChatMessage } from "../_shared/aiConfig.ts";
+import { getFastAIProvider, callChatCompletion, callChatCompletionWithFallback, type ChatMessage } from "../_shared/aiConfig.ts";
 
 interface VoicePersona {
   agentId: string;
@@ -89,7 +89,8 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    validateEnvVars(["SUPABASE_URL", "SUPABASE_ANON_KEY", "GOOGLE_AI_API_KEY"]);
+    // GOOGLE_AI_API_KEY is optional here — aiConfig cascades to OPENAI_API_KEY / OPENROUTER_API_KEY
+    validateEnvVars(["SUPABASE_URL", "SUPABASE_ANON_KEY"]);
 
     const authResult = await verifyAuth(req);
     if (!authResult.authorized || !authResult.user || !authResult.supabase) {
@@ -159,12 +160,12 @@ serve(async (req) => {
       historyMessages.push({ role: "user", content: message });
 
       try {
-        const aiResponse = await callChatCompletion(config, historyMessages, {
+        const { content } = await callChatCompletionWithFallback(historyMessages, {
           temperature: 0.7,
         });
-        response.response = aiResponse;
+        response.response = content;
       } catch (e) {
-        console.error("AI response error:", e);
+        console.error("AI response error (all providers failed):", e);
         response.response = "I'm sorry, I'm having trouble processing your request right now.";
       }
     }

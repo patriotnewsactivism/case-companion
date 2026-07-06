@@ -26,6 +26,12 @@ interface TimelineEventCandidate {
   event_type?: string;
 }
 
+interface EntityCandidate {
+  name?: string;
+  type?: string;
+  context?: string;
+}
+
 interface ChunkAnalysisResult {
   summary: string;
   keyFacts: string[];
@@ -33,7 +39,30 @@ interface ChunkAnalysisResult {
   adverseFindings: string[];
   actionItems: string[];
   timelineEvents: TimelineEventCandidate[];
+  entities: EntityCandidate[];
 }
+
+const ENTITY_TYPES = new Set([
+  'person', 'organization', 'date', 'location', 'amount', 'statute', 'case-citation', 'other',
+]);
+
+const normalizeEntities = (entities: EntityCandidate[], maxItems: number): EntityCandidate[] => {
+  const seen = new Set<string>();
+  const result: EntityCandidate[] = [];
+  for (const entity of entities) {
+    const name = (entity?.name || '').trim().replace(/\s+/g, ' ');
+    if (!name) continue;
+    const type = ENTITY_TYPES.has((entity.type || '').trim().toLowerCase())
+      ? (entity.type || '').trim().toLowerCase()
+      : 'other';
+    const key = `${name.toLowerCase()}|${type}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push({ name, type, context: (entity.context || '').trim().slice(0, 300) });
+    if (result.length >= maxItems) break;
+  }
+  return result;
+};
 
 const ANALYSIS_CHUNK_CHAR_LIMIT = 12000;
 const ANALYSIS_CHUNK_OVERLAP = 500;
@@ -174,6 +203,7 @@ const mergeChunkAnalyses = (analyses: ChunkAnalysisResult[]): ChunkAnalysisResul
     timelineEvents: Array.from(timelineMap.values()).sort((a, b) =>
       (toDateOnlyString(a.event_date) || '9999-12-31').localeCompare(toDateOnlyString(b.event_date) || '9999-12-31')
     ),
+    entities: normalizeEntities(analyses.flatMap((analysis) => analysis.entities || []), 25),
   };
 };
 
@@ -311,7 +341,7 @@ async function resolveGeminiModels(googleApiKey: string): Promise<string[]> {
   if (resolvedGeminiModels) return resolvedGeminiModels;
 
   try {
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${googleApiKey}`);
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models`, { headers: { 'x-goog-api-key': googleApiKey } });
     if (!response.ok) {
       resolvedGeminiModels = DEFAULT_GEMINI_MODELS;
       return resolvedGeminiModels;
@@ -341,10 +371,11 @@ async function invokeGeminiWithFallback(
   let lastError = 'No Gemini models attempted';
 
   for (const model of candidateModels) {
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${googleApiKey}`, {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'x-goog-api-key': googleApiKey,
       },
       body: JSON.stringify(body),
     });
@@ -517,14 +548,7 @@ async function analyzeWithAI(
   aiGatewayUrl: string | undefined,
   googleApiKey: string | undefined,
   openrouterApiKey?: string | undefined
-): Promise<{
-  summary: string;
-  keyFacts: string[];
-  favorableFindings: string[];
-  adverseFindings: string[];
-  actionItems: string[];
-  timelineEvents: TimelineEventCandidate[];
-}> {
+): Promise<ChunkAnalysisResult> {
   const hasOpenAI = !!(aiGatewayUrl || openrouterApiKey || openaiApiKey);
   const hasGemini = !!googleApiKey;
   const aiGatewayModel = Deno.env.get('AI_GATEWAY_MODEL') || 'openai/gpt-oss-120b:free';
@@ -536,6 +560,7 @@ async function analyzeWithAI(
     adverseFindings: [],
     actionItems: [],
     timelineEvents: [],
+    entities: [],
   };
 
   if (extractedText.length <= 50 || (!hasOpenAI && !hasGemini)) {
@@ -563,6 +588,10 @@ ANALYSIS REQUIREMENTS:
    - "description": Detailed description (1-2 sentences)
    - "importance": "high", "medium", or "low"
    - "event_type": e.g., "communication", "filing", "incident", "meeting"
+7. ENTITIES: up to 10 named entities in this chunk. For each provide:
+   - "name": the entity name exactly as written
+   - "type": one of "person", "organization", "date", "location", "amount", "statute", "case-citation", "other"
+   - "context": brief phrase describing the entity's role in the document
 
 Respond ONLY with valid JSON in this exact format:
 {
@@ -573,6 +602,9 @@ Respond ONLY with valid JSON in this exact format:
   "action_items": ["action1", "action2"],
   "timeline_events": [
     { "event_date": "2023-01-01", "title": "...", "description": "...", "importance": "high", "event_type": "..." }
+  ],
+  "entities": [
+    { "name": "John Smith", "type": "person", "context": "arresting officer" }
   ]
 }
 
@@ -582,32 +614,38 @@ ${chunk}`;
     let content = '';
 
     if (hasGemini) {
-      try {
-        const analysisResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${googleApiKey}`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            contents: [
-              {
-                parts: [{ text: analysisPrompt }]
+      // Smartest free-tier model first, falling back to the higher-quota one
+      for (const geminiModel of ['gemini-2.5-flash', 'gemini-2.0-flash']) {
+        try {
+          const analysisResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-goog-api-key': googleApiKey,
+            },
+            body: JSON.stringify({
+              contents: [
+                {
+                  parts: [{ text: analysisPrompt }]
+                }
+              ],
+              generationConfig: {
+                temperature: 0.1,
+                // 2500 truncated the JSON (summary+timeline+entities), causing parse failures
+                maxOutputTokens: 6000,
+                responseMimeType: 'application/json',
               }
-            ],
-            generationConfig: {
-              temperature: 0.1,
-              maxOutputTokens: 2500,
-              responseMimeType: 'application/json',
-            }
-          }),
-        });
+            }),
+          });
 
-        if (analysisResponse.ok) {
-          const analysisData = await analysisResponse.json();
-          content = extractGeminiText(analysisData);
+          if (analysisResponse.ok) {
+            const analysisData = await analysisResponse.json();
+            content = extractGeminiText(analysisData);
+            if (content) break;
+          }
+        } catch (error) {
+          console.error(`Gemini analysis error (${geminiModel}, chunk ${index + 1}):`, error);
         }
-      } catch (error) {
-        console.error(`Gemini analysis error (chunk ${index + 1}):`, error);
       }
     }
 
@@ -676,6 +714,9 @@ ${chunk}`;
           : [],
         timelineEvents: Array.isArray(analysis.timeline_events)
           ? (analysis.timeline_events as TimelineEventCandidate[])
+          : [],
+        entities: Array.isArray(analysis.entities)
+          ? (analysis.entities as EntityCandidate[])
           : [],
       });
     } catch (parseError) {
@@ -776,7 +817,7 @@ async function processOcrJob(
       return { success: false, error: 'OCR extraction returned too little text' };
     }
 
-    const { summary, keyFacts, favorableFindings, adverseFindings, actionItems, timelineEvents } =
+    const { summary, keyFacts, favorableFindings, adverseFindings, actionItems, timelineEvents, entities } =
       await analyzeWithAI(extractedText, openaiApiKey, aiGatewayUrl, googleApiKey, openrouterApiKey);
 
     const hasAnalysis =
@@ -798,6 +839,7 @@ async function processOcrJob(
         favorable_findings: favorableFindings.length > 0 ? favorableFindings : null,
         adverse_findings: adverseFindings.length > 0 ? adverseFindings : null,
         action_items: actionItems.length > 0 ? actionItems : null,
+        entities: entities.length > 0 ? entities : null,
       })
       .eq('id', doc.id);
 
@@ -998,6 +1040,104 @@ async function handleProcessAction(
     remaining: remaining || 0,
     failed,
     jobs
+  };
+}
+
+async function handleProcessUserAction(
+  supabase: SupabaseClient,
+  userId: string,
+  ocrSpaceApiKey: string | undefined,
+  googleApiKey: string | undefined,
+  openaiApiKey: string | undefined,
+  aiGatewayUrl: string | undefined,
+  openrouterApiKey?: string | undefined
+): Promise<QueueResponse> {
+  const now = new Date().toISOString();
+
+  const { data: pendingJobs, error: fetchError } = await supabase
+    .from('ocr_queue')
+    .select('*')
+    .eq('status', 'pending')
+    .eq('user_id', userId)
+    .or(`retry_after.is.null,retry_after.lte.${now}`)
+    .order('priority', { ascending: false })
+    .order('created_at', { ascending: true })
+    .limit(1);
+
+  if (fetchError) {
+    console.error('Failed to fetch pending jobs for user:', fetchError);
+    throw new Error(`Failed to fetch pending jobs: ${fetchError.message}`);
+  }
+
+  if (!pendingJobs || pendingJobs.length === 0) {
+    const { count } = await supabase
+      .from('ocr_queue')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'pending')
+      .eq('user_id', userId);
+
+    return { processed: 0, remaining: count || 0, failed: 0, jobs: [] };
+  }
+
+  const job = pendingJobs[0] as OcrQueueJob;
+
+  await supabase
+    .from('ocr_queue')
+    .update({ status: 'processing', updated_at: now })
+    .eq('id', job.id);
+
+  const result = await processOcrJob(
+    supabase, job, ocrSpaceApiKey, googleApiKey, openaiApiKey,
+    aiGatewayUrl, openrouterApiKey
+  );
+
+  if (result.success) {
+    await supabase
+      .from('ocr_queue')
+      .update({ status: 'completed', updated_at: new Date().toISOString() })
+      .eq('id', job.id);
+
+    return {
+      processed: 1, remaining: 0, failed: 0,
+      jobs: [{ id: job.id, documentId: job.document_id, status: 'completed' }]
+    };
+  }
+
+  const newAttempts = job.attempts + 1;
+  const isRateLimit = result.error?.includes('rate limit') || result.error?.includes('Rate limit');
+
+  if (newAttempts >= MAX_ATTEMPTS || !isRateLimit) {
+    await supabase
+      .from('ocr_queue')
+      .update({
+        status: 'failed', attempts: newAttempts,
+        error_message: result.error, updated_at: new Date().toISOString()
+      })
+      .eq('id', job.id);
+
+    return {
+      processed: 0, remaining: 0, failed: 1,
+      jobs: [{ id: job.id, documentId: job.document_id, status: 'failed', error: result.error }]
+    };
+  }
+
+  const backoffIndex = Math.min(job.attempts, BACKOFF_DELAYS.length - 1);
+  const retryAfter = new Date(Date.now() + BACKOFF_DELAYS[backoffIndex]).toISOString();
+
+  await supabase
+    .from('ocr_queue')
+    .update({
+      status: 'pending', attempts: newAttempts, retry_after: retryAfter,
+      error_message: result.error, updated_at: new Date().toISOString()
+    })
+    .eq('id', job.id);
+
+  return {
+    processed: 0, remaining: 1, failed: 0,
+    jobs: [{
+      id: job.id, documentId: job.document_id, status: 'pending',
+      error: `Rate limited, retry at ${retryAfter}`
+    }]
   };
 }
 
@@ -1280,12 +1420,26 @@ serve(async (req) => {
     const action = requestBody.action;
 
     if (action === 'process') {
-      if (!isServiceRole) {
-        return forbiddenResponse('Only service role can process queue', corsHeaders);
+      if (isServiceRole) {
+        const result = await handleProcessAction(
+          supabase,
+          ocrSpaceApiKey,
+          googleApiKey,
+          openaiApiKey,
+          aiGatewayUrl,
+          openrouterApiKey
+        );
+
+        return new Response(
+          JSON.stringify(result),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
       }
 
-      const result = await handleProcessAction(
+      // User-scoped processing: run one job belonging to the authenticated user
+      const userResult = await handleProcessUserAction(
         supabase,
+        userId,
         ocrSpaceApiKey,
         googleApiKey,
         openaiApiKey,
@@ -1294,7 +1448,7 @@ serve(async (req) => {
       );
 
       return new Response(
-        JSON.stringify(result),
+        JSON.stringify(userResult),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }

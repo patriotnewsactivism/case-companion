@@ -6,7 +6,39 @@ import {
   checkRateLimit,
 } from '../_shared/errorHandler.ts';
 import { verifyAuth } from '../_shared/auth.ts';
-import { getFastAIProvider, callChatCompletion } from '../_shared/aiConfig.ts';
+import { callChatCompletionWithFallback } from '../_shared/aiConfig.ts';
+
+// DiscoveryLens stores results in the `analysis` JSONB column on the shared
+// documents table. Normalize so its documents participate in chat context.
+interface DLAnalysis {
+  summary?: string;
+  evidenceType?: string;
+  entities?: string[];
+  relevantFacts?: string[];
+  transcription?: string;
+}
+function getDLAnalysis(doc: Record<string, unknown>): DLAnalysis | null {
+  return doc.analysis && typeof doc.analysis === 'object' && !Array.isArray(doc.analysis)
+    ? doc.analysis as DLAnalysis
+    : null;
+}
+function docSummary(doc: Record<string, unknown>): string | null {
+  return (typeof doc.summary === 'string' && doc.summary) || getDLAnalysis(doc)?.summary || null;
+}
+function docKeyFacts(doc: Record<string, unknown>): string[] {
+  if (Array.isArray(doc.key_facts) && doc.key_facts.length) return doc.key_facts as string[];
+  const dl = getDLAnalysis(doc);
+  return Array.isArray(dl?.relevantFacts) ? dl.relevantFacts : [];
+}
+function docFullText(doc: Record<string, unknown>): string | null {
+  return (typeof doc.ocr_text === 'string' && doc.ocr_text)
+    || (typeof doc.extracted_text === 'string' && doc.extracted_text)
+    || getDLAnalysis(doc)?.transcription
+    || null;
+}
+function docBates(doc: Record<string, unknown>): string {
+  return String(doc.bates_number || doc.bates_formatted || doc.name || 'Document');
+}
 
 // Score document relevance to a query using keyword overlap
 function scoreDocumentRelevance(doc: Record<string, unknown>, query: string): number {
@@ -14,8 +46,8 @@ function scoreDocumentRelevance(doc: Record<string, unknown>, query: string): nu
   if (queryWords.length === 0) return 1;
   const docText = [
     doc.name,
-    doc.summary,
-    ...(Array.isArray(doc.key_facts) ? doc.key_facts : []),
+    docSummary(doc),
+    ...docKeyFacts(doc),
     ...(Array.isArray(doc.favorable_findings) ? doc.favorable_findings : []),
     ...(Array.isArray(doc.adverse_findings) ? doc.adverse_findings : []),
   ].join(' ').toLowerCase();
@@ -71,14 +103,16 @@ serve(async (req) => {
       });
     }
 
-    // Fetch analyzed documents
+    // Fetch analyzed documents (including DiscoveryLens mirror fields)
     const { data: documents } = await supabase
       .from('documents')
-      .select('id, name, bates_number, summary, key_facts, favorable_findings, adverse_findings, ocr_text, ai_analyzed')
+      .select('id, name, bates_number, bates_formatted, summary, key_facts, favorable_findings, adverse_findings, ocr_text, extracted_text, analysis, status, ai_analyzed')
       .eq('case_id', caseId)
       .order('bates_number', { ascending: true, nullsFirst: false });
 
-    const analyzedDocs = (documents || []).filter((d: Record<string, unknown>) => d.ai_analyzed || d.ocr_text || d.summary);
+    const analyzedDocs = (documents || []).filter((d: Record<string, unknown>) =>
+      d.ai_analyzed || docFullText(d) || docSummary(d)
+    );
 
     // Get the last user message for relevance scoring
     const lastUserMessage = [...messages].reverse().find((m: Record<string, unknown>) => m.role === 'user')?.content as string || '';
@@ -95,11 +129,12 @@ serve(async (req) => {
     const MAX_DOCS = 12;
     const MAX_OCR_CHARS = 2000;
     const docContext = scoredDocs.slice(0, MAX_DOCS).map(({ doc, score }: { doc: Record<string, unknown>; score: number }) => {
-      const bates = doc.bates_number || doc.name;
-      const parts: string[] = [`[${bates}]`];
-      if (doc.summary) parts.push(`Summary: ${doc.summary}`);
-      if (Array.isArray(doc.key_facts) && doc.key_facts.length) {
-        parts.push(`Key Facts: ${doc.key_facts.join('; ')}`);
+      const parts: string[] = [`[${docBates(doc)}]`];
+      const summary = docSummary(doc);
+      if (summary) parts.push(`Summary: ${summary}`);
+      const keyFacts = docKeyFacts(doc);
+      if (keyFacts.length) {
+        parts.push(`Key Facts: ${keyFacts.join('; ')}`);
       }
       if (Array.isArray(doc.favorable_findings) && doc.favorable_findings.length) {
         parts.push(`Favorable to client: ${doc.favorable_findings.join('; ')}`);
@@ -107,9 +142,10 @@ serve(async (req) => {
       if (Array.isArray(doc.adverse_findings) && doc.adverse_findings.length) {
         parts.push(`Adverse to client: ${doc.adverse_findings.join('; ')}`);
       }
-      // Include OCR excerpt for highly relevant documents
-      if (score > 0.3 && doc.ocr_text) {
-        parts.push(`Full text excerpt: ${(doc.ocr_text as string).slice(0, MAX_OCR_CHARS)}`);
+      // Include full-text excerpt for highly relevant documents
+      const fullText = docFullText(doc);
+      if (score > 0.3 && fullText) {
+        parts.push(`Full text excerpt: ${fullText.slice(0, MAX_OCR_CHARS)}`);
       }
       return parts.join('\n');
     }).join('\n\n---\n\n');
@@ -141,50 +177,21 @@ INSTRUCTIONS:
 - Format responses clearly with headers when appropriate
 - Keep legal advice accurate and grounded in the provided facts`;
 
-    // AI provider via shared config — callChatCompletion handles model fallback automatically
-    let config;
-    try {
-      config = getFastAIProvider();
-    } catch {
-      return new Response(
-        JSON.stringify({
-          error: 'AI not configured. Please set GOOGLE_AI_API_KEY in your Supabase secrets: npx supabase secrets set GOOGLE_AI_API_KEY=<your-key>',
-          _documentCount: documentCount,
-        }),
-        { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+    // Resilient AI call: cycles Gemini models on 429/503, then cascades to
+    // OpenRouter free models / OpenAI — a single provider hiccup no longer 500s.
+    const { content, provider } = await callChatCompletionWithFallback(messages, {
+      systemPrompt,
+      temperature: 0.7,
+    });
 
-    let assistantContent: string;
-    try {
-      assistantContent = await callChatCompletion(
-        config,
-        messages as Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
-        { systemPrompt, temperature: 0.7 }
-      );
-    } catch (aiErr) {
-      const errMsg = aiErr instanceof Error ? aiErr.message : String(aiErr);
-      console.error('AI chat completion failed:', errMsg);
-      if (errMsg.includes('rate limit') || errMsg.includes('429')) {
-        return new Response(
-          JSON.stringify({ error: 'Rate limits exceeded, please try again later.', _documentCount: documentCount }),
-          { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-      return new Response(
-        JSON.stringify({ error: `AI error: ${errMsg}`, _documentCount: documentCount }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    // Return in OpenAI-compatible format so the frontend can read choices[0].message.content
-    return new Response(
-      JSON.stringify({
-        choices: [{ message: { role: 'assistant', content: assistantContent } }],
-        _documentCount: documentCount,
-      }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    // Preserve the OpenAI-style shape the frontend expects
+    return new Response(JSON.stringify({
+      choices: [{ message: { role: "assistant", content } }],
+      _documentCount: documentCount,
+      _provider: provider,
+    }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   } catch (e) {
     console.error("document-aware-chat error:", e);
     return createErrorResponse(e, 500, 'document-aware-chat', corsHeaders);

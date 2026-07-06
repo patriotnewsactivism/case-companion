@@ -620,7 +620,7 @@ const callAI = async (prompt: string, maxTokens: number = 4000): Promise<string>
   } else if (GOOGLE_AI_API_KEY) {
     apiUrl = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
     apiKey = GOOGLE_AI_API_KEY;
-    model = "gemini-2.0-flash";
+    model = "gemini-2.5-flash";
   } else if (OPENROUTER_API_KEY) {
     apiUrl = "https://openrouter.ai/api/v1/chat/completions";
     apiKey = OPENROUTER_API_KEY;
@@ -660,6 +660,35 @@ const callAI = async (prompt: string, maxTokens: number = 4000): Promise<string>
       continue;
     }
     break;
+  }
+
+  // Fallback: if Gemini was the provider and it failed (billing/rate limit), try OpenRouter
+  if (OPENROUTER_API_KEY && apiUrl.includes("generativelanguage")) {
+    console.warn(`[case-strategy] Gemini failed, falling back to OpenRouter`);
+    const orModel = Deno.env.get("AI_GATEWAY_MODEL") || "openai/gpt-oss-120b:free";
+    try {
+      const orResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: orModel,
+          messages: [{ role: "user", content: prompt }],
+          temperature: 0.3,
+          max_tokens: maxTokens,
+        }),
+      });
+      if (orResponse.ok) {
+        const orData = await orResponse.json();
+        const orContent = orData?.choices?.[0]?.message?.content || "";
+        if (orContent) return orContent;
+      }
+      console.error(`[case-strategy] OpenRouter fallback also failed:`, await orResponse.text());
+    } catch (orErr) {
+      console.error(`[case-strategy] OpenRouter fallback error:`, orErr);
+    }
   }
 
   throw new Error(`AI API error: ${lastError}`);

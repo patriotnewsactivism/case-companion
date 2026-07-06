@@ -153,3 +153,56 @@ export async function clearMemory(agentId: AgentId, caseId: string): Promise<voi
     // silent
   }
 }
+
+export async function upsertPattern(
+  agentId: AgentId,
+  pattern: Omit<AgentPattern, "id" | "lastSeen">
+): Promise<void> {
+  // Use "global" caseId for cross-case patterns
+  const mem = await loadMemory(agentId, "global");
+  const patterns = mem.longTerm.patterns;
+
+  const existing = patterns.find(p => p.pattern === pattern.pattern);
+  if (existing) {
+    existing.occurrences += 1;
+    existing.confidence = Math.min(100, existing.confidence + 3);
+    existing.lastSeen = Date.now();
+  } else {
+    patterns.push({
+      ...pattern,
+      id: `pat_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      lastSeen: Date.now(),
+    });
+  }
+
+  // Respect pattern limit
+  if (patterns.length > 100) {
+    patterns.sort((a, b) => b.confidence - a.confidence);
+    patterns.length = 100;
+  }
+
+  await saveMemory(mem);
+}
+
+export async function getPatterns(agentId: AgentId): Promise<AgentPattern[]> {
+  // Aggregate patterns across all cases for this agent
+  const allPatterns: AgentPattern[] = [];
+  try {
+    const { data } = await supabase
+      .from("agent_memory")
+      .select("memory_data")
+      .eq("agent_id", agentId);
+
+    if (data) {
+      for (const row of data) {
+        const mem = row.memory_data as AgentMemory;
+        if (mem?.longTerm?.patterns) {
+          allPatterns.push(...mem.longTerm.patterns);
+        }
+      }
+    }
+  } catch {
+    // silent
+  }
+  return allPatterns;
+}

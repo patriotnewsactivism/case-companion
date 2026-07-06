@@ -1,14 +1,13 @@
 /**
- * useAutoAnalysis – Automatically triggers OCR + AI analysis after document upload,
- * then runs Document Intelligence for auto-naming, dating, and classification.
+ * useAutoAnalysis — Enqueues documents for async OCR + AI analysis via the
+ * ocr-queue-processor, then runs Document Intelligence for auto-naming,
+ * dating, and classification once processing completes.
  *
- * When a document is uploaded, it gets queued here. This hook:
- *   1. Calls the `ocr-document` edge function (OCR → AI analysis → timeline → DB)
- *   2. Runs documentIntelligence to auto-name, classify, and date the document
- *   3. Invalidates React Query caches so the UI updates
- *
- * Usage:
- *   const { enqueueForAnalysis, analysisQueue, isProcessing } = useAutoAnalysis(caseId);
+ * Flow:
+ *   1. Enqueue document to ocr_queue (edge function: action=enqueue)
+ *   2. Trigger processing (edge function: action=process, user-scoped)
+ *   3. Poll documents table for ocr_processed_at changes
+ *   4. When processed, run documentIntelligence and invalidate React Query caches
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -19,53 +18,68 @@ import { runDocumentIntelligence } from "@/services/documentIntelligence";
 interface QueueItem {
   documentId: string;
   fileName: string;
-  fileUrl: string;
-  status: "pending" | "processing" | "analyzing" | "done" | "failed";
+  status: "pending" | "processing" | "completed" | "failed";
   error?: string;
-  timelineEventsInserted?: number;
   suggestedName?: string;
   documentType?: string;
   documentDate?: string | null;
 }
 
 interface UseAutoAnalysisReturn {
-  /** Enqueue a document for automatic analysis right after upload */
-  enqueueForAnalysis: (docId: string, fileName: string, fileUrl: string) => void;
-  /** Current analysis queue items */
+  enqueueForAnalysis: (docId: string, fileName: string) => void;
   analysisQueue: QueueItem[];
-  /** Whether the analysis loop is currently processing */
   isProcessing: boolean;
-  /** Number of documents waiting or processing */
   pendingCount: number;
-  /** Number of documents that completed successfully */
   completedCount: number;
-  /** Number of documents that failed */
   failedCount: number;
 }
+
+const POLL_INTERVAL_MS = 3000;
+const MAX_POLL_ATTEMPTS = 40; // 2 minutes at 3s intervals
 
 export function useAutoAnalysis(caseId: string | undefined): UseAutoAnalysisReturn {
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const processingRef = useRef(false);
+  const pollTimersRef = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map());
   const queryClient = useQueryClient();
 
+  // Clean up poll timers on unmount
+  useEffect(() => {
+    const timers = pollTimersRef.current;
+    return () => {
+      timers.forEach((timer) => clearInterval(timer));
+      timers.clear();
+    };
+  }, []);
+
+  const getFunctionUrl = (fn: string) =>
+    `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${fn}`;
+
+  const getAuthHeaders = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) throw new Error("Not authenticated");
+    return {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${session.access_token}`,
+      apikey: import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+    };
+  };
+
   const enqueueForAnalysis = useCallback(
-    (docId: string, fileName: string, fileUrl: string) => {
+    (docId: string, fileName: string) => {
       setQueue((prev) => {
-        // Deduplicate
         if (prev.some((q) => q.documentId === docId)) return prev;
-        return [
-          ...prev,
-          { documentId: docId, fileName, fileUrl, status: "pending" as const },
-        ];
+        return [...prev, { documentId: docId, fileName, status: "pending" as const }];
       });
     },
     []
   );
 
-  // Process queue sequentially
+  // Process queue: enqueue + trigger processor
   useEffect(() => {
     if (!caseId) return;
+
     const pendingItems = queue.filter((q) => q.status === "pending");
     if (pendingItems.length === 0 || processingRef.current) return;
 
@@ -76,7 +90,6 @@ export function useAutoAnalysis(caseId: string | undefined): UseAutoAnalysisRetu
       processingRef.current = true;
       setIsProcessing(true);
 
-      // Mark as processing (OCR phase)
       setQueue((prev) =>
         prev.map((q) =>
           q.documentId === item.documentId ? { ...q, status: "processing" as const } : q
@@ -84,87 +97,135 @@ export function useAutoAnalysis(caseId: string | undefined): UseAutoAnalysisRetu
       );
 
       try {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-        if (!session) throw new Error("Not authenticated");
+        const headers = await getAuthHeaders();
 
-        // ── Step 1: Call ocr-document edge function ──
-        const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ocr-document`;
-        const response = await fetch(functionUrl, {
-          method: "POST",
-          mode: "cors",
-          credentials: "omit",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${session.access_token}`,
-            apikey: import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-          },
-          body: JSON.stringify({
-            documentId: item.documentId,
-            fileUrl: item.fileUrl,
-          }),
+        // Step 1: Enqueue to ocr_queue
+        const enqueueBody = JSON.stringify({
+          action: "enqueue",
+          caseId,
+          documentIds: [item.documentId],
         });
 
-        if (!response.ok) {
-          const errText = await response.text();
-          throw new Error(errText || `HTTP ${response.status}`);
+        const enqueueRes = await fetch(getFunctionUrl("ocr-queue-processor"), {
+          method: "POST",
+          headers,
+          body: enqueueBody,
+        });
+
+        if (!enqueueRes.ok) {
+          const errText = await enqueueRes.text();
+          console.warn(`Enqueue failed for ${item.fileName}: ${errText}`);
         }
 
-        const data = await response.json();
+        // Step 2: Trigger processing (processes one user-scoped job)
+        const processBody = JSON.stringify({ action: "process" });
+        const processRes = await fetch(getFunctionUrl("ocr-queue-processor"), {
+          method: "POST",
+          headers,
+          body: processBody,
+        });
 
-        // ── Step 2: Run Document Intelligence (auto-name, classify, date) ──
-        setQueue((prev) =>
-          prev.map((q) =>
-            q.documentId === item.documentId ? { ...q, status: "analyzing" as const } : q
-          )
-        );
+        if (!processRes.ok) {
+          const errText = await processRes.text();
+          console.warn(`Process trigger failed for ${item.fileName}: ${errText}`);
+        }
 
-        let intelligence = { suggestedName: item.fileName, documentType: "unknown", documentDate: null as string | null };
+        // Step 3: Poll for completion
+        const docId = item.documentId;
+        const fileName = item.fileName;
+        let pollCount = 0;
 
-        try {
-          // Get the OCR text from the document (it was just saved by the edge function)
-          const { data: docData } = await supabase
-            .from("documents")
-            .select("ocr_text, summary, key_facts, entities")
-            .eq("id", item.documentId)
-            .single();
+        const pollTimer = setInterval(async () => {
+          pollCount++;
+          if (pollCount > MAX_POLL_ATTEMPTS) {
+            clearInterval(pollTimer);
+            pollTimersRef.current.delete(docId);
+            console.warn(`Polling timeout for ${fileName}`);
 
-          if (docData?.ocr_text) {
-            intelligence = await runDocumentIntelligence(
-              item.documentId,
-              docData.ocr_text,
-              docData.summary || data.summary,
-              docData.key_facts || data.keyFacts,
-              data.timelineEvents || [],
-              docData.entities || []
+            setQueue((prev) =>
+              prev.map((q) =>
+                q.documentId === docId
+                  ? { ...q, status: "failed" as const, error: "Processing timed out" }
+                  : q
+              )
             );
+            return;
           }
-        } catch (intErr) {
-          console.warn(`Document intelligence failed for ${item.fileName}:`, intErr);
-          // Non-fatal — OCR and analysis still succeeded
-        }
 
-        setQueue((prev) =>
-          prev.map((q) =>
-            q.documentId === item.documentId
-              ? {
-                  ...q,
-                  status: "done" as const,
-                  timelineEventsInserted: data.timelineEventsInserted ?? 0,
-                  suggestedName: intelligence.suggestedName,
-                  documentType: intelligence.documentType,
-                  documentDate: intelligence.documentDate,
-                }
-              : q
-          )
-        );
+          try {
+            const { data: docData, error } = await supabase
+              .from("documents")
+              .select("ocr_text, ocr_processed_at, summary, key_facts, entities")
+              .eq("id", docId)
+              .single();
 
-        // Invalidate queries so UI reflects new analysis + timeline + intelligence
-        queryClient.invalidateQueries({ queryKey: ["documents", caseId] });
-        queryClient.invalidateQueries({ queryKey: ["timeline_events", caseId] });
-        queryClient.invalidateQueries({ queryKey: ["case_stats", caseId] });
-        queryClient.invalidateQueries({ queryKey: ["case_knowledge", caseId] });
+            if (error || !docData?.ocr_processed_at) return;
+
+            // Document has been processed
+            clearInterval(pollTimer);
+            pollTimersRef.current.delete(docId);
+
+            // Run document intelligence
+            let intelligence = {
+              suggestedName: fileName,
+              documentType: "unknown" as string,
+              documentDate: null as string | null,
+            };
+
+            try {
+              if (docData.ocr_text) {
+                // Use the timeline events extracted from this document to
+                // improve document-date detection
+                const { data: eventData } = await supabase
+                  .from("timeline_events")
+                  .select("event_date, title")
+                  .eq("linked_document_id", docId)
+                  .order("event_date", { ascending: true })
+                  .limit(20);
+
+                const timelineEvents = (eventData || []).map((e) => ({
+                  date: String(e.event_date).split("T")[0],
+                  event: String(e.title || ""),
+                }));
+
+                intelligence = await runDocumentIntelligence(
+                  docId,
+                  docData.ocr_text,
+                  docData.summary,
+                  docData.key_facts,
+                  timelineEvents,
+                  docData.entities || []
+                );
+              }
+            } catch (intErr) {
+              console.warn(`Document intelligence failed for ${fileName}:`, intErr);
+            }
+
+            setQueue((prev) =>
+              prev.map((q) =>
+                q.documentId === docId
+                  ? {
+                      ...q,
+                      status: "completed" as const,
+                      suggestedName: intelligence.suggestedName,
+                      documentType: intelligence.documentType,
+                      documentDate: intelligence.documentDate,
+                    }
+                  : q
+              )
+            );
+
+            // Invalidate caches
+            queryClient.invalidateQueries({ queryKey: ["documents", caseId] });
+            queryClient.invalidateQueries({ queryKey: ["timeline_events", caseId] });
+            queryClient.invalidateQueries({ queryKey: ["case_stats", caseId] });
+            queryClient.invalidateQueries({ queryKey: ["case_knowledge", caseId] });
+          } catch {
+            // Polling error, continue
+          }
+        }, POLL_INTERVAL_MS);
+
+        pollTimersRef.current.set(docId, pollTimer);
       } catch (err) {
         console.error(`Auto-analysis failed for ${item.fileName}:`, err);
         setQueue((prev) =>
@@ -188,10 +249,10 @@ export function useAutoAnalysis(caseId: string | undefined): UseAutoAnalysisRetu
   }, [caseId, queue, queryClient]);
 
   const pendingCount = queue.filter(
-    (q) => q.status === "pending" || q.status === "processing" || q.status === "analyzing"
+    (q) => q.status === "pending" || q.status === "processing"
   ).length;
 
-  const completedCount = queue.filter((q) => q.status === "done").length;
+  const completedCount = queue.filter((q) => q.status === "completed").length;
   const failedCount = queue.filter((q) => q.status === "failed").length;
 
   return {

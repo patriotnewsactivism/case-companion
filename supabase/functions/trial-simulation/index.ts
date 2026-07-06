@@ -7,6 +7,7 @@ import {
 } from '../_shared/errorHandler.ts';
 import { verifyAuth } from '../_shared/auth.ts';
 import { validateUUID } from '../_shared/validation.ts';
+import { callChatCompletionWithFallback, type ChatMessage } from '../_shared/aiConfig.ts';
 
 interface Message {
   role: 'user' | 'assistant' | 'system';
@@ -519,42 +520,60 @@ async function callGemini(
   maxOutputTokens: number,
   temperature: number
 ): Promise<string | null> {
-  try {
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${googleApiKey}`;
-    const response = await fetch(geminiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: {
-          maxOutputTokens,
-          temperature,
-        },
-      }),
-    });
+  // Try Gemini native API first with x-goog-api-key header (works with AQ. prefix keys)
+  // Smartest free-tier model first, falling back to the higher-quota one
+  if (googleApiKey) {
+    for (const geminiModel of ['gemini-2.5-flash', 'gemini-2.0-flash']) {
+      try {
+        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent`;
+        const response = await fetch(geminiUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': googleApiKey,
+          },
+          body: JSON.stringify({
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            generationConfig: {
+              maxOutputTokens,
+              temperature,
+            },
+          }),
+        });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Gemini API error:', errorText);
-      return null;
+        if (response.ok) {
+          const data = await response.json() as Record<string, unknown>;
+          const candidates = Array.isArray(data.candidates) ? data.candidates : [];
+          const firstCandidate = candidates[0] as Record<string, unknown> | undefined;
+          const contentObj = (firstCandidate?.content || {}) as Record<string, unknown>;
+          const parts = Array.isArray(contentObj.parts) ? contentObj.parts : [];
+          const text = parts
+            .map((part) => {
+              if (!part || typeof part !== 'object') return '';
+              return String((part as Record<string, unknown>).text || '');
+            })
+            .join('')
+            .trim();
+          if (text) return text;
+        } else {
+          const errorText = await response.text().catch(() => '');
+          console.warn(`[trial-simulation] Gemini ${geminiModel} returned ${response.status}, trying next:`, errorText);
+        }
+      } catch (error) {
+        console.warn(`[trial-simulation] Gemini ${geminiModel} request failed, trying next:`, error);
+      }
     }
+  }
 
-    const data = await response.json() as Record<string, unknown>;
-    const candidates = Array.isArray(data.candidates) ? data.candidates : [];
-    const firstCandidate = candidates[0] as Record<string, unknown> | undefined;
-    const content = (firstCandidate?.content || {}) as Record<string, unknown>;
-    const parts = Array.isArray(content.parts) ? content.parts : [];
-    const text = parts
-      .map((part) => {
-        if (!part || typeof part !== 'object') return '';
-        return String((part as Record<string, unknown>).text || '');
-      })
-      .join('')
-      .trim();
-
-    return text || null;
+  // Fallback: use callChatCompletionWithFallback (cascades Gemini → OpenAI → OpenRouter)
+  try {
+    const messages: ChatMessage[] = [{ role: 'user', content: prompt }];
+    const { content } = await callChatCompletionWithFallback(messages, {
+      temperature,
+    });
+    return content || null;
   } catch (error) {
-    console.error('Gemini request failed:', error);
+    console.error('[trial-simulation] All AI providers failed:', error);
     return null;
   }
 }

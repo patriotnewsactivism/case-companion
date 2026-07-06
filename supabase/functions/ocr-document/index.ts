@@ -11,6 +11,7 @@ import { verifyAuth, forbiddenResponse } from '../_shared/auth.ts';
 import { validateUUID, validateURL } from '../_shared/validation.ts';
 import { getGenerateContentCapableGeminiModels, 
 getPreferredGeminiCandidates, rankGeminiModels } from '../_shared/gemini-model-utils.ts';
+import { googleVisionOcr, isGoogleVisionConfigured } from '../_shared/google-vision.ts';
 const STORAGE_BUCKET = 'case-documents';
 
 interface OcrSpaceParsedResult {
@@ -165,8 +166,20 @@ const arrayBufferToBase64 = (buffer: ArrayBuffer): string => {
   return btoa(binary);
 };
 
+// Strip NUL bytes, lone surrogates, and other control chars that Postgres/JSONB
+// rejects with "unsupported Unicode escape sequence" — common artifacts from
+// OCR on scanned/corrupted PDFs. Keeps \t and \n.
+const sanitizeForPostgres = (text: string): string =>
+  text
+    // eslint-disable-next-line no-control-regex
+    .replace(/\u0000/g, '') // NUL — the specific cause of the Postgres error
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0001-\u0008\u000B\u000C\u000E-\u001F]/g, '') // other C0 control chars
+    .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, ''); // lone surrogates
+
 const normalizeExtractedText = (text: string) =>
-  text.replace(/\r\n/g, '\n').replace(/[ \t]+\n/g, '\n').replace(/\n{4,}/g, '\n\n\n').trim();
+  sanitizeForPostgres(text)
+    .replace(/\r\n/g, '\n').replace(/[ \t]+\n/g, '\n').replace(/\n{4,}/g, '\n\n\n').trim();
 
 const extractGeminiText = (payload: GeminiResponse): string => {
   const parts = payload?.candidates?.[0]?.content?.parts;
@@ -463,7 +476,7 @@ const buildHeuristicAnalysis = (text: string): HeuristicAnalysisResult => {
   const favorableCandidates = sentences.filter((s) => /\b(admit|confirmed|supports|favorable|complied|approved|paid|received|signed)\b/i.test(s));
   const adverseCandidates = sentences.filter((s) => /\b(deny|denied|dispute|late|overdue|breach|damaging|adverse|inconsistent|liability|default|failed)\b/i.test(s));
   const firstSentence = sentences[0]?.slice(0, 200) || '';
-  const generatedSummary = `Heuristic analysis of document text: ${firstSentence}${firstSentence ? '...' : ''} Identified ${timelineEvents.length} timeline events, ${factCandidates.length} potential facts.`;
+  const generatedSummary = `Document preview: ${firstSentence}${firstSentence ? '...' : ''} (Identified ${timelineEvents.length} timeline events, ${factCandidates.length} potential facts)`;
   return {
     summary: generatedSummary,
     keyFacts: uniqueTrimmed(factCandidates, 20),
@@ -651,6 +664,13 @@ serve(async (req) => {
 
     const ocrSpaceApiKey = Deno.env.get('OCR_SPACE_API_KEY');
     const googleApiKey = Deno.env.get('GOOGLE_AI_API_KEY');
+    // GEMINI_API_KEY is a backup key tried if GOOGLE_AI_API_KEY returns 400 (invalid)
+    const geminiApiKey = Deno.env.get('GEMINI_API_KEY');
+    // All Gemini keys to try in order (filter out duplicates/empties)
+    const allGeminiKeys = [...new Set([googleApiKey, geminiApiKey].filter(Boolean))] as string[];
+
+    const cohereApiKey = Deno.env.get('COHERE_API_KEY');
+    const hasCohere = !!cohereApiKey;
 
     // AI provider for analysis (OpenRouter free → Gemini → OpenAI)
     const openrouterApiKey = Deno.env.get('OPENROUTER_API_KEY');
@@ -660,11 +680,12 @@ serve(async (req) => {
     const hasOpenAI = !!(aiGatewayUrl || openrouterApiKey || openaiApiKey);
 
     const hasOcrSpace = !!ocrSpaceApiKey;
-    const hasGemini = !!googleApiKey;
+    const hasGemini = allGeminiKeys.length > 0;
+    const hasGoogleVision = isGoogleVisionConfigured();
     const geminiModelCandidates = getPreferredGeminiCandidates(Deno.env.get('GOOGLE_AI_MODEL'));
 
-    console.log(`OCR providers: Gemini=${hasGemini}, Tesseract=false, OCR.space=${hasOcrSpace}`);
-    console.log(`Analysis providers: OpenAI/OpenRouter=${hasOpenAI}, Gemini=${hasGemini}`);
+    console.log(`OCR providers: GoogleVision=${hasGoogleVision}, Gemini=${hasGemini}, Tesseract=false, OCR.space=${hasOcrSpace}`);
+    console.log(`Analysis providers: OpenAI/OpenRouter=${hasOpenAI}, Gemini=${hasGemini}, Cohere=${hasCohere}`);
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || Deno.env.get('SERVICE_ROLE_KEY');
@@ -740,7 +761,7 @@ serve(async (req) => {
     const { blob: fileBlob, contentType } = await loadFileBlob(supabase, validatedFileUrl);
     const resolvedContentType = contentType || fileBlob.type || '';
     let extractedText = '';
-    const extractedTables: unknown[] = [];
+    let extractedTables: unknown[] = [];
     let ocrProvider = '';
 
     // ===== OCR EXTRACTION - Triple-tier with Azure as primary =====
@@ -756,7 +777,7 @@ serve(async (req) => {
       }
 
       try {
-        const modelsResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${googleApiKey}`);
+        const modelsResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models`, { headers: { 'x-goog-api-key': googleApiKey } });
         if (!modelsResponse.ok) {
           console.warn(`Unable to list Gemini models (${modelsResponse.status}). Falling back to preferred defaults.`);
           resolvedGeminiModels = preferredModels;
@@ -789,69 +810,93 @@ serve(async (req) => {
         ? await resolveGeminiModels()
         : geminiModelCandidates;
 
-      let lastError = '';
       const maxRetries = 3;
+      const keyErrors: string[] = [];
 
-      for (const model of candidateModels) {
-        for (let attempt = 0; attempt < maxRetries; attempt++) {
-          if (attempt > 0) {
-            const backoff = Math.min(1000 * Math.pow(2, attempt), 8000);
-            console.log(`Retrying Gemini ${purpose} (${model}) in ${backoff}ms (attempt ${attempt + 1})`);
-            await sleep(backoff);
-          }
+      // Try each API key in order — if one returns 400 (invalid key), skip to the next
+      for (const apiKey of allGeminiKeys) {
+        let lastError = '';
+        let keyInvalid = false;
 
-          try {
-            const response = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${googleApiKey}`,
-              {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body),
+        for (const model of candidateModels) {
+          if (keyInvalid) break;
+
+          for (let attempt = 0; attempt < maxRetries; attempt++) {
+            if (attempt > 0) {
+              const backoff = Math.min(1000 * Math.pow(2, attempt), 8000);
+              console.log(`Retrying Gemini ${purpose} (${model}) in ${backoff}ms (attempt ${attempt + 1})`);
+              await sleep(backoff);
+            }
+
+            try {
+              const response = await fetch(
+                `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+                {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(body),
+                }
+              );
+
+              if (response.ok) {
+                const payload = (await response.json()) as GeminiResponse;
+                return { payload, model };
               }
-            );
 
-            if (response.ok) {
-              const payload = (await response.json()) as GeminiResponse;
-              return { payload, model };
-            }
+              const errorText = await response.text();
 
-            const errorText = await response.text();
-            const unavailableModel =
-              (response.status === 404 || response.status === 400) &&
-              /model|not found|not supported/i.test(errorText);
+              // 400 with "API key not valid" means the key itself is bad — skip to next key
+              if (response.status === 400 && /API key not valid|INVALID_ARGUMENT/i.test(errorText)) {
+                console.warn(`Gemini key invalid (400) — trying next key if available`);
+                keyErrors.push(`key[${apiKey.slice(-6)}] invalid: ${response.status}`);
+                keyInvalid = true;
+                break;
+              }
 
-            if (response.status === 429) {
-              // Rate limited — retry with backoff
-              if (attempt < maxRetries - 1) continue;
-              // On last attempt, record and try next model
-              lastError = `${model}: rate limit exceeded after ${maxRetries} attempts`;
-              console.warn(lastError);
-              break;
-            }
+              const unavailableModel =
+                (response.status === 404 || response.status === 400) &&
+                /model|not found|not supported/i.test(errorText);
 
-            if (unavailableModel) {
-              lastError = `${model}: ${errorText}`;
-              console.warn(`Gemini model unavailable for ${purpose}, trying next model: ${model}`);
-              break;
-            }
+              // 429 (rate limit) and 5xx (capacity/"high demand", e.g. 503 on
+              // preview models) are transient: retry with backoff, then move
+              // to the next candidate model instead of aborting everything.
+              if (response.status === 429 || response.status >= 500) {
+                if (attempt < maxRetries - 1) continue;
+                lastError = response.status === 429
+                  ? `${model}: rate limit exceeded after ${maxRetries} attempts`
+                  : `${model}: server error ${response.status} after ${maxRetries} attempts`;
+                console.warn(`${lastError} — trying next model`);
+                break;
+              }
 
-            throw new Error(`Gemini ${purpose} failed (${model}, ${response.status}): ${errorText}`);
-          } catch (err) {
-            if (err instanceof Error && err.message.includes('rate limit')) {
-              if (attempt < maxRetries - 1) continue;
-              lastError = `${model}: rate limit exceeded after ${maxRetries} attempts`;
-              break;
+              if (unavailableModel) {
+                lastError = `${model}: ${errorText}`;
+                console.warn(`Gemini model unavailable for ${purpose}, trying next model: ${model}`);
+                break;
+              }
+
+              throw new Error(`Gemini ${purpose} failed (${model}, ${response.status}): ${errorText}`);
+            } catch (err) {
+              if (err instanceof Error && err.message.includes('rate limit')) {
+                if (attempt < maxRetries - 1) continue;
+                lastError = `${model}: rate limit exceeded after ${maxRetries} attempts`;
+                break;
+              }
+              if (err instanceof Error && (err.message.includes('model unavailable') || err.message.includes('not found'))) {
+                lastError = err.message;
+                break;
+              }
+              throw err;
             }
-            if (err instanceof Error && (err.message.includes('model unavailable') || err.message.includes('not found'))) {
-              lastError = err.message;
-              break;
-            }
-            throw err;
           }
+        }
+
+        if (!keyInvalid && lastError) {
+          keyErrors.push(lastError);
         }
       }
 
-      throw new Error(`Gemini ${purpose} failed for all models: ${lastError}`);
+      throw new Error(`Gemini ${purpose} failed for all keys/models: ${keyErrors.join('; ')}`);
     };
 
     const geminiOcr = async (fileBlob, mimeType, isImage) => {
@@ -873,6 +918,53 @@ serve(async (req) => {
       const text = extractGeminiText(payload);
       if (!text?.trim()) throw new Error(`Gemini returned empty OCR text (${model})`);
       console.log(`Gemini OCR succeeded with model: ${model}`);
+      return text;
+    };
+
+    const cohereOcr = async (fileBlob: Blob, mimeType: string, isImage: boolean) => {
+      if (!cohereApiKey) throw new Error('Cohere API key not configured');
+      const arrayBuffer = await fileBlob.arrayBuffer();
+      const base64 = arrayBufferToBase64(arrayBuffer);
+
+      const prompt = isImage
+        ? `You are a professional legal document OCR system. Extract ALL text from this image with the highest possible accuracy. Preserve exact formatting, line breaks, headings, tables, stamps, dates, signatures, marginalia, Bates numbers, exhibit numbers, and document identifiers. Return plain text only.`
+        : `You are a professional legal document OCR system. Extract ALL text from every page of this document with the highest possible accuracy. Preserve exact formatting, line breaks, headings, tables, stamps, dates, signatures, marginalia, Bates numbers, exhibit numbers, and document identifiers. Prefix each page with "=== PAGE X ===". Return plain text only.`;
+
+      const response = await fetch('https://api.cohere.com/v2/chat', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${cohereApiKey}`,
+          'Content-Type': 'application/json',
+          'X-Client-Name': 'case-companion-ocr'
+        },
+        body: JSON.stringify({
+          model: 'command-a-vision-07-2025',
+          messages: [
+            {
+              role: 'user',
+              content: [
+                { type: 'text', text: prompt },
+                {
+                  type: 'image_url',
+                  image_url: { url: `data:${mimeType};base64,${base64}` }
+                }
+              ]
+            }
+          ],
+          temperature: 0.1,
+          max_tokens: 4000
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Cohere OCR failed: ${await response.text()}`);
+      }
+
+      const data = await response.json();
+      const text = data?.message?.content?.filter((p: { type: string; text?: string }) => p.type === 'text').map((p: { type: string; text?: string }) => p.text).join('').trim() || '';
+      
+      if (!text) throw new Error('Cohere returned empty OCR text');
+      console.log('Cohere OCR succeeded');
       return text;
     };
 
@@ -967,7 +1059,33 @@ serve(async (req) => {
         throw new Error(`Document is too large for edge OCR (${(fileBlob.size / 1024 / 1024).toFixed(2)}MB). The limit for scanned OCR processing is 12MB. Please compress the PDF or split it into smaller documents.`);
       }
 
-      // Tier 1: Gemini 2.5 Pro (best multimodal AI for legal docs — tables, stamps, Bates numbers)
+      // Tier 1: Google Cloud Vision (DOCUMENT_TEXT_DETECTION — purpose-built OCR,
+      // typically best for dense text, tables, stamps, and scanned legal documents)
+      if (!extractedText && hasGoogleVision) {
+        try {
+          console.log('Attempting Google Cloud Vision OCR (primary)...');
+          extractedText = await googleVisionOcr(fileBlob, isImage);
+          ocrProvider = 'google_cloud_vision';
+        } catch (error) {
+          console.error('Google Cloud Vision OCR error:', error);
+          errors.push(`Google Cloud Vision: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+
+      // Tier 1.5: Cohere Vision OCR
+      if (!extractedText && hasCohere && isImage) {
+        try {
+          console.log('Attempting Cohere OCR (command-a-vision)...');
+          const mimeType = resolvedContentType || 'image/jpeg';
+          extractedText = await cohereOcr(fileBlob, mimeType, isImage);
+          ocrProvider = 'cohere';
+        } catch (error) {
+          console.error('Cohere OCR error:', error);
+          errors.push(`Cohere: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+
+      // Tier 2: Gemini 2.5 Pro (best multimodal AI for legal docs — tables, stamps, Bates numbers)
       if (!extractedText && hasGemini) {
         try {
           console.log('Attempting Gemini OCR (primary — best for legal documents)...');
@@ -1014,7 +1132,7 @@ serve(async (req) => {
     }
 
     // ===== AI ANALYSIS =====
-    // Chain: Azure OpenAI (GPT-4o) → Gemini Flash → Heuristic
+    // Chain: Gemini Flash → OpenAI/OpenRouter → Cohere → Heuristic
     let keyFacts: string[] = [];
     let favorableFindings: string[] = [];
     let adverseFindings: string[] = [];
@@ -1022,7 +1140,7 @@ serve(async (req) => {
     let summary = '';
     let timelineEvents: unknown[] = [];
     let extractedEntities: unknown[] = [];
-    let analysisProvider: 'gemini' | 'openai' | 'heuristic' | 'none' = 'none';
+    let analysisProvider: 'gemini' | 'openai' | 'cohere' | 'heuristic' | 'none' = 'none';
 
     // Substantial text = enough content for analysis regardless of which AI providers are available.
     // Heuristic analysis runs as a final fallback even when no AI key is configured.
@@ -1034,16 +1152,75 @@ serve(async (req) => {
 
     if (hasSubstantialText) {
       console.log('Analyzing extracted text with AI (chunked)...');
-      const textChunks = buildTextChunks(
-        extractedText,
-        ANALYSIS_CHUNK_CHAR_LIMIT,
-        ANALYSIS_CHUNK_OVERLAP
-      );
+      
+      const parseAnalysisJson = (content: string) => {
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) return null;
+        const parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
+        return {
+          summary: String(parsed.summary || ''),
+          keyFacts: Array.isArray(parsed.key_facts) ? parsed.key_facts.map((i) => String(i)) : [],
+          favorableFindings: Array.isArray(parsed.favorable_findings) ? parsed.favorable_findings.map((i) => String(i)) : [],
+          adverseFindings: Array.isArray(parsed.adverse_findings) ? parsed.adverse_findings.map((i) => String(i)) : [],
+          actionItems: Array.isArray(parsed.action_items) ? parsed.action_items.map((i) => String(i)) : [],
+          timelineEvents: Array.isArray(parsed.timeline_events) ? (parsed.timeline_events as unknown[]) : [],
+          entities: Array.isArray(parsed.entities) ? parsed.entities : [],
+        };
+      };
 
-      // ── Process chunks in parallel batches (max 3 concurrent AI calls) ──
-      const CHUNK_CONCURRENCY = 3;
+      // If we have Cohere and text is < 200,000 characters, do it in a single pass (bypassing chunks)
+      if (hasCohere && extractedText.length <= 200000) {
+        console.log('Using Cohere single-pass analysis due to large context window...');
+        const prompt = buildAnalysisPrompt(extractedText, '', MAX_TIMELINE_EVENTS);
+        try {
+          const response = await fetch('https://api.cohere.com/v2/chat', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${cohereApiKey}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              model: 'command-a-plus-05-2026',
+              messages: [{ role: 'user', content: prompt }],
+              temperature: 0.1,
+              max_tokens: 4000
+            })
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            const content = data?.message?.content?.filter((p: { type: string; text?: string }) => p.type === 'text').map((p: { type: string; text?: string }) => p.text).join('') || '';
+            const parsed = parseAnalysisJson(content);
+            if (parsed) {
+              analysisProvider = 'cohere';
+              summary = parsed.summary;
+              keyFacts = parsed.keyFacts;
+              favorableFindings = parsed.favorableFindings;
+              adverseFindings = parsed.adverseFindings;
+              actionItems = parsed.actionItems;
+              timelineEvents = parsed.timelineEvents;
+              extractedEntities = parsed.entities;
+            }
+          } else {
+            console.warn(`Cohere single-pass analysis failed: ${await response.text()}`);
+          }
+        } catch (e) {
+          console.error('Cohere single-pass analysis error:', e);
+        }
+      }
+      
+      if (analysisProvider === 'none') {
+        // Fall back to chunking logic
+        const textChunks = buildTextChunks(
+          extractedText,
+          ANALYSIS_CHUNK_CHAR_LIMIT,
+          ANALYSIS_CHUNK_OVERLAP
+        );
 
-      type ChunkProviderResult = { result: StructuredChunkAnalysis | null; provider: 'gemini' | 'openai' | null };
+        // ── Process chunks in parallel batches (max 3 concurrent AI calls) ──
+        const CHUNK_CONCURRENCY = 3;
+
+      type ChunkProviderResult = { result: StructuredChunkAnalysis | null; provider: 'gemini' | 'openai' | 'cohere' | null };
 
       const processChunk = async (index: number, textChunk: string): Promise<ChunkProviderResult> => {
         const totalChunks = textChunks.length;
@@ -1096,7 +1273,7 @@ Chunk ${index + 1} of ${totalChunks}:
 ${textChunk}`;
 
         let chunkContent = '';
-        let chunkProvider: 'gemini' | 'openai' | null = null;
+        let chunkProvider: 'gemini' | 'openai' | 'cohere' | null = null;
 
         if (hasGemini) {
           try {
@@ -1105,7 +1282,8 @@ ${textChunk}`;
                 contents: [{ parts: [{ text: chunkPrompt }] }],
                 generationConfig: {
                   temperature: 0.1,
-                  maxOutputTokens: 2500,
+                  // 2500 truncated the JSON (summary+timeline+entities), causing parse failures
+                  maxOutputTokens: 6000,
                   responseMimeType: 'application/json',
                 },
               },
@@ -1159,23 +1337,41 @@ ${textChunk}`;
           }
         }
 
+        if (!chunkContent && hasCohere) {
+          try {
+            const cohereResponse = await fetch('https://api.cohere.com/v2/chat', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${cohereApiKey}` },
+              body: JSON.stringify({
+                model: 'command-a-03-2025',
+                messages: [{ role: 'user', content: chunkPrompt }],
+                temperature: 0.1,
+                response_format: { type: 'json_object' },
+              }),
+            });
+            if (cohereResponse.ok) {
+              const cohereData = await cohereResponse.json();
+              const contentBlocks = cohereData?.message?.content;
+              chunkContent = Array.isArray(contentBlocks)
+                ? contentBlocks.map((b: { text?: string }) => b?.text || '').join('')
+                : '';
+              if (chunkContent) chunkProvider = 'cohere';
+            } else {
+              console.error(`Cohere chunk ${index + 1} failed:`, await cohereResponse.text());
+            }
+          } catch (err) {
+            console.error(`Cohere chunk ${index + 1} error:`, err);
+          }
+        }
+
         if (!chunkContent) return { result: null, provider: null };
 
         try {
-          const jsonMatch = chunkContent.match(/\{[\s\S]*\}/);
-          if (!jsonMatch) return { result: null, provider: null };
-          const parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
+          const parsed = parseAnalysisJson(chunkContent);
+          if (!parsed) return { result: null, provider: null };
           return {
             provider: chunkProvider,
-            result: {
-              summary: String(parsed.summary || ''),
-              keyFacts: Array.isArray(parsed.key_facts) ? parsed.key_facts.map((i) => String(i)) : [],
-              favorableFindings: Array.isArray(parsed.favorable_findings) ? parsed.favorable_findings.map((i) => String(i)) : [],
-              adverseFindings: Array.isArray(parsed.adverse_findings) ? parsed.adverse_findings.map((i) => String(i)) : [],
-              actionItems: Array.isArray(parsed.action_items) ? parsed.action_items.map((i) => String(i)) : [],
-              timelineEvents: Array.isArray(parsed.timeline_events) ? (parsed.timeline_events as unknown[]) : [],
-              entities: Array.isArray(parsed.entities) ? parsed.entities : [],
-            },
+            result: parsed
           };
         } catch (err) {
           console.error(`Failed to parse chunk ${index + 1} JSON:`, err);
@@ -1194,7 +1390,7 @@ ${textChunk}`;
           if (outcome.status === 'fulfilled' && outcome.value.result) {
             chunkResults.push(outcome.value.result);
             if (!analysisProvider || analysisProvider === 'none') {
-              analysisProvider = outcome.value.provider === 'gemini' ? 'gemini' : 'openai';
+              analysisProvider = outcome.value.provider ?? 'openai';
             }
           }
         }
@@ -1210,6 +1406,7 @@ ${textChunk}`;
         timelineEvents = merged.timelineEvents;
         extractedEntities = merged.entities;
       }
+      } // Close if (analysisProvider === 'none')
     }
 
     // === Analysis Tier 3: Heuristic fallback ===
@@ -1226,6 +1423,36 @@ ${textChunk}`;
     }
 
     const hasAnalysis = summary.length > 0 || keyFacts.length > 0 || favorableFindings.length > 0 || adverseFindings.length > 0 || actionItems.length > 0 || timelineEvents.length > 0;
+
+    // Safety net: sanitize ALL text that goes into Postgres — OCR output
+    // frequently contains NUL bytes, lone surrogates, and C0 control chars
+    // that Postgres rejects with "unsupported Unicode escape sequence".
+    extractedText = sanitizeForPostgres(extractedText);
+    summary = sanitizeForPostgres(summary);
+    keyFacts = keyFacts.map(sanitizeForPostgres);
+    favorableFindings = favorableFindings.map(sanitizeForPostgres);
+    adverseFindings = adverseFindings.map(sanitizeForPostgres);
+    actionItems = actionItems.map(sanitizeForPostgres);
+    // Recursively sanitize string values inside entities and tables
+    extractedEntities = extractedEntities.map(e => {
+      if (typeof e === 'string') return sanitizeForPostgres(e);
+      if (e && typeof e === 'object') {
+        const obj = e as Record<string, unknown>;
+        for (const k of Object.keys(obj)) {
+          if (typeof obj[k] === 'string') obj[k] = sanitizeForPostgres(obj[k] as string);
+        }
+      }
+      return e;
+    });
+    extractedTables = extractedTables.map(t => {
+      if (t && typeof t === 'object') {
+        const obj = t as Record<string, unknown>;
+        for (const k of Object.keys(obj)) {
+          if (typeof obj[k] === 'string') obj[k] = sanitizeForPostgres(obj[k] as string);
+        }
+      }
+      return t;
+    });
 
     const updateData: Record<string, unknown> = {
       ocr_text: extractedText,
@@ -1326,3 +1553,4 @@ ${textChunk}`;
     return createErrorResponse(error instanceof Error ? error : new Error('An unknown error occurred'), 500, 'ocr-document', getCorsHeaders(req));
   }
 });
+
