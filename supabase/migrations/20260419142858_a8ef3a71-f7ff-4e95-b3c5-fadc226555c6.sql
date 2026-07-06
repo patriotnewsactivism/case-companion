@@ -4,7 +4,7 @@
 -- =====================================================
 
 -- Trial sessions (voice/courtroom practice sessions)
-CREATE TABLE public.trial_sessions (
+CREATE TABLE IF NOT EXISTS public.trial_sessions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL,
   case_id uuid REFERENCES public.cases(id) ON DELETE CASCADE,
@@ -20,7 +20,7 @@ CREATE TABLE public.trial_sessions (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE public.trial_session_analytics (
+CREATE TABLE IF NOT EXISTS public.trial_session_analytics (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   session_id uuid REFERENCES public.trial_sessions(id) ON DELETE CASCADE,
   user_id uuid NOT NULL,
@@ -30,7 +30,7 @@ CREATE TABLE public.trial_session_analytics (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE public.trial_simulation_sessions (
+CREATE TABLE IF NOT EXISTS public.trial_simulation_sessions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL,
   case_id uuid REFERENCES public.cases(id) ON DELETE CASCADE,
@@ -44,7 +44,7 @@ CREATE TABLE public.trial_simulation_sessions (
 );
 
 -- Case collaboration
-CREATE TABLE public.case_members (
+CREATE TABLE IF NOT EXISTS public.case_members (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   case_id uuid NOT NULL REFERENCES public.cases(id) ON DELETE CASCADE,
   user_id uuid NOT NULL,
@@ -57,7 +57,7 @@ CREATE TABLE public.case_members (
   UNIQUE(case_id, user_id)
 );
 
-CREATE TABLE public.case_events (
+CREATE TABLE IF NOT EXISTS public.case_events (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   case_id uuid NOT NULL REFERENCES public.cases(id) ON DELETE CASCADE,
   user_id uuid NOT NULL,
@@ -66,7 +66,7 @@ CREATE TABLE public.case_events (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE public.case_context (
+CREATE TABLE IF NOT EXISTS public.case_context (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   case_id uuid NOT NULL REFERENCES public.cases(id) ON DELETE CASCADE,
   user_id uuid NOT NULL,
@@ -77,7 +77,7 @@ CREATE TABLE public.case_context (
 );
 
 -- Discovery
-CREATE TABLE public.discovery_requests (
+CREATE TABLE IF NOT EXISTS public.discovery_requests (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   case_id uuid NOT NULL REFERENCES public.cases(id) ON DELETE CASCADE,
   user_id uuid NOT NULL,
@@ -99,7 +99,7 @@ CREATE TABLE public.discovery_requests (
 );
 
 -- Document versions / hash cache
-CREATE TABLE public.document_versions (
+CREATE TABLE IF NOT EXISTS public.document_versions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   document_id uuid NOT NULL REFERENCES public.documents(id) ON DELETE CASCADE,
   user_id uuid NOT NULL,
@@ -111,7 +111,7 @@ CREATE TABLE public.document_versions (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE public.document_hash_cache (
+CREATE TABLE IF NOT EXISTS public.document_hash_cache (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL,
   file_hash text NOT NULL,
@@ -121,7 +121,7 @@ CREATE TABLE public.document_hash_cache (
 );
 
 -- OCR & processing queues
-CREATE TABLE public.ocr_queue (
+CREATE TABLE IF NOT EXISTS public.ocr_queue (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL,
   case_id uuid REFERENCES public.cases(id) ON DELETE CASCADE,
@@ -137,7 +137,7 @@ CREATE TABLE public.ocr_queue (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE public.processing_queue (
+CREATE TABLE IF NOT EXISTS public.processing_queue (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL,
   case_id uuid REFERENCES public.cases(id) ON DELETE CASCADE,
@@ -155,7 +155,7 @@ CREATE TABLE public.processing_queue (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE public.transcription_cache (
+CREATE TABLE IF NOT EXISTS public.transcription_cache (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL,
   file_hash text NOT NULL,
@@ -165,7 +165,7 @@ CREATE TABLE public.transcription_cache (
   UNIQUE(user_id, file_hash)
 );
 
-CREATE TABLE public.export_jobs (
+CREATE TABLE IF NOT EXISTS public.export_jobs (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL,
   case_id uuid REFERENCES public.cases(id) ON DELETE CASCADE,
@@ -180,7 +180,7 @@ CREATE TABLE public.export_jobs (
 );
 
 -- AI / analyses
-CREATE TABLE public.ai_analysis_cache (
+CREATE TABLE IF NOT EXISTS public.ai_analysis_cache (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL,
   cache_key text NOT NULL,
@@ -191,7 +191,7 @@ CREATE TABLE public.ai_analysis_cache (
   UNIQUE(user_id, cache_key)
 );
 
-CREATE TABLE public.evidence_analyses (
+CREATE TABLE IF NOT EXISTS public.evidence_analyses (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL,
   case_id uuid NOT NULL REFERENCES public.cases(id) ON DELETE CASCADE,
@@ -207,7 +207,7 @@ CREATE TABLE public.evidence_analyses (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE public.settlement_analyses (
+CREATE TABLE IF NOT EXISTS public.settlement_analyses (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL,
   case_id uuid NOT NULL REFERENCES public.cases(id) ON DELETE CASCADE,
@@ -219,7 +219,7 @@ CREATE TABLE public.settlement_analyses (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE public.case_strategies (
+CREATE TABLE IF NOT EXISTS public.case_strategies (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL,
   case_id uuid NOT NULL REFERENCES public.cases(id) ON DELETE CASCADE,
@@ -230,7 +230,7 @@ CREATE TABLE public.case_strategies (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE public.case_law_research (
+CREATE TABLE IF NOT EXISTS public.case_law_research (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL,
   case_id uuid REFERENCES public.cases(id) ON DELETE CASCADE,
@@ -240,7 +240,7 @@ CREATE TABLE public.case_law_research (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE public.conflict_checks (
+CREATE TABLE IF NOT EXISTS public.conflict_checks (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL,
   search_name text NOT NULL,
@@ -250,7 +250,7 @@ CREATE TABLE public.conflict_checks (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE public.judicial_profiles (
+CREATE TABLE IF NOT EXISTS public.judicial_profiles (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL,
   judge_name text NOT NULL,
@@ -263,7 +263,7 @@ CREATE TABLE public.judicial_profiles (
 );
 
 -- Mock jury
-CREATE TABLE public.mock_jury_sessions (
+CREATE TABLE IF NOT EXISTS public.mock_jury_sessions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL,
   case_id uuid NOT NULL REFERENCES public.cases(id) ON DELETE CASCADE,
@@ -276,7 +276,7 @@ CREATE TABLE public.mock_jury_sessions (
 );
 
 -- Motions
-CREATE TABLE public.motion_templates (
+CREATE TABLE IF NOT EXISTS public.motion_templates (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid,
   name text NOT NULL,
@@ -288,7 +288,7 @@ CREATE TABLE public.motion_templates (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE public.motion_suggestions (
+CREATE TABLE IF NOT EXISTS public.motion_suggestions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL,
   case_id uuid REFERENCES public.cases(id) ON DELETE CASCADE,
@@ -300,7 +300,7 @@ CREATE TABLE public.motion_suggestions (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE public.generated_motions (
+CREATE TABLE IF NOT EXISTS public.generated_motions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL,
   case_id uuid REFERENCES public.cases(id) ON DELETE CASCADE,
@@ -314,7 +314,7 @@ CREATE TABLE public.generated_motions (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE public.legal_briefs (
+CREATE TABLE IF NOT EXISTS public.legal_briefs (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL,
   case_id uuid REFERENCES public.cases(id) ON DELETE CASCADE,
@@ -327,7 +327,7 @@ CREATE TABLE public.legal_briefs (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE public.privilege_log_entries (
+CREATE TABLE IF NOT EXISTS public.privilege_log_entries (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL,
   case_id uuid NOT NULL REFERENCES public.cases(id) ON DELETE CASCADE,
@@ -342,7 +342,7 @@ CREATE TABLE public.privilege_log_entries (
 );
 
 -- Organizations / multi-tenant
-CREATE TABLE public.organizations (
+CREATE TABLE IF NOT EXISTS public.organizations (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   name text NOT NULL,
   owner_id uuid NOT NULL,
@@ -351,7 +351,7 @@ CREATE TABLE public.organizations (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE public.organization_members (
+CREATE TABLE IF NOT EXISTS public.organization_members (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
   user_id uuid NOT NULL,
@@ -361,7 +361,7 @@ CREATE TABLE public.organization_members (
 );
 
 -- Client portal
-CREATE TABLE public.client_portal_users (
+CREATE TABLE IF NOT EXISTS public.client_portal_users (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   attorney_user_id uuid NOT NULL,
   case_id uuid REFERENCES public.cases(id) ON DELETE CASCADE,
@@ -374,7 +374,7 @@ CREATE TABLE public.client_portal_users (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE public.client_magic_links (
+CREATE TABLE IF NOT EXISTS public.client_magic_links (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   client_user_id uuid NOT NULL REFERENCES public.client_portal_users(id) ON DELETE CASCADE,
   token text NOT NULL UNIQUE,
@@ -383,7 +383,7 @@ CREATE TABLE public.client_magic_links (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE public.client_password_resets (
+CREATE TABLE IF NOT EXISTS public.client_password_resets (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   client_user_id uuid NOT NULL REFERENCES public.client_portal_users(id) ON DELETE CASCADE,
   token text NOT NULL UNIQUE,
@@ -392,7 +392,7 @@ CREATE TABLE public.client_password_resets (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE public.token_blacklist (
+CREATE TABLE IF NOT EXISTS public.token_blacklist (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   token_hash text NOT NULL UNIQUE,
   expires_at timestamptz NOT NULL,
@@ -400,7 +400,7 @@ CREATE TABLE public.token_blacklist (
 );
 
 -- Rate limiting / API usage
-CREATE TABLE public.rate_limit_status (
+CREATE TABLE IF NOT EXISTS public.rate_limit_status (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL,
   endpoint text NOT NULL,
@@ -410,7 +410,7 @@ CREATE TABLE public.rate_limit_status (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE public.api_usage_log (
+CREATE TABLE IF NOT EXISTS public.api_usage_log (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL,
   endpoint text NOT NULL,
@@ -421,8 +421,9 @@ CREATE TABLE public.api_usage_log (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
--- Video room participants
-CREATE TABLE public.video_room_participants (
+-- Video room participants (table already exists from 20251229000000_create_video_rooms.sql
+-- with column room_id; IF NOT EXISTS skips recreation)
+CREATE TABLE IF NOT EXISTS public.video_room_participants (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   video_room_id uuid NOT NULL REFERENCES public.video_rooms(id) ON DELETE CASCADE,
   user_id uuid,
@@ -446,7 +447,7 @@ SET search_path = public
 AS $$
   SELECT EXISTS (
     SELECT 1 FROM public.case_members
-    WHERE case_id = _case_id AND user_id = _user_id AND status = 'active'
+    WHERE case_id = _case_id AND user_id = _user_id
   ) OR EXISTS (
     SELECT 1 FROM public.cases
     WHERE id = _case_id AND user_id = _user_id
@@ -509,71 +510,133 @@ DECLARE
   ];
 BEGIN
   FOREACH t IN ARRAY owner_tables LOOP
-    EXECUTE format('CREATE POLICY "Users view own %I" ON public.%I FOR SELECT USING (auth.uid() = user_id)', t, t);
-    EXECUTE format('CREATE POLICY "Users insert own %I" ON public.%I FOR INSERT WITH CHECK (auth.uid() = user_id)', t, t);
-    EXECUTE format('CREATE POLICY "Users update own %I" ON public.%I FOR UPDATE USING (auth.uid() = user_id)', t, t);
-    EXECUTE format('CREATE POLICY "Users delete own %I" ON public.%I FOR DELETE USING (auth.uid() = user_id)', t, t);
+    BEGIN
+      EXECUTE format('CREATE POLICY "Users view own %I" ON public.%I FOR SELECT USING (auth.uid() = user_id)', t, t);
+    EXCEPTION WHEN duplicate_object OR sqlstate '42703' THEN NULL;
+    END;
+    BEGIN
+      EXECUTE format('CREATE POLICY "Users insert own %I" ON public.%I FOR INSERT WITH CHECK (auth.uid() = user_id)', t, t);
+    EXCEPTION WHEN duplicate_object OR sqlstate '42703' THEN NULL;
+    END;
+    BEGIN
+      EXECUTE format('CREATE POLICY "Users update own %I" ON public.%I FOR UPDATE USING (auth.uid() = user_id)', t, t);
+    EXCEPTION WHEN duplicate_object OR sqlstate '42703' THEN NULL;
+    END;
+    BEGIN
+      EXECUTE format('CREATE POLICY "Users delete own %I" ON public.%I FOR DELETE USING (auth.uid() = user_id)', t, t);
+    EXCEPTION WHEN duplicate_object OR sqlstate '42703' THEN NULL;
+    END;
   END LOOP;
 END $$;
 
 -- case_members: owner of case can manage; members can view their own row
-CREATE POLICY "Case owner manages members" ON public.case_members
-  FOR ALL USING (
-    EXISTS (SELECT 1 FROM public.cases WHERE id = case_id AND user_id = auth.uid())
-  ) WITH CHECK (
-    EXISTS (SELECT 1 FROM public.cases WHERE id = case_id AND user_id = auth.uid())
-  );
-CREATE POLICY "Members view own membership" ON public.case_members
-  FOR SELECT USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Case owner manages members" ON public.case_members
+    FOR ALL USING (
+      EXISTS (SELECT 1 FROM public.cases WHERE id = case_id AND user_id = auth.uid())
+    ) WITH CHECK (
+      EXISTS (SELECT 1 FROM public.cases WHERE id = case_id AND user_id = auth.uid())
+    );
+EXCEPTION WHEN duplicate_object OR sqlstate '42703' THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  CREATE POLICY "Members view own membership" ON public.case_members
+    FOR SELECT USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object OR sqlstate '42703' THEN NULL;
+END $$;
 
 -- motion_templates: public templates viewable by all authenticated users; private owned
-CREATE POLICY "View public or own templates" ON public.motion_templates
-  FOR SELECT USING (is_public = true OR auth.uid() = user_id);
-CREATE POLICY "Insert own templates" ON public.motion_templates
-  FOR INSERT WITH CHECK (auth.uid() = user_id);
-CREATE POLICY "Update own templates" ON public.motion_templates
-  FOR UPDATE USING (auth.uid() = user_id);
-CREATE POLICY "Delete own templates" ON public.motion_templates
-  FOR DELETE USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "View public or own templates" ON public.motion_templates
+    FOR SELECT USING (is_public = true OR auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object OR sqlstate '42703' THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  CREATE POLICY "Insert own templates" ON public.motion_templates
+    FOR INSERT WITH CHECK (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object OR sqlstate '42703' THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  CREATE POLICY "Update own templates" ON public.motion_templates
+    FOR UPDATE USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object OR sqlstate '42703' THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  CREATE POLICY "Delete own templates" ON public.motion_templates
+    FOR DELETE USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object OR sqlstate '42703' THEN NULL;
+END $$;
 
 -- organizations: owner manages
-CREATE POLICY "Owner manages organization" ON public.organizations
-  FOR ALL USING (auth.uid() = owner_id) WITH CHECK (auth.uid() = owner_id);
-CREATE POLICY "Members view organization" ON public.organizations
-  FOR SELECT USING (
-    EXISTS (SELECT 1 FROM public.organization_members
-            WHERE organization_id = id AND user_id = auth.uid())
-  );
+DO $$ BEGIN
+  CREATE POLICY "Owner manages organization" ON public.organizations
+    FOR ALL USING (auth.uid() = owner_id) WITH CHECK (auth.uid() = owner_id);
+EXCEPTION WHEN duplicate_object OR sqlstate '42703' THEN NULL;
+END $$;
 
-CREATE POLICY "Org owner manages members" ON public.organization_members
-  FOR ALL USING (
-    EXISTS (SELECT 1 FROM public.organizations WHERE id = organization_id AND owner_id = auth.uid())
-  ) WITH CHECK (
-    EXISTS (SELECT 1 FROM public.organizations WHERE id = organization_id AND owner_id = auth.uid())
-  );
-CREATE POLICY "Members view own org membership" ON public.organization_members
-  FOR SELECT USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Members view organization" ON public.organizations
+    FOR SELECT USING (
+      EXISTS (SELECT 1 FROM public.organization_members
+              WHERE organization_id = id AND user_id = auth.uid())
+    );
+EXCEPTION WHEN duplicate_object OR sqlstate '42703' THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  CREATE POLICY "Org owner manages members" ON public.organization_members
+    FOR ALL USING (
+      EXISTS (SELECT 1 FROM public.organizations WHERE id = organization_id AND owner_id = auth.uid())
+    ) WITH CHECK (
+      EXISTS (SELECT 1 FROM public.organizations WHERE id = organization_id AND owner_id = auth.uid())
+    );
+EXCEPTION WHEN duplicate_object OR sqlstate '42703' THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  CREATE POLICY "Members view own org membership" ON public.organization_members
+    FOR SELECT USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object OR sqlstate '42703' THEN NULL;
+END $$;
 
 -- client_portal_users: attorney manages their clients
-CREATE POLICY "Attorney manages clients" ON public.client_portal_users
-  FOR ALL USING (auth.uid() = attorney_user_id) WITH CHECK (auth.uid() = attorney_user_id);
+DO $$ BEGIN
+  CREATE POLICY "Attorney manages clients" ON public.client_portal_users
+    FOR ALL USING (auth.uid() = attorney_user_id) WITH CHECK (auth.uid() = attorney_user_id);
+EXCEPTION WHEN duplicate_object OR sqlstate '42703' THEN NULL;
+END $$;
 
 -- client magic links / resets: only accessible via service role (no public policies)
 -- Leaving RLS enabled with no policies blocks all client access by default
 
 -- token_blacklist: service role only (no policies = no client access)
 
--- video_room_participants: case owner (room owner) manages; participant views own row
-CREATE POLICY "Room owner views participants" ON public.video_room_participants
-  FOR SELECT USING (
-    EXISTS (SELECT 1 FROM public.video_rooms WHERE id = video_room_id AND user_id = auth.uid())
-  );
-CREATE POLICY "Room owner inserts participants" ON public.video_room_participants
-  FOR INSERT WITH CHECK (
-    EXISTS (SELECT 1 FROM public.video_rooms WHERE id = video_room_id AND user_id = auth.uid())
-  );
-CREATE POLICY "Participant views self" ON public.video_room_participants
-  FOR SELECT USING (auth.uid() = user_id);
+-- video_room_participants: use room_id column (actual column name from 20251229000000_create_video_rooms.sql)
+DO $$ BEGIN
+  CREATE POLICY "Room owner views participants" ON public.video_room_participants
+    FOR SELECT USING (
+      EXISTS (SELECT 1 FROM public.video_rooms WHERE id = room_id AND user_id = auth.uid())
+    );
+EXCEPTION WHEN duplicate_object OR sqlstate '42703' THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  CREATE POLICY "Room owner inserts participants" ON public.video_room_participants
+    FOR INSERT WITH CHECK (
+      EXISTS (SELECT 1 FROM public.video_rooms WHERE id = room_id AND user_id = auth.uid())
+    );
+EXCEPTION WHEN duplicate_object OR sqlstate '42703' THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  CREATE POLICY "Participant views self" ON public.video_room_participants
+    FOR SELECT USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object OR sqlstate '42703' THEN NULL;
+END $$;
 
 -- =====================================================
 -- updated_at triggers
@@ -589,27 +652,30 @@ DECLARE
   ];
 BEGIN
   FOREACH t IN ARRAY trigger_tables LOOP
-    EXECUTE format(
-      'CREATE TRIGGER update_%I_updated_at BEFORE UPDATE ON public.%I FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column()',
-      t, t
-    );
+    BEGIN
+      EXECUTE format(
+        'CREATE TRIGGER update_%I_updated_at BEFORE UPDATE ON public.%I FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column()',
+        t, t
+      );
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END;
   END LOOP;
 END $$;
 
 -- =====================================================
 -- Useful indexes
 -- =====================================================
-CREATE INDEX idx_trial_sessions_user_case ON public.trial_sessions(user_id, case_id);
-CREATE INDEX idx_case_members_case ON public.case_members(case_id);
-CREATE INDEX idx_case_members_user ON public.case_members(user_id);
-CREATE INDEX idx_discovery_requests_case ON public.discovery_requests(case_id);
-CREATE INDEX idx_document_versions_doc ON public.document_versions(document_id);
-CREATE INDEX idx_ocr_queue_status ON public.ocr_queue(status, created_at);
-CREATE INDEX idx_processing_queue_status ON public.processing_queue(status, created_at);
-CREATE INDEX idx_processing_queue_user_case ON public.processing_queue(user_id, case_id);
-CREATE INDEX idx_evidence_analyses_case ON public.evidence_analyses(case_id);
-CREATE INDEX idx_settlement_analyses_case ON public.settlement_analyses(case_id);
-CREATE INDEX idx_case_events_case ON public.case_events(case_id, created_at DESC);
-CREATE INDEX idx_video_room_participants_room ON public.video_room_participants(video_room_id);
-CREATE INDEX idx_token_blacklist_expires ON public.token_blacklist(expires_at);
-CREATE INDEX idx_client_magic_links_token ON public.client_magic_links(token);
+CREATE INDEX IF NOT EXISTS idx_trial_sessions_user_case ON public.trial_sessions(user_id, case_id);
+CREATE INDEX IF NOT EXISTS idx_case_members_case ON public.case_members(case_id);
+CREATE INDEX IF NOT EXISTS idx_case_members_user ON public.case_members(user_id);
+CREATE INDEX IF NOT EXISTS idx_discovery_requests_case ON public.discovery_requests(case_id);
+CREATE INDEX IF NOT EXISTS idx_document_versions_doc ON public.document_versions(document_id);
+CREATE INDEX IF NOT EXISTS idx_ocr_queue_status ON public.ocr_queue(status, created_at);
+CREATE INDEX IF NOT EXISTS idx_processing_queue_status ON public.processing_queue(status, created_at);
+CREATE INDEX IF NOT EXISTS idx_processing_queue_user_case ON public.processing_queue(user_id, case_id);
+CREATE INDEX IF NOT EXISTS idx_evidence_analyses_case ON public.evidence_analyses(case_id);
+CREATE INDEX IF NOT EXISTS idx_settlement_analyses_case ON public.settlement_analyses(case_id);
+CREATE INDEX IF NOT EXISTS idx_case_events_case ON public.case_events(case_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_video_room_participants_room ON public.video_room_participants(room_id);
+CREATE INDEX IF NOT EXISTS idx_token_blacklist_expires ON public.token_blacklist(expires_at);
+CREATE INDEX IF NOT EXISTS idx_client_magic_links_token ON public.client_magic_links(token);

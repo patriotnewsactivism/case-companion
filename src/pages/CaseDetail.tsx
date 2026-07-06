@@ -6,6 +6,7 @@ import { TimelineView } from "@/components/TimelineView";
 import { GoogleDriveFolderImport } from "@/components/GoogleDriveFolderImport";
 import { ImportJobsViewer } from "@/components/ImportJobsViewer";
 import { BulkDocumentUpload } from "@/components/BulkDocumentUpload";
+import { DocumentAnalysisDialog } from "@/components/DocumentAnalysisDialog";
 import { TrialSimulator } from "@/components/TrialSimulator";
 import { MasterCaseBrief } from "@/components/MasterCaseBrief";
 import { VideoRoom } from "@/components/VideoRoom";
@@ -169,6 +170,7 @@ const DOCUMENT_LIST_MAX_HEIGHT = 640;
 type DocumentRowData = {
   docs: Document[];
   onView: (doc: Document) => void;
+  onViewAnalysis: (doc: Document) => void;
   onDownload: (doc: Document) => void;
   onDelete: (id: string) => void;
   onOcr: (documentId: string, fileUrl: string) => void;
@@ -280,6 +282,18 @@ const DocumentRow = memo(({ index, style, data }: ListChildComponentProps<Docume
           </Button>
         )}
 
+        {doc.ai_analyzed && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            title="View analysis"
+            onClick={() => data.onViewAnalysis(doc)}
+          >
+            <Sparkles className="h-3.5 w-3.5 text-amber-500" />
+          </Button>
+        )}
+
         {doc.file_url && (
           <>
             <Button
@@ -376,6 +390,7 @@ export default function CaseDetail() {
   const [isBulkUploadOpen, setIsBulkUploadOpen] = useState(false);
   const [isEventOpen, setIsEventOpen] = useState(false);
   const [deleteDocId, setDeleteDocId] = useState<string | null>(null);
+  const [analysisDoc, setAnalysisDoc] = useState<Document | null>(null);
   const [uploading, setUploading] = useState(false);
   const [chunkedUpload, setChunkedUpload] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -1779,6 +1794,7 @@ export default function CaseDetail() {
                       itemData={{
                         docs: filteredDocuments,
                         onView: handleViewDocument,
+                        onViewAnalysis: setAnalysisDoc,
                         onDownload: handleDownloadDocument,
                         onDelete: setDeleteDocId,
                         onOcr: triggerOcr,
@@ -1792,6 +1808,13 @@ export default function CaseDetail() {
                     </List>
                   </Card>
                 )}
+
+                <DocumentAnalysisDialog
+                  doc={analysisDoc}
+                  onOpenChange={(open) => {
+                    if (!open) setAnalysisDoc(null);
+                  }}
+                />
 
                 {/* Privilege Log Generator */}
                 <Card className="glass-card">
@@ -2781,6 +2804,12 @@ export default function CaseDetail() {
                     <CardDescription>Ask anything about your case — the AI searches all {documents.filter(d => d.ai_analyzed).length} analyzed documents for answers.</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-3">
+                    {chatMessages.length === 0 && documents.length > 0 && documents.filter(d => d.ai_analyzed).length === 0 && (
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                        <p className="font-medium mb-1">Documents need analysis first</p>
+                        <p className="text-xs">Upload documents and let OCR + AI analysis run, or click the <Scan className="h-3 w-3 inline mx-0.5" /> icon on each document to analyze it. Once analysis is complete, the AI can answer questions about your case.</p>
+                      </div>
+                    )}
                     {chatMessages.length === 0 && documents.filter(d => d.ai_analyzed).length > 0 && (
                       <div className="space-y-2">
                         <p className="text-xs text-muted-foreground">Suggested questions:</p>

@@ -121,3 +121,7 @@ verify_jwt = true
 
 [functions.invite-member]
 verify_jwt = true
+
+# Outbound request generation (public records / FOIA, discovery demands, preservation letters, subpoenas)
+[functions.generate-request]
+verify_jwt = true

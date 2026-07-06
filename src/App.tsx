@@ -95,6 +95,7 @@ const JudicialIntelligence = lazy(() => import("./pages/JudicialIntelligence"));
 const AgentDashboard = lazy(() => import("./pages/AgentDashboard"));
 const IntakeInbox = lazy(() => import("./pages/IntakeInbox"));
 const Discovery = lazy(() => import("./pages/Discovery"));
+const RecordsRequests = lazy(() => import("./pages/RecordsRequests"));
 const Evidence = lazy(() => import("./pages/Evidence"));
 const Sessions = lazy(() => import("./pages/Sessions"));
 
@@ -309,6 +310,10 @@ const App = () => {
                 <Route
                   path="/discovery"
                   element={<ProtectedRoute><Discovery /></ProtectedRoute>}
+                />
+                <Route
+                  path="/records-requests"
+                  element={<ProtectedRoute><RecordsRequests /></ProtectedRoute>}
                 />
                 <Route
                   path="/evidence"
