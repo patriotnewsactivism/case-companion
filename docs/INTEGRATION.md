@@ -16,6 +16,17 @@ Keep it in sync across repos; drift here is what breaks the "sync" between apps.
 analysis sync into case-companion and/or ai-law-partner "with one click." ai-law-partner
 automates across the same data. case-companion is the human-driven cockpit over that data.
 
+## Deployment model: three separate apps, one shared backend
+
+**Confirmed:** all three apps ship as **independent deployments** — there is no plan to
+merge them into a single app or have one absorb another. Each keeps its own frontend,
+its own release cycle, and (per `sync-casebuddy-live.md` in this repo) may independently
+**port or adapt feature ideas** from the others into its own codebase — e.g. case-companion
+copying/rewriting an agent-orchestration concept it likes from ai-law-partner as its own
+code. That is ordinary cross-pollination between codebases, not a deployment merger.
+Do not treat a porting effort in one repo's history as evidence the apps are converging
+into one; the integration point that actually matters is the shared database below.
+
 ## Sync architecture: the database *is* the sync layer
 
 All three apps point at **one shared Supabase project** (`plcvjadartxntnurhcua`).
@@ -49,18 +60,43 @@ name TEXT,                 -- DiscoveryLens writes the intelligently-renamed tit
 file_url TEXT,             -- storage path in the shared bucket (see Storage)
 file_type, file_size,
 bates_number TEXT,         -- DiscoveryLens assigns; case-companion/ai-law-partner display
-summary TEXT,              -- analysis fields (shared shape across apps)
+bates_formatted TEXT,      -- formatted Bates label, read by cross-document-analysis
+summary TEXT,              -- case-companion's own OCR analysis fields (ocr-document)
 key_facts TEXT[], favorable_findings TEXT[], adverse_findings TEXT[], action_items TEXT[],
-ai_analyzed BOOLEAN,
-ocr_text TEXT,             -- extracted full text (added by later migration)
+ai_analyzed BOOLEAN,       -- true when case-companion's own pipeline has analyzed it
+ocr_text TEXT,             -- case-companion's extracted full text
+extracted_text TEXT,       -- alternate full-text column some pipelines populate
+analysis JSONB,            -- DiscoveryLens's analysis payload (see below) — the actual,
+                           -- already-implemented cross-app field (confirmed in
+                           -- supabase/functions/document-aware-chat and
+                           -- cross-document-analysis, which read both this and the
+                           -- case-companion columns above and merge them)
 document_type TEXT,        -- classification
 source_app TEXT,           -- provenance: 'casebuddy-discoverylens' | 'case-companion' | 'casebuddy-ai-law-partner'
 created_at, updated_at
 ```
+
+**`documents.analysis` shape (DiscoveryLens's contract, as already consumed by this repo's
+edge functions):**
+```jsonc
+{
+  "summary": "string",
+  "evidenceType": "string",
+  "entities": ["string", ...],
+  "relevantFacts": ["string", ...],
+  "transcription": "string"   // full extracted text, used as a fallback for ocr_text
+}
+```
+This is the **real, already-integrated** contract — do not invent a different shape.
+`document-aware-chat` and `cross-document-analysis` both read `analysis` as a fallback
+when the flat `summary`/`key_facts` columns are empty, so a DiscoveryLens-only document
+participates in case-companion's chat/analysis features with zero extra work.
+
 **DiscoveryLens → suite contract:** to "send a document" into case-companion / ai-law-partner,
-insert a `documents` row under the target `user_id` + `case_id` with:
-`name` = renamed title, `file_url` = shared-bucket path, `bates_number`, the analysis fields,
-and `source_app = 'casebuddy-discoverylens'`. It appears instantly in the other apps.
+insert (or upsert) a `documents` row under the target `user_id` + `case_id` with:
+`name` = renamed title, `file_url` = shared-bucket path, `bates_number`/`bates_formatted`,
+the `analysis` JSONB payload above, and `source_app = 'casebuddy-discoverylens'`. It appears
+instantly in the other apps — no separate API call needed.
 
 ### `timeline_events` — the unified "smart timeline"
 ```
@@ -120,11 +156,21 @@ These run on the shared project and are callable by any app (all `verify_jwt = t
 - [ ] Files go to the `case-documents` bucket with the `{user_id}/{case_id}/…` path.
 - [ ] Each app stamps `source_app` on shared rows.
 
+## Confirmed decisions (for future reference)
+
+- **Deployment model**: three separate apps/deployments, one shared Supabase project. Not
+  converging into a single app. (Confirmed 2026-07-06.)
+- **Backend topology**: all three point at one shared Supabase project. (Confirmed earlier
+  in this thread.)
+- **DiscoveryLens's real contract**: writes a `documents.analysis` JSONB payload
+  (`summary`, `evidenceType`, `entities`, `relevantFacts`, `transcription`), not flat
+  columns — already wired into `document-aware-chat` and `cross-document-analysis`.
+
 ## Open items to confirm with the other repos
 
 - Confirm ai-law-partner and DiscoveryLens actually target `plcvjadartxntnurhcua` (not separate
   projects). If separate, we need a sync/replication layer instead of the shared-DB model above.
 - Align DiscoveryLens's renaming output to the `documents.name` field and Bates format to
-  `documents.bates_number` (case-companion's `BatesManager` already reads this).
+  `documents.bates_number`/`bates_formatted` (case-companion's `BatesManager` already reads this).
 - Decide whether ai-law-partner writes `outbound_requests` directly (recommended) to automate
   request follow-ups on the shared timeline.
