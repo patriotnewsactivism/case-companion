@@ -29,6 +29,7 @@ import {
   Bot,
   Mail,
   Layers,
+  Send,
   FlaskConical,
   Clock,
 } from "lucide-react";
@@ -42,6 +43,7 @@ const navItems = [
   { path: "/cases", label: "My Cases", icon: FolderOpen },
   { path: "/trial-prep", label: "Trial Prep", icon: Gavel },
   { path: "/discovery", label: "Discovery", icon: Layers },
+  { path: "/records-requests", label: "Requests", icon: Send },
   { path: "/evidence", label: "Evidence", icon: FlaskConical },
   { path: "/calendar", label: "Calendar", icon: Calendar },
   { path: "/billing", label: "Practice Mgmt", icon: DollarSign },

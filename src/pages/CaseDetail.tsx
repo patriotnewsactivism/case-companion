@@ -6,6 +6,7 @@ import { TimelineView } from "@/components/TimelineView";
 import { GoogleDriveFolderImport } from "@/components/GoogleDriveFolderImport";
 import { ImportJobsViewer } from "@/components/ImportJobsViewer";
 import { BulkDocumentUpload } from "@/components/BulkDocumentUpload";
+import { DocumentAnalysisDialog } from "@/components/DocumentAnalysisDialog";
 import { TrialSimulator } from "@/components/TrialSimulator";
 import { VideoRoom } from "@/components/VideoRoom";
 import { VideoConference } from "@/components/VideoConference";
@@ -168,6 +169,7 @@ const DOCUMENT_LIST_MAX_HEIGHT = 640;
 type DocumentRowData = {
   docs: Document[];
   onView: (doc: Document) => void;
+  onViewAnalysis: (doc: Document) => void;
   onDownload: (doc: Document) => void;
   onDelete: (id: string) => void;
   onOcr: (documentId: string, fileUrl: string) => void;
@@ -279,6 +281,18 @@ const DocumentRow = memo(({ index, style, data }: ListChildComponentProps<Docume
           </Button>
         )}
 
+        {doc.ai_analyzed && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            title="View analysis"
+            onClick={() => data.onViewAnalysis(doc)}
+          >
+            <Sparkles className="h-3.5 w-3.5 text-amber-500" />
+          </Button>
+        )}
+
         {doc.file_url && (
           <>
             <Button
@@ -375,6 +389,7 @@ export default function CaseDetail() {
   const [isBulkUploadOpen, setIsBulkUploadOpen] = useState(false);
   const [isEventOpen, setIsEventOpen] = useState(false);
   const [deleteDocId, setDeleteDocId] = useState<string | null>(null);
+  const [analysisDoc, setAnalysisDoc] = useState<Document | null>(null);
   const [uploading, setUploading] = useState(false);
   const [chunkedUpload, setChunkedUpload] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -1786,6 +1801,7 @@ export default function CaseDetail() {
                       itemData={{
                         docs: filteredDocuments,
                         onView: handleViewDocument,
+                        onViewAnalysis: setAnalysisDoc,
                         onDownload: handleDownloadDocument,
                         onDelete: setDeleteDocId,
                         onOcr: triggerOcr,
@@ -1799,6 +1815,13 @@ export default function CaseDetail() {
                     </List>
                   </Card>
                 )}
+
+                <DocumentAnalysisDialog
+                  doc={analysisDoc}
+                  onOpenChange={(open) => {
+                    if (!open) setAnalysisDoc(null);
+                  }}
+                />
 
                 {/* Privilege Log Generator */}
                 <Card className="glass-card">

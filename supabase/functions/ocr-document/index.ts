@@ -497,8 +497,8 @@ CRITICAL RULES FOR TIMELINE EVENTS:
 - GOOD titles: "Complaint Filed in District Court", "Defense Expert Disclosure Deadline Passed", "Settlement Conference Held"
 
 ANALYSIS REQUIREMENTS:
-1. SUMMARY: 4-6 sentence executive summary — document type, parties, key facts, strategic significance, and recommended next steps
-2. KEY_FACTS: 10-20 specific factual findings (dates, events, admissions, amounts, names, locations, Bates numbers)
+1. SUMMARY: A clear, well-organized plain-language narrative (4-7 sentences) that reads naturally and, in this order, covers: (a) what this document is, (b) who is involved and their roles, (c) what it establishes or contains, (d) why it matters strategically to the case, and (e) the single most important next step. Write for a busy attorney skimming the file — plain English, no legalese padding, no repetition of the document header or case caption.
+2. KEY_FACTS: 10-20 specific, self-contained, non-duplicative factual findings (dates, events, admissions, amounts, names, locations, Bates numbers). Prefer precise, verifiable facts over generic statements.
 3. FAVORABLE_FINDINGS: 6-10 findings supporting the client's position (admissions, favorable testimony, corroborating evidence, compliance)
 4. ADVERSE_FINDINGS: 6-10 findings that could hurt the case (contradictions, damaging statements, weaknesses, non-compliance, liability exposure)
 5. ACTION_ITEMS: 6-10 specific follow-up tasks (witnesses to depose, documents to request, legal research needed, deadlines to calendar, issues to address)
@@ -1052,8 +1052,8 @@ serve(async (req) => {
 Analyze this legal document CHUNK and provide a JSON response with comprehensive legal analysis for this chunk only.
 
 ANALYSIS REQUIREMENTS:
-1. SUMMARY: 1-2 sentence summary of this chunk's significance
-2. KEY_FACTS: up to 6 specific factual findings from this chunk
+1. SUMMARY: 1-2 sentence plain-language summary of what this chunk establishes and why it matters (no boilerplate restating the header or caption)
+2. KEY_FACTS: up to 6 specific, self-contained factual findings from this chunk
 3. FAVORABLE_FINDINGS: up to 4 findings that could support the case
 4. ADVERSE_FINDINGS: up to 4 findings that could hurt the case
 5. ACTION_ITEMS: up to 4 specific follow-up actions from this chunk

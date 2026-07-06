@@ -59,3 +59,7 @@ verify_jwt = true
 # Cross-document timeline synthesis
 [functions.synthesize-timeline]
 verify_jwt = true
+
+# Outbound request generation (public records / FOIA, discovery demands, preservation letters, subpoenas)
+[functions.generate-request]
+verify_jwt = true
