@@ -828,6 +828,7 @@ export interface VideoRoom {
   roomUrl: string;
   roomName: string;
   token: string;
+  displayName?: string;
   expiresAt?: string;
   enableRecording?: boolean;
 }
@@ -856,7 +857,7 @@ export async function createVideoRoom(
   });
 
   if (error) throw error;
-  return data;
+  return data as VideoRoom;
 }
 
 export async function joinVideoRoom(roomId: string, userName?: string): Promise<VideoRoom> {

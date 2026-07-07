@@ -650,10 +650,8 @@ export default function CaseDetail() {
         body: JSON.stringify({ documentId, fileUrl }),
       });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('OCR function error:', errorText);
-        throw new Error(errorText || `HTTP ${response.status}`);
+      if (error) {
+        throw error;
       }
 
       const data = (await response.json()) as OcrFunctionResponse;

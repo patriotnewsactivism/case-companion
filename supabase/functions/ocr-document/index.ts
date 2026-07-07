@@ -1529,6 +1529,51 @@ ${textChunk}`;
 
     console.log(`Document processed: ocrProvider=${ocrProvider}, analysisProvider=${analysisProvider}, tables=${extractedTables.length}`);
 
+    if (timelineEvents.length > 0) {
+      const { data: existingEvents, error: eventsError } = await supabase
+        .from('timeline_events')
+        .select('event_date, title')
+        .eq('case_id', documentData.case_id);
+
+      if (eventsError) {
+        console.error('Failed to fetch existing timeline events:', eventsError);
+      } else {
+        const existingKeys = new Set(
+          (existingEvents || []).map(
+            (event: any) => `${event.event_date}::${String(event.title).toLowerCase()}`
+          )
+        );
+
+        const caseOwnerId = (documentData.cases as any).user_id || user.id;
+        const newEvents = timelineEvents
+          .filter(
+            (event) =>
+              !existingKeys.has(`${event.event_date}::${event.title.toLowerCase()}`)
+          )
+          .map((event) => ({
+            case_id: documentData.case_id,
+            user_id: caseOwnerId,
+            title: event.title,
+            description: event.description || null,
+            event_date: event.event_date,
+            event_type: event.event_type || null,
+            importance: event.importance || 'medium',
+          }));
+
+        if (newEvents.length > 0) {
+          const { error: insertError } = await supabase
+            .from('timeline_events')
+            .insert(newEvents);
+
+          if (insertError) {
+            console.error('Failed to insert timeline events:', insertError);
+          } else {
+            console.log(`✅ Added ${newEvents.length} timeline events for case ${documentData.case_id}`);
+          }
+        }
+      }
+    }
+
     return new Response(
       JSON.stringify({
         success: true,
