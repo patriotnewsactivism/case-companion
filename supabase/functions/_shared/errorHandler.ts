@@ -10,12 +10,22 @@ export interface ErrorResponse {
 }
 
 // Phase 1D: CORS Hardening
-const ALLOWED_ORIGINS = [
-  'https://plcvjadartxntnurhcua.lovableproject.com', // Lovable project URL (current)
-  'https://casebuddypro.lovable.app', // Production domain
+const BASE_ALLOWED_ORIGINS = [
+  'https://casebuddy.live', // Production custom domain
+  'https://casebuddypro.com', // Production domain
   'http://localhost:8080', // Development
+  'http://localhost:8082', // Development (fallback when 8080 is in use)
   'http://localhost:5173', // Vite dev server alternative port
 ];
+
+const ENV_ALLOWED_ORIGINS = (Deno.env.get('ALLOWED_ORIGINS') || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+const ALLOWED_ORIGINS = Array.from(
+  new Set([...BASE_ALLOWED_ORIGINS, ...ENV_ALLOWED_ORIGINS])
+);
 
 /**
  * Get CORS headers based on request origin
@@ -25,18 +35,37 @@ export function getCorsHeaders(req: Request): Record<string, string> {
   const origin = req.headers.get('Origin') || '';
   const environment = Deno.env.get('ENVIRONMENT') || 'production';
 
-  // In development, allow localhost
-  const isAllowedOrigin = ALLOWED_ORIGINS.includes(origin) ||
-    (environment === 'development' && origin.startsWith('http://localhost')) ||
-    origin.includes('.lovable.app') || // Allow all Lovable domains
-    origin.includes('.lovableproject.com'); // Allow all Lovable project domains
+  // Normalize origin checks
+  const isLocalhost = origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1');
+  const isCaseBuddy = origin.includes('casebuddy.live') || origin.includes('casebuddypro.com') || origin.endsWith('.casebuddy.live');
+  const isVercel = origin.endsWith('.vercel.app');
+  const isAllowedUrl = ALLOWED_ORIGINS.includes(origin);
+
+  const isAllowedOrigin = !!origin && (
+    isAllowedUrl ||
+    isCaseBuddy ||
+    isVercel ||
+    (environment === 'development' && isLocalhost)
+  );
+
+  // If allowed, return the exact origin. If not, return '*' (or 'null' if we want to be strict, but '*' is common fallback without credentials)
+  // CRITICAL: When Access-Control-Allow-Credentials is true, Origin cannot be '*'
+  const allowOrigin = isAllowedOrigin ? origin : '*';
+  
+  // Only allow credentials if we have a specific trusted origin
+  const allowCredentials = isAllowedOrigin ? 'true' : 'false';
+
+  // Fallback for when we must return '*' but credentials were requested (invalid state, but we try to be safe)
+  // If we return '*', we MUST NOT return Access-Control-Allow-Credentials: true
+  const finalCredentials = allowOrigin === '*' ? 'false' : allowCredentials;
 
   return {
-    'Access-Control-Allow-Origin': isAllowedOrigin ? origin : '*',
+    'Access-Control-Allow-Origin': allowOrigin,
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-    'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
+    'Access-Control-Allow-Methods': 'POST, GET, OPTIONS, PUT, DELETE',
     'Access-Control-Max-Age': '86400', // 24 hours
-    'Access-Control-Allow-Credentials': 'true',
+    'Access-Control-Allow-Credentials': finalCredentials,
+    'Vary': 'Origin',
   };
 }
 
@@ -52,7 +81,8 @@ export const corsHeaders = {
 export function createErrorResponse(
   error: unknown,
   statusCode: number = 500,
-  context?: string
+  context?: string,
+  corsHeadersOverride: Record<string, string> = corsHeaders
 ): Response {
   const timestamp = new Date().toISOString();
 
@@ -63,7 +93,12 @@ export function createErrorResponse(
   if (error instanceof Error) {
     errorMessage = error.message;
     errorDetails = error.stack;
-    errorCode = (error as any).code;
+    if ('code' in error) {
+      const codeValue = (error as { code?: unknown }).code;
+      if (typeof codeValue === 'string') {
+        errorCode = codeValue;
+      }
+    }
   } else if (typeof error === 'string') {
     errorMessage = error;
   }
@@ -90,7 +125,7 @@ export function createErrorResponse(
     JSON.stringify(responseBody),
     {
       status: statusCode,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...corsHeadersOverride, 'Content-Type': 'application/json' },
     }
   );
 }
@@ -112,9 +147,9 @@ export function validateEnvVars(requiredVars: string[]): void {
  * Validate request body has required fields
  */
 export function validateRequestBody<T>(
-  body: any,
-  requiredFields: (keyof T)[]
-): asserts body is T {
+  body: Record<string, unknown>,
+  requiredFields: string[]
+): asserts body is Record<string, unknown> & T {
   const missing = requiredFields.filter(field => !(field in body) || body[field] === undefined);
 
   if (missing.length > 0) {
@@ -140,7 +175,7 @@ export function withErrorHandling(
     try {
       return await handler(req);
     } catch (error) {
-      return createErrorResponse(error, 500, context);
+      return createErrorResponse(error, 500, context, getCorsHeaders(req));
     }
   };
 }

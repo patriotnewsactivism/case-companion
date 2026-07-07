@@ -7,7 +7,8 @@
 
 -- Add DELETE policy for import_jobs table
 -- Users should be able to delete their own import job records
-CREATE POLICY IF NOT EXISTS "Users can delete their own import jobs"
+DROP POLICY IF EXISTS "Users can delete their own import jobs" ON public.import_jobs;
+CREATE POLICY "Users can delete their own import jobs"
   ON public.import_jobs
   FOR DELETE
   TO authenticated
@@ -15,7 +16,8 @@ CREATE POLICY IF NOT EXISTS "Users can delete their own import jobs"
 
 -- Add DELETE policy for profiles table
 -- Users should be able to delete their own profile (GDPR compliance)
-CREATE POLICY IF NOT EXISTS "Users can delete their own profile"
+DROP POLICY IF EXISTS "Users can delete their own profile" ON public.profiles;
+CREATE POLICY "Users can delete their own profile"
   ON public.profiles
   FOR DELETE
   TO authenticated

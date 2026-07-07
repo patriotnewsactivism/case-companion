@@ -4,7 +4,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Logo } from "@/components/Logo";
 import { motion } from "framer-motion";
 import {
-  ShieldCheck,
   FileSearch,
   BrainCircuit,
   Gavel,
@@ -27,9 +26,23 @@ import {
   Search,
   Layers,
   BookOpen,
+  Building2,
+  Crown,
 } from "lucide-react";
 
 const featureHighlights = [
+  {
+    title: "40+ AI Legal Specialists",
+    description: "A dedicated team of AI legal specialists — attorneys and paralegals across 12 practice areas. Criminal defense, personal injury, family law, immigration, IP, corporate, employment, real estate, bankruptcy, civil litigation, estate, and tax. Deploy them instantly on any case.",
+    icon: Users,
+    highlight: true,
+  },
+  {
+    title: "AI Agent Orchestration",
+    description: "Deploy autonomous AI agents that research, draft, analyze, and prepare simultaneously. Real-time status dashboard shows every agent at work across your entire caseload.",
+    icon: BrainCircuit,
+    highlight: true,
+  },
   {
     title: "AI-Powered Discovery Analysis",
     description: "Upload thousands of discovery documents and let AI extract key facts, identify inconsistencies, and surface favorable evidence in minutes—not weeks.",
@@ -42,14 +55,21 @@ const featureHighlights = [
     icon: Search,
   },
   {
-    title: "Favorable vs Adverse Findings",
-    description: "AI automatically categorizes evidence as supporting or damaging to your case theory, helping you prepare for every angle.",
-    icon: TrendingUp,
+    title: "Trial Simulation & Argument Practice",
+    description: "Practice your arguments against an AI opponent. Get real-time feedback on weaknesses, rhetorical effectiveness, and objections before you enter the courtroom.",
+    icon: Gavel,
+    highlight: true,
   },
   {
-    title: "Inconsistency Detection",
-    description: "Cross-reference witness statements, contracts, and documents. AI flags contradictions you can exploit at trial.",
-    icon: AlertTriangle,
+    title: "Jury Analysis & Deliberation",
+    description: "AI-powered jury simulator runs full deliberations. Test your case against diverse virtual jurors and predict outcomes before trial.",
+    icon: Scale,
+  },
+  {
+    title: "Voice-Powered Intake & Firm Reception",
+    description: "Clients call in, speak naturally to Maya (AI receptionist), and get automatically screened, scored, and routed—24/7. No human needed for initial intake.",
+    icon: MessageSquare,
+    highlight: true,
   },
   {
     title: "Secure Video Collaboration",
@@ -58,49 +78,46 @@ const featureHighlights = [
     highlight: true,
   },
   {
-    title: "AI Trial Simulation",
-    description: "Practice your arguments against an AI opponent. Get real-time feedback on weaknesses and objections before you enter the courtroom.",
-    icon: Gavel,
-  },
-  {
-    title: "Deposition Prep Assistant",
-    description: "AI generates strategic questions based on your case theory, witness profiles, and discovered inconsistencies.",
-    icon: MessageSquare,
+    title: "Deposition & Witness Prep",
+    description: "AI generates strategic questions, predicts opposing counsel tactics, and runs mock examinations with realistic witness personas.",
+    icon: BookOpen,
   },
   {
     title: "Timeline Generation",
     description: "Automatically build case chronologies from discovery. Link events to source documents with one click.",
     icon: Clock,
   },
+  {
+    title: "Verdict Prediction & Case Scoring",
+    description: "AI analyzes your case strength across 50+ factors, predicts verdict outcomes, and recommends strategy adjustments.",
+    icon: TrendingUp,
+  },
+  {
+    title: "Cross-Case Intelligence",
+    description: "AI identifies patterns, benchmarks, and winning strategies across all your cases. Learn from every matter you handle.",
+    icon: Layers,
+  },
 ];
 
 const workflowSteps = [
   {
-    title: "Upload & Ingest",
-    description: "Drop your discovery files—PDFs, emails, documents. AI extracts text, applies Bates numbers, and begins analysis immediately.",
-    icon: CloudUpload,
-    stats: "10,000+ pages per hour",
+    title: "Voice Intake & Screening",
+    description: "Clients call in and speak naturally to Maya, the AI receptionist. She screens, scores, and routes cases to the right specialist — 24/7.",
+    icon: MessageSquare,
+    stats: "Under 5 minutes per intake",
   },
   {
-    title: "AI Analysis",
-    description: "Every document gets a summary, key facts extraction, and classification into favorable/adverse/neutral findings for your case theory.",
+    title: "Deploy AI Agents",
+    description: "Launch autonomous agents on any case. They research, analyze discovery, draft documents, and build timelines simultaneously.",
     icon: BrainCircuit,
-    stats: "Seconds per document",
+    stats: "40+ specialists per case",
   },
   {
-    title: "Strategy & Prep",
-    description: "Generate timelines, prep deposition questions, run trial simulations. Collaborate via secure video with your team.",
+    title: "Trial Simulation & Strategy",
+    description: "Simulate trial arguments, prep witnesses, analyze juries, and predict verdicts — all driven by AI learning from every interaction.",
     icon: Workflow,
     stats: "Days saved per case",
   },
-];
-
-const securityPoints = [
-  "End-to-end encrypted video calls within your case workspace",
-  "Authenticated sessions required for every case interaction",
-  "Granular audit trails for access, uploads, and case exports",
-  "Private AI processing—your data never trains external models",
-  "SOC 2 compliant infrastructure with 99.9% uptime",
 ];
 
 const discoveryCapabilities = [
@@ -128,20 +145,76 @@ const discoveryCapabilities = [
 
 const platformPreview = [
   {
-    title: "Matter Command Center",
-    description: "Track deadlines, filings, discovery status, and team activity from one live dashboard.",
+    title: "AI Agent Command Center",
+    description: "Monitor autonomous AI agents working simultaneously. See real-time status, review outputs, and direct their work.",
   },
   {
-    title: "Evidence Intelligence Hub",
-    description: "View all favorable and adverse findings, inconsistencies, and key facts in one place.",
+    title: "40+ AI Legal Specialists",
+    description: "Attorneys and paralegals across 12 practice areas. Each specialist has deep domain expertise and a dedicated paralegal support team.",
   },
   {
-    title: "Video War Room",
-    description: "Private video conferencing for case strategy, witness prep, and team collaboration.",
+    title: "Voice-Powered Firm Reception",
+    description: "Maya AI receptionist handles client intake 24/7. Callers get screened, scored, and routed without human intervention.",
   },
   {
-    title: "AI Assistant",
-    description: "Ask questions about your case, get deposition strategies, and simulate trial scenarios.",
+    title: "Trial Simulation Engine",
+    description: "Practice arguments, prep witnesses, analyze juries, and predict verdicts with AI-powered courtroom training.",
+  },
+];
+
+const pricingTiers = [
+  {
+    name: "Professional",
+    price: "$499",
+    period: "/month",
+    description: "For solo practitioners and small firms getting started with AI-powered legal work.",
+    icon: Scale,
+    features: [
+      "Full 40+ AI agent roster",
+      "Unlimited cases & OCR",
+      "Full discovery automation",
+      "Timeline intelligence",
+      "Trial simulator access",
+      "Email support",
+    ],
+    cta: "Start 14-Day Trial",
+    highlight: false,
+  },
+  {
+    name: "Firm",
+    price: "$1,499",
+    period: "/month",
+    description: "For growing firms with 2–5 attorneys who need shared case access and team analytics.",
+    icon: Building2,
+    features: [
+      "Everything in Professional",
+      "2–5 attorney seats",
+      "Shared case access & audit logs",
+      "Per-attorney agent rosters",
+      "Firm-wide analytics dashboard",
+      "Priority processing",
+      "Phone & email support",
+    ],
+    cta: "Start 14-Day Trial",
+    highlight: true,
+  },
+  {
+    name: "Enterprise",
+    price: "$4,999",
+    period: "/month",
+    description: "For large firms that need unlimited seats, custom integrations, and dedicated support.",
+    icon: Crown,
+    features: [
+      "Everything in Firm",
+      "Unlimited attorney seats",
+      "Custom agent training",
+      "White-glove onboarding",
+      "SLA & dedicated support",
+      "Custom integrations (Clio, Relativity, iManage)",
+      "Custom agent training",
+    ],
+    cta: "Contact Sales",
+    highlight: false,
   },
 ];
 
@@ -159,18 +232,18 @@ export default function Landing() {
         <header className="relative z-10 px-6 py-6 lg:px-12">
           <div className="mx-auto flex max-w-6xl items-center justify-between">
             <Logo />
-            <div className="hidden items-center gap-6 text-sm text-muted-foreground md:flex">
-              <a href="#discovery" className="hover:text-primary transition-colors">Discovery AI</a>
-              <a href="#features" className="hover:text-primary transition-colors">Features</a>
-              <a href="#workflow" className="hover:text-primary transition-colors">Workflow</a>
-              <a href="#security" className="hover:text-primary transition-colors">Security</a>
-            </div>
+              <div className="hidden items-center gap-6 text-sm text-muted-foreground md:flex">
+                <a href="#agents" className="hover:text-primary transition-colors">AI Agents</a>
+                <a href="#features" className="hover:text-primary transition-colors">Features</a>
+                <a href="#pricing" className="hover:text-primary transition-colors">Pricing</a>
+                <a href="#workflow" className="hover:text-primary transition-colors">Workflow</a>
+              </div>
             <div className="flex items-center gap-3">
               <Link to="/login">
                 <Button variant="outline" className="hidden md:inline-flex">Sign In</Button>
               </Link>
               <Link to="/login">
-                <Button>Start Free Trial</Button>
+                <Button>Request Access</Button>
               </Link>
             </div>
           </div>
@@ -187,30 +260,30 @@ export default function Landing() {
             >
               <div className="inline-flex items-center gap-2 rounded-full border border-accent/30 bg-accent/10 px-4 py-1.5 text-sm text-accent font-medium">
                 <Sparkles className="h-4 w-4" />
-                Process 10,000+ discovery pages in hours, not weeks
+                40+ AI Specialists · 12 Practice Areas · Voice Intake · Trial Simulation
               </div>
               
               <h1 className="text-4xl font-serif font-bold text-primary sm:text-5xl lg:text-6xl leading-tight">
-                Turn Massive Discovery Into{" "}
-                <span className="text-gradient-gold">Winning Strategy</span>
+                Your AI-Powered{" "}
+                <span className="text-gradient-gold">Law Firm</span>
               </h1>
               
               <p className="max-w-2xl mx-auto text-base text-muted-foreground sm:text-lg leading-relaxed">
-                CaseBuddy is the AI-powered legal platform that processes enormous discovery productions, 
-                extracts favorable evidence, flags inconsistencies, and prepares you for trial—all in a 
-                secure, collaborative workspace with private video conferencing.
+                CaseBuddy is the first AI-native legal platform. Deploy 40+ specialized AI agents across 
+                12 practice areas, voice-powered client intake, trial simulation, and comprehensive case 
+                management — all in one secure workspace.
               </p>
               
               <div className="flex flex-wrap justify-center gap-4 pt-4">
                 <Link to="/login">
                   <Button size="lg" className="gap-2 text-base px-8">
-                    Start Free Trial
+                    Request Access
                     <ArrowRight className="h-4 w-4" />
                   </Button>
                 </Link>
-                <a href="#discovery">
+                <a href="#features">
                   <Button variant="outline" size="lg" className="text-base px-8">
-                    See Discovery AI
+                    See Features
                   </Button>
                 </a>
               </div>
@@ -218,15 +291,15 @@ export default function Landing() {
               <div className="flex flex-wrap justify-center gap-6 pt-6 text-sm text-muted-foreground">
                 <span className="inline-flex items-center gap-2">
                   <CheckCircle2 className="h-4 w-4 text-green-600" />
-                  No credit card required
+                  14-day full-access trial
                 </span>
                 <span className="inline-flex items-center gap-2">
-                  <ShieldCheck className="h-4 w-4 text-green-600" />
-                  SOC 2 compliant
+                  <Zap className="h-4 w-4 text-accent" />
+                  AI agents ready on day one
                 </span>
                 <span className="inline-flex items-center gap-2">
-                  <Video className="h-4 w-4 text-accent" />
-                  Private video rooms included
+                  <Lock className="h-4 w-4 text-accent" />
+                  SOC 2 compliant infrastructure
                 </span>
               </div>
             </motion.div>
@@ -236,17 +309,17 @@ export default function Landing() {
               className="mt-16 grid grid-cols-2 md:grid-cols-4 gap-8 max-w-4xl mx-auto"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.3 }}
+              transition={{ duration: 0.6, delay: 0.2 }}
             >
               {[
-                { value: "10M+", label: "Documents Processed" },
-                { value: "500+", label: "Law Firms" },
-                { value: "95%", label: "Time Saved on Discovery" },
-                { value: "99.9%", label: "Uptime SLA" },
+                { value: "40+", label: "AI Legal Specialists" },
+                { value: "12", label: "Practice Areas" },
+                { value: "100K+", label: "Documents Processed" },
+                { value: "24/7", label: "AI Client Intake" },
               ].map((stat, index) => (
                 <div key={index} className="text-center">
-                  <p className="text-3xl lg:text-4xl font-serif font-bold text-primary">{stat.value}</p>
-                  <p className="text-sm text-muted-foreground mt-1">{stat.label}</p>
+                  <div className="text-3xl font-serif font-bold text-accent">{stat.value}</div>
+                  <div className="mt-1 text-sm text-muted-foreground">{stat.label}</div>
                 </div>
               ))}
             </motion.div>
@@ -258,129 +331,114 @@ export default function Landing() {
       <section id="discovery" className="bg-primary/[0.02] px-6 py-20 lg:px-12">
         <div className="mx-auto max-w-6xl space-y-12">
           <motion.div 
-            className="text-center space-y-4"
+            className="space-y-4"
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
             transition={{ duration: 0.5 }}
           >
-            <p className="text-sm uppercase tracking-[0.25em] text-accent font-medium">Discovery AI</p>
+            <p className="text-sm uppercase tracking-[0.25em] text-accent font-medium">Discovery Engine</p>
             <h2 className="text-3xl font-serif font-bold text-primary sm:text-4xl">
-              Process Massive Discovery Productions in Hours
+              Turn Discovery Dumps Into Winning Evidence
             </h2>
-            <p className="mx-auto max-w-2xl text-muted-foreground">
-              Stop drowning in documents. Our AI reads, analyzes, and categorizes every page of discovery 
-              so you can focus on strategy, not document review.
+            <p className="max-w-2xl text-muted-foreground text-lg">
+              Upload thousands of pages. Our AI reads every document, extracts the facts that matter, 
+              and builds your case file automatically.
             </p>
           </motion.div>
 
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-            {discoveryCapabilities.map((capability, index) => {
-              const Icon = capability.icon;
+            {discoveryCapabilities.map((cap, index) => {
+              const Icon = cap.icon;
               return (
                 <motion.div
-                  key={capability.title}
+                  key={cap.title}
                   initial={{ opacity: 0, y: 20 }}
                   whileInView={{ opacity: 1, y: 0 }}
                   viewport={{ once: true }}
                   transition={{ duration: 0.5, delay: index * 0.1 }}
                 >
-                  <Card className="glass-card h-full text-center">
-                    <CardContent className="pt-6 space-y-4">
-                      <div className="mx-auto rounded-full bg-accent/10 p-4 w-fit">
-                        <Icon className="h-6 w-6 text-accent" />
+                  <Card className="glass-card h-full">
+                    <CardHeader>
+                      <div className="rounded-lg bg-accent/10 p-2 w-fit mb-2">
+                        <Icon className="h-5 w-5 text-accent" />
                       </div>
-                      <h3 className="font-serif font-bold text-primary">{capability.title}</h3>
-                      <p className="text-sm text-muted-foreground">{capability.description}</p>
+                      <CardTitle className="text-lg">{cap.title}</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-sm text-muted-foreground">{cap.description}</p>
                     </CardContent>
                   </Card>
                 </motion.div>
               );
             })}
           </div>
+        </div>
+      </section>
 
-          {/* Evidence Analysis Preview */}
-          <motion.div
+      {/* AI Agents Section */}
+      <section id="agents" className="bg-primary/[0.02] px-6 py-20 lg:px-12">
+        <div className="mx-auto max-w-6xl space-y-12">
+          <motion.div 
+            className="space-y-4"
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
-            transition={{ duration: 0.5, delay: 0.2 }}
+            transition={{ duration: 0.5 }}
           >
-            <Card className="glass-elevated overflow-hidden">
-              <div className="grid lg:grid-cols-3 divide-y lg:divide-y-0 lg:divide-x divide-border">
-                <div className="p-6 space-y-4">
-                  <div className="flex items-center gap-2">
-                    <div className="rounded-lg bg-green-100 p-2">
-                      <TrendingUp className="h-5 w-5 text-green-700" />
-                    </div>
-                    <h3 className="font-serif font-bold text-primary">Favorable Findings</h3>
-                  </div>
-                  <ul className="space-y-2 text-sm">
-                    <li className="flex items-start gap-2">
-                      <CheckCircle2 className="h-4 w-4 text-green-600 mt-0.5 flex-shrink-0" />
-                      <span>Email confirms defendant was aware of defect (DOC-0234)</span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <CheckCircle2 className="h-4 w-4 text-green-600 mt-0.5 flex-shrink-0" />
-                      <span>Internal memo contradicts public statement (DOC-0891)</span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <CheckCircle2 className="h-4 w-4 text-green-600 mt-0.5 flex-shrink-0" />
-                      <span>Witness deposition supports timeline (DEP-023)</span>
-                    </li>
-                  </ul>
-                </div>
-                <div className="p-6 space-y-4">
-                  <div className="flex items-center gap-2">
-                    <div className="rounded-lg bg-red-100 p-2">
-                      <AlertTriangle className="h-5 w-5 text-red-700" />
-                    </div>
-                    <h3 className="font-serif font-bold text-primary">Adverse Findings</h3>
-                  </div>
-                  <ul className="space-y-2 text-sm">
-                    <li className="flex items-start gap-2">
-                      <AlertTriangle className="h-4 w-4 text-red-600 mt-0.5 flex-shrink-0" />
-                      <span>Client email may show prior knowledge (DOC-1234)</span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <AlertTriangle className="h-4 w-4 text-red-600 mt-0.5 flex-shrink-0" />
-                      <span>Expert report challenges causation theory (EXP-012)</span>
-                    </li>
-                  </ul>
-                </div>
-                <div className="p-6 space-y-4">
-                  <div className="flex items-center gap-2">
-                    <div className="rounded-lg bg-accent/20 p-2">
-                      <Zap className="h-5 w-5 text-accent" />
-                    </div>
-                    <h3 className="font-serif font-bold text-primary">Inconsistencies Found</h3>
-                  </div>
-                  <ul className="space-y-2 text-sm">
-                    <li className="flex items-start gap-2">
-                      <Zap className="h-4 w-4 text-accent mt-0.5 flex-shrink-0" />
-                      <span>Witness A contradicts Witness B on meeting date</span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <Zap className="h-4 w-4 text-accent mt-0.5 flex-shrink-0" />
-                      <span>Invoice dates don't match delivery records</span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <Zap className="h-4 w-4 text-accent mt-0.5 flex-shrink-0" />
-                      <span>Contract terms differ between versions</span>
-                    </li>
-                  </ul>
-                </div>
-              </div>
-            </Card>
+            <p className="text-sm uppercase tracking-[0.25em] text-accent font-medium">AI Agents</p>
+            <h2 className="text-3xl font-serif font-bold text-primary sm:text-4xl">
+              40+ Specialists Across 12 Practice Areas
+            </h2>
+            <p className="max-w-2xl text-muted-foreground text-lg">
+              Each AI specialist has a dedicated paralegal support team. Deploy them individually or 
+              orchestrate the full firm on complex cases.
+            </p>
           </motion.div>
+
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {[
+              { area: "Criminal Defense", agents: "Alex Stone + 2 paralegals" },
+              { area: "Personal Injury", agents: "Rosa Martinez + 2 paralegals" },
+              { area: "Family Law", agents: "Diana Chen + 2 paralegals" },
+              { area: "Immigration", agents: "Daniel Okonkwo + 2 paralegals" },
+              { area: "Intellectual Property", agents: "Priya Kapoor + 2 paralegals" },
+              { area: "Corporate Law", agents: "Marcus Bennett + 2 paralegals" },
+              { area: "Employment Law", agents: "Sarah Williams + 2 paralegals" },
+              { area: "Real Estate", agents: "James Mitchell + 2 paralegals" },
+              { area: "Bankruptcy", agents: "Lisa Anderson + 2 paralegals" },
+              { area: "Civil Litigation", agents: "Robert Lee + 2 paralegals" },
+              { area: "Estate Planning", agents: "Emily Davis + 2 paralegals" },
+              { area: "Tax Law", agents: "Jennifer Park + 2 paralegals" },
+            ].map((item, index) => (
+              <motion.div
+                key={item.area}
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.4, delay: index * 0.05 }}
+              >
+                <Card className="glass-card">
+                  <CardContent className="flex items-center gap-3 py-4">
+                    <div className="rounded-lg bg-accent/10 p-2 flex-shrink-0">
+                      <Users className="h-4 w-4 text-accent" />
+                    </div>
+                    <div>
+                      <p className="font-medium text-sm">{item.area}</p>
+                      <p className="text-xs text-muted-foreground">{item.agents}</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            ))}
+          </div>
         </div>
       </section>
 
       {/* Features Section */}
       <section id="features" className="px-6 py-20 lg:px-12">
         <div className="mx-auto max-w-6xl space-y-12">
-          <motion.div 
-            className="space-y-4 text-center"
+          <motion.div
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
@@ -388,15 +446,11 @@ export default function Landing() {
           >
             <p className="text-sm uppercase tracking-[0.25em] text-accent font-medium">Features</p>
             <h2 className="text-3xl font-serif font-bold text-primary sm:text-4xl">
-              Everything You Need to Win Your Case
+              Everything Your Practice Needs
             </h2>
-            <p className="mx-auto max-w-2xl text-muted-foreground">
-              From initial discovery to trial day, CaseBuddy provides AI-powered tools and secure 
-              collaboration features that give you the edge.
-            </p>
           </motion.div>
-          
-          <div className="grid gap-6 md:grid-cols-2">
+
+          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
             {featureHighlights.map((feature, index) => {
               const Icon = feature.icon;
               return (
@@ -405,19 +459,21 @@ export default function Landing() {
                   initial={{ opacity: 0, y: 20 }}
                   whileInView={{ opacity: 1, y: 0 }}
                   viewport={{ once: true }}
-                  transition={{ duration: 0.5, delay: index * 0.1 }}
+                  transition={{ duration: 0.5, delay: index * 0.08 }}
                 >
-                  <Card className={`glass-card h-full hover:shadow-lg transition-shadow ${feature.highlight ? 'border-accent/30 bg-accent/5' : ''}`}>
+                  <Card className={`glass-card h-full ${feature.highlight ? 'border-accent/30' : ''}`}>
                     <CardHeader>
-                      <CardTitle className="flex items-center gap-3 text-lg">
-                        <div className={`rounded-lg p-2 ${feature.highlight ? 'bg-accent/20' : 'bg-primary/10'}`}>
-                          <Icon className={`h-5 w-5 ${feature.highlight ? 'text-accent' : 'text-primary'}`} />
+                      <div className="flex items-center gap-3">
+                        <div className="rounded-lg bg-accent/10 p-2">
+                          <Icon className="h-5 w-5 text-accent" />
                         </div>
-                        {feature.title}
-                      </CardTitle>
+                        <CardTitle className="text-lg">{feature.title}</CardTitle>
+                      </div>
                     </CardHeader>
-                    <CardContent className="text-sm text-muted-foreground">
-                      {feature.description}
+                    <CardContent>
+                      <CardDescription className="text-sm leading-relaxed">
+                        {feature.description}
+                      </CardDescription>
                     </CardContent>
                   </Card>
                 </motion.div>
@@ -465,7 +521,7 @@ export default function Landing() {
               </ul>
               <Link to="/login">
                 <Button size="lg" className="bg-accent text-accent-foreground hover:bg-accent/90 gap-2">
-                  Try Video Rooms Free
+                  Request Access
                   <ArrowRight className="h-4 w-4" />
                 </Button>
               </Link>
@@ -525,7 +581,7 @@ export default function Landing() {
               </h2>
             </motion.div>
             <Link to="/login">
-              <Button variant="outline">Start Free Trial</Button>
+              <Button variant="outline">Request Access</Button>
             </Link>
           </div>
           
@@ -564,74 +620,6 @@ export default function Landing() {
               );
             })}
           </div>
-        </div>
-      </section>
-
-      {/* Security Section */}
-      <section id="security" className="bg-muted/30 px-6 py-20 lg:px-12">
-        <div className="mx-auto grid max-w-6xl gap-12 lg:grid-cols-[0.9fr_1.1fr]">
-          <motion.div 
-            className="space-y-6"
-            initial={{ opacity: 0, x: -20 }}
-            whileInView={{ opacity: 1, x: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.5 }}
-          >
-            <p className="text-sm uppercase tracking-[0.25em] text-accent font-medium">Security</p>
-            <h2 className="text-3xl font-serif font-bold text-primary sm:text-4xl">
-              Enterprise-Grade Security for Sensitive Cases
-            </h2>
-            <p className="text-muted-foreground">
-              Attorney-client privilege demands the highest security standards. CaseBuddy provides 
-              end-to-end encryption, compliance certifications, and complete audit trails.
-            </p>
-            <div className="flex flex-wrap gap-3">
-              <div className="inline-flex items-center gap-2 rounded-full bg-green-100 px-3 py-1 text-sm text-green-700">
-                <ShieldCheck className="h-4 w-4" />
-                SOC 2 Type II
-              </div>
-              <div className="inline-flex items-center gap-2 rounded-full bg-green-100 px-3 py-1 text-sm text-green-700">
-                <Lock className="h-4 w-4" />
-                256-bit Encryption
-              </div>
-              <div className="inline-flex items-center gap-2 rounded-full bg-green-100 px-3 py-1 text-sm text-green-700">
-                <Eye className="h-4 w-4" />
-                Full Audit Trail
-              </div>
-            </div>
-          </motion.div>
-          
-          <motion.div
-            initial={{ opacity: 0, x: 20 }}
-            whileInView={{ opacity: 1, x: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.5, delay: 0.2 }}
-          >
-            <Card className="glass-elevated">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-lg">
-                  <Lock className="h-5 w-5 text-accent" />
-                  Security Features
-                </CardTitle>
-                <CardDescription>Protecting your client's most sensitive information</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {securityPoints.map((point, index) => (
-                  <motion.div 
-                    key={point} 
-                    className="flex items-start gap-3"
-                    initial={{ opacity: 0, x: 10 }}
-                    whileInView={{ opacity: 1, x: 0 }}
-                    viewport={{ once: true }}
-                    transition={{ duration: 0.3, delay: 0.3 + index * 0.1 }}
-                  >
-                    <CheckCircle2 className="mt-0.5 h-5 w-5 text-green-600 flex-shrink-0" />
-                    <span className="text-sm text-muted-foreground">{point}</span>
-                  </motion.div>
-                ))}
-              </CardContent>
-            </Card>
-          </motion.div>
         </div>
       </section>
 
@@ -677,6 +665,105 @@ export default function Landing() {
         </div>
       </section>
 
+      {/* Pricing Section */}
+      <section id="pricing" className="bg-primary/[0.02] px-6 py-20 lg:px-12">
+        <div className="mx-auto max-w-6xl space-y-12">
+          <motion.div 
+            className="text-center space-y-4"
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.5 }}
+          >
+            <p className="text-sm uppercase tracking-[0.25em] text-accent font-medium">Pricing</p>
+            <h2 className="text-3xl font-serif font-bold text-primary sm:text-4xl">
+              Plans That Scale With Your Firm
+            </h2>
+            <p className="max-w-2xl mx-auto text-muted-foreground text-lg">
+              Less than one week of a paralegal's salary. 14-day full-access trial on every plan — no credit card required to start.
+            </p>
+          </motion.div>
+
+          <div className="grid gap-6 lg:grid-cols-3">
+            {pricingTiers.map((tier, index) => {
+              const Icon = tier.icon;
+              return (
+                <motion.div
+                  key={tier.name}
+                  initial={{ opacity: 0, y: 20 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true }}
+                  transition={{ duration: 0.5, delay: index * 0.1 }}
+                >
+                  <Card className={`glass-card h-full flex flex-col ${tier.highlight ? 'border-accent/40 ring-2 ring-accent/20' : ''}`}>
+                    <CardHeader>
+                      <div className="flex items-center gap-3">
+                        <div className="rounded-lg bg-accent/10 p-2">
+                          <Icon className="h-5 w-5 text-accent" />
+                        </div>
+                        <CardTitle className="text-xl">{tier.name}</CardTitle>
+                      </div>
+                      <CardDescription className="text-sm pt-1">{tier.description}</CardDescription>
+                    </CardHeader>
+                    <CardContent className="flex-1 flex flex-col">
+                      <div className="mb-6">
+                        <span className="text-4xl font-serif font-bold text-primary">{tier.price}</span>
+                        <span className="text-muted-foreground ml-1">{tier.period}</span>
+                      </div>
+                      <ul className="space-y-3 flex-1">
+                        {tier.features.map((feat, i) => (
+                          <li key={i} className="flex items-start gap-2 text-sm">
+                            <CheckCircle2 className="h-4 w-4 text-accent flex-shrink-0 mt-0.5" />
+                            <span className="text-muted-foreground">{feat}</span>
+                          </li>
+                        ))}
+                      </ul>
+                      <Link to="/login" className="mt-6">
+                        <Button 
+                          className={`w-full ${tier.highlight ? '' : 'variant-outline'}`}
+                          variant={tier.highlight ? "default" : "outline"}
+                        >
+                          {tier.cta}
+                        </Button>
+                      </Link>
+                    </CardContent>
+                  </Card>
+                </motion.div>
+              );
+            })}
+          </div>
+
+          {/* BYOK Lifetime Banner */}
+          <motion.div
+            className="rounded-2xl border border-accent/30 bg-accent/[0.03] p-8"
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.5 }}
+          >
+            <div className="flex flex-col items-start gap-6 md:flex-row md:items-center md:justify-between">
+              <div className="space-y-2">
+                <div className="inline-flex items-center gap-2 rounded-full bg-accent/10 px-3 py-1 text-xs font-medium text-accent">
+                  <Crown className="h-3 w-3" />
+                  Lifetime License
+                </div>
+                <h3 className="text-2xl font-serif font-bold text-primary">BYOK Lifetime — $4,999 one-time</h3>
+                <p className="text-muted-foreground max-w-xl">
+                  Bring your own OpenAI, Gemini, or Azure API keys. Unlimited everything, forever. 
+                  No recurring fees, no usage caps. Pays for itself in 10 months vs. the Professional plan.
+                </p>
+              </div>
+              <Link to="/login">
+                <Button size="lg" className="bg-accent text-accent-foreground hover:bg-accent/90 gap-2 whitespace-nowrap">
+                  Get Lifetime Access
+                  <ArrowRight className="h-4 w-4" />
+                </Button>
+              </Link>
+            </div>
+          </motion.div>
+        </div>
+      </section>
+
       {/* CTA Section */}
       <section className="px-6 pb-20 lg:px-12">
         <motion.div 
@@ -688,22 +775,22 @@ export default function Landing() {
         >
           <Scale className="h-16 w-16 text-accent" />
           <h3 className="text-2xl font-serif font-bold text-primary-foreground sm:text-3xl">
-            Ready to Transform Your Discovery Process?
+            Ready to Deploy Your AI Law Firm?
           </h3>
           <p className="max-w-xl text-primary-foreground/80">
-            Join 500+ law firms using CaseBuddy to process discovery faster, find winning evidence, 
-            and collaborate securely with their teams.
+            Join forward-thinking legal teams using CaseBuddy to deploy AI agents, intake clients by voice, 
+            simulate trials, and win more cases.
           </p>
           <div className="flex flex-wrap justify-center gap-4">
             <Link to="/login">
               <Button size="lg" className="bg-accent text-accent-foreground hover:bg-accent/90 gap-2 text-base px-8">
-                Start Free Trial
+                Request Access
                 <ArrowRight className="h-4 w-4" />
               </Button>
             </Link>
-            <a href="#features">
+            <a href="#pricing">
               <Button size="lg" variant="outline" className="border-primary-foreground/20 text-primary-foreground hover:bg-primary-foreground/10 text-base px-8">
-                Learn More
+                View Pricing
               </Button>
             </a>
           </div>
@@ -715,7 +802,7 @@ export default function Landing() {
         <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 md:flex-row">
           <Logo size="sm" />
           <p className="text-xs text-muted-foreground">
-            © 2025 CaseBuddy Professional. All rights reserved.
+            © 2026 CaseBuddy Professional. All rights reserved.
           </p>
         </div>
       </footer>

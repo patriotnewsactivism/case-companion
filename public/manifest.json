@@ -1,0 +1,16 @@
+{
+  "name": "CaseBuddy — AI-Powered Legal Platform",
+  "short_name": "CaseBuddy",
+  "description": "Your AI-powered law firm: trial simulation, witness prep, jury analysis, and intelligent legal agents.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#020617",
+  "theme_color": "#d4af37",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

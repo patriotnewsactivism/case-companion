@@ -2,7 +2,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/useAuth";
-import { useToast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 import {
   LayoutDashboard,
   FolderOpen,
@@ -17,16 +17,46 @@ import {
   Search,
   Cloud,
   Bell,
+  Video,
+  DollarSign,
+  Users,
+  Shield,
+  History,
+  Sparkles,
+  FileText,
+  Mic,
+  Landmark,
+  Bot,
+  Mail,
+  Layers,
+  Send,
+  FlaskConical,
+  Clock,
+  BarChart3,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
+import { OfflineStatusBar } from "@/components/OfflineStatusBar";
+import { startAutoSync, stopAutoSync } from "@/lib/offline/sync-manager";
 
 const navItems = [
   { path: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { path: "/cases", label: "My Cases", icon: FolderOpen },
   { path: "/trial-prep", label: "Trial Prep", icon: Gavel },
+  { path: "/discovery", label: "Discovery", icon: Layers },
+  { path: "/records-requests", label: "Requests", icon: Send },
+  { path: "/evidence", label: "Evidence", icon: FlaskConical },
   { path: "/calendar", label: "Calendar", icon: Calendar },
+  { path: "/billing", label: "Practice Mgmt", icon: DollarSign },
+  { path: "/video", label: "Video Calls", icon: Video },
   { path: "/research", label: "Legal Research", icon: BookOpen },
+  { path: "/sessions", label: "Sessions", icon: Clock },
+  { path: "/team", label: "Team", icon: Users },
+  { path: "/conflicts", label: "Conflict Check", icon: Shield },
+  { path: "/judicial-intelligence", label: "Judicial Intel", icon: Landmark },
+  { path: "/intake", label: "Intake Inbox", icon: Mail },
+  { path: "/analytics", label: "Analytics", icon: BarChart3 },
+  { path: "/mock-jury", label: "Mock Jury", icon: Scale },
   { path: "/settings", label: "Settings", icon: Settings },
 ];
 
@@ -38,15 +68,35 @@ export function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const { signOut, user } = useAuth();
-  const { toast } = useToast();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const caseMatch = location.pathname.match(new RegExp("^/cases/([^/]+)"));
+  const activeCaseId = caseMatch?.[1];
+
+  const agentNavItems = [
+    { id: "agents", path: "/agents", label: "AI Agents", icon: Bot },
+    { id: "agent-case", path: activeCaseId ? `/cases/${activeCaseId}/agents` : "/agents", label: "Agent Chat", icon: Bot },
+  ];
+
+  const missionNavItems = [
+    { id: "timeline", path: activeCaseId ? `/cases/${activeCaseId}/timeline` : "/cases", label: "Timeline", icon: History },
+    { id: "motions", path: activeCaseId ? `/cases/${activeCaseId}/motions` : "/cases", label: "Motion Intelligence", icon: Sparkles },
+    { id: "generate", path: activeCaseId ? `/cases/${activeCaseId}/motions/generate` : "/cases", label: "Generate Motion", icon: FileText },
+    { id: "simulator", path: activeCaseId ? `/cases/${activeCaseId}/simulator` : "/cases", label: "Trial Simulator", icon: Mic },
+    { id: "history", path: activeCaseId ? `/cases/${activeCaseId}/simulator/history` : "/cases", label: "Simulator History", icon: History },
+  ];
+
+  const isActivePath = (path: string) =>
+    location.pathname === path || location.pathname.startsWith(`${path}/`);
+
+  // Start offline sync listener on mount, clean up on unmount
+  useEffect(() => {
+    startAutoSync();
+    return () => stopAutoSync();
+  }, []);
 
   const handleSignOut = async () => {
     await signOut();
-    toast({
-      title: "Signed out",
-      description: "You have been signed out successfully.",
-    });
+    toast.success("Signed out successfully");
     navigate("/login");
   };
 
@@ -61,7 +111,7 @@ export function Layout({ children }: LayoutProps) {
   };
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background overflow-x-hidden">
       {/* Mobile header */}
       <header className="fixed top-0 left-0 right-0 z-50 flex h-16 items-center justify-between border-b border-border bg-card px-4 lg:hidden">
         <div className="flex items-center gap-3">
@@ -134,7 +184,7 @@ export function Layout({ children }: LayoutProps) {
           <nav className="flex-1 space-y-1 px-3 py-4">
             {navItems.map((item) => {
               const Icon = item.icon;
-              const isActive = location.pathname === item.path;
+              const isActive = isActivePath(item.path);
               return (
                 <Link
                   key={item.path}
@@ -146,6 +196,58 @@ export function Layout({ children }: LayoutProps) {
                       ? "bg-sidebar-primary text-sidebar-primary-foreground"
                       : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground"
                   )}
+                >
+                  <Icon className="h-4 w-4" />
+                  {item.label}
+                </Link>
+              );
+            })}
+
+            <div className="px-3 pt-5 pb-2 text-[10px] uppercase tracking-[0.2em] text-sidebar-foreground/60">
+              AI Agents
+            </div>
+
+            {agentNavItems.map((item) => {
+              const Icon = item.icon;
+              const isActive = isActivePath(item.path);
+              return (
+                <Link
+                  key={item.id}
+                  to={item.path}
+                  onClick={() => setSidebarOpen(false)}
+                  className={cn(
+                    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                    isActive
+                      ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                      : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                  )}
+                >
+                  <Icon className="h-4 w-4" />
+                  {item.label}
+                </Link>
+              );
+            })}
+
+            <div className="px-3 pt-5 pb-2 text-[10px] uppercase tracking-[0.2em] text-sidebar-foreground/60">
+              Case AI
+              {!activeCaseId && <span className="ml-2 text-[9px] lowercase">(select a case)</span>}
+            </div>
+
+            {missionNavItems.map((item) => {
+              const Icon = item.icon;
+              const isActive = isActivePath(item.path);
+              return (
+                <Link
+                  key={item.id}
+                  to={item.path}
+                  onClick={() => setSidebarOpen(false)}
+                  className={cn(
+                    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                    isActive
+                      ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                      : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                  )}
+                  aria-disabled={!activeCaseId}
                 >
                   <Icon className="h-4 w-4" />
                   {item.label}
@@ -178,6 +280,7 @@ export function Layout({ children }: LayoutProps) {
 
       {/* Main content */}
       <main className="lg:pl-64">
+        <OfflineStatusBar />
         <div className="min-h-screen pt-16">{children}</div>
       </main>
     </div>

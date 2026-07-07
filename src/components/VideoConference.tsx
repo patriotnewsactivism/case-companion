@@ -221,7 +221,7 @@ export function VideoConference() {
                   >
                     Cancel
                   </Button>
-                  <Button onClick={handleCreateVideoRoom} disabled={isCreating}>
+                    <Button onClick={handleCreateVideoRoom} disabled={isCreating}>
                     {isCreating ? (
                       <>
                         <Loader2 className="h-4 w-4 mr-2 animate-spin" />

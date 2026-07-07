@@ -18,6 +18,10 @@ interface CreateRoomRequest {
   maxParticipants?: number;
 }
 
+interface VideoRoomRow {
+  id: string;
+}
+
 serve(async (req) => {
   const corsHeaders = getCorsHeaders(req);
 
@@ -38,7 +42,8 @@ serve(async (req) => {
       return createErrorResponse(
         new Error(authResult.error || 'Unauthorized'),
         401,
-        'create-video-room'
+        'create-video-room',
+        corsHeaders
       );
     }
 
@@ -156,6 +161,19 @@ serve(async (req) => {
     if (!tokenResponse.ok) {
       const errorData = await tokenResponse.json();
       console.error('Token creation error:', errorData);
+
+      // Cleanup: remove room if token creation failed.
+      try {
+        await fetch(`https://api.daily.co/v1/rooms/${room.name}`, {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${DAILY_API_KEY}`,
+          },
+        });
+      } catch (cleanupError) {
+        console.error('Failed to cleanup Daily room after token failure:', cleanupError);
+      }
+
       return new Response(
         JSON.stringify({ error: 'Failed to create meeting token', details: errorData }),
         { status: tokenResponse.status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -164,34 +182,86 @@ serve(async (req) => {
 
     const tokenData = await tokenResponse.json();
 
-    // Store room information in database
-    const { data: videoRoom, error: dbError } = await supabase
+    const legacyCompatibleMetadata = {
+      title: name,
+      daily_room_name: room.name,
+      enable_recording: enableRecording,
+      status: 'active',
+    };
+
+    // Store room information in database.
+    // Support both modern schema (daily_room_name/title/enable_recording/status)
+    // and legacy schema (room_name/room_url/is_active/metadata).
+    let videoRoom: VideoRoomRow | null = null;
+
+    const { data: modernRoom, error: modernError } = await supabase
       .from('video_rooms')
       .insert({
         case_id: caseId,
         user_id: user.id,
-        room_name: name,
+        room_name: room.name,
         room_url: room.url,
         daily_room_name: room.name,
         title: name,
         description: description,
         enable_recording: enableRecording,
-        max_participants: maxParticipants,
         expires_at: new Date(exp * 1000).toISOString(),
         status: 'active',
-        recording_status: enableRecording ? 'pending' : null,
+        is_active: true,
+        max_participants: maxParticipants,
+        metadata: legacyCompatibleMetadata,
       })
-      .select()
+      .select('id')
       .single();
 
-    if (dbError) {
-      console.error('Database error:', dbError);
-      // Continue even if DB insert fails - room is created
+    if (!modernError && modernRoom) {
+      videoRoom = modernRoom as VideoRoomRow;
+    } else {
+      console.warn('Modern video_rooms insert failed, trying legacy-compatible insert:', modernError);
+
+      const { data: legacyRoom, error: legacyError } = await supabase
+        .from('video_rooms')
+        .insert({
+          case_id: caseId,
+          user_id: user.id,
+          room_name: room.name,
+          room_url: room.url,
+          description: description,
+          expires_at: new Date(exp * 1000).toISOString(),
+          is_active: true,
+          max_participants: maxParticipants,
+          metadata: legacyCompatibleMetadata,
+        })
+        .select('id')
+        .single();
+
+      if (!legacyError && legacyRoom) {
+        videoRoom = legacyRoom as VideoRoomRow;
+      } else {
+        console.error('Legacy video_rooms insert failed:', legacyError);
+
+        // Cleanup: remove room if persistence failed so callers do not receive
+        // a room that cannot be securely re-joined through roomId checks.
+        try {
+          await fetch(`https://api.daily.co/v1/rooms/${room.name}`, {
+            method: 'DELETE',
+            headers: {
+              'Authorization': `Bearer ${DAILY_API_KEY}`,
+            },
+          });
+        } catch (cleanupError) {
+          console.error('Failed to cleanup Daily room after database failure:', cleanupError);
+        }
+
+        throw new Error(
+          `Failed to persist video room: ${legacyError?.message || modernError?.message || 'unknown database error'}`
+        );
+      }
     }
 
     return new Response(
       JSON.stringify({
-        roomId: videoRoom?.id,
+        roomId: videoRoom.id,
         roomUrl: room.url,
         roomName: room.name,
         displayName: name,
@@ -204,6 +274,6 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('Error creating video room:', error);
-    return createErrorResponse(error, 500, 'create-video-room');
+    return createErrorResponse(error, 500, 'create-video-room', corsHeaders);
   }
 });

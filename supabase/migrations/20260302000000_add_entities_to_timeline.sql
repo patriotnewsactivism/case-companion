@@ -1,0 +1,2 @@
+ALTER TABLE public.timeline_events ADD COLUMN IF NOT EXISTS entities JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE public.documents ADD COLUMN IF NOT EXISTS entities JSONB DEFAULT '[]'::jsonb;

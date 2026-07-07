@@ -1,6 +1,6 @@
 # Temporary CORS Workaround
 
-Since Lovable isn't deploying edge function updates, you can test OCR locally with CORS disabled:
+If edge function CORS is blocking requests during development, you can test OCR locally with CORS disabled:
 
 ## For Chrome:
 1. Close ALL Chrome windows
@@ -8,7 +8,7 @@ Since Lovable isn't deploying edge function updates, you can test OCR locally wi
    ```
    chrome.exe --disable-web-security --user-data-dir="C:/temp/chrome-cors-bypass"
    ```
-3. Visit https://casebuddypro.lovable.app
+3. Visit your app URL (e.g., http://localhost:8080)
 4. Try OCR - it should work
 
 ## For Firefox:

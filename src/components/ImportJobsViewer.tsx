@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
@@ -12,9 +12,10 @@ import {
   FolderOpen,
   AlertCircle,
   RefreshCw,
+  Radio,
 } from 'lucide-react';
 import { format } from 'date-fns';
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Collapsible,
   CollapsibleContent,
@@ -49,6 +50,9 @@ interface ImportJobsViewerProps {
 
 export function ImportJobsViewer({ caseId }: ImportJobsViewerProps) {
   const [expandedJobs, setExpandedJobs] = useState<Set<string>>(new Set());
+  const [isRealtimeConnected, setIsRealtimeConnected] = useState(false);
+  const lastDataRefreshRef = useRef(0);
+  const queryClient = useQueryClient();
 
   const { data: importJobs, refetch, isLoading } = useQuery({
     queryKey: ['import-jobs', caseId],
@@ -65,14 +69,44 @@ export function ImportJobsViewer({ caseId }: ImportJobsViewerProps) {
         failed_file_details: (job.failed_file_details as unknown) as FailedFileDetail[] | null,
       })) as ImportJob[];
     },
-    refetchInterval: (query) => {
-      // Auto-refresh every 3 seconds if there are active jobs
-      const hasActiveJobs = query.state.data?.some(
-        (job) => job.status === 'pending' || job.status === 'processing'
-      );
-      return hasActiveJobs ? 3000 : false;
-    },
   });
+
+  // Real-time subscription for import_jobs updates
+  useEffect(() => {
+    const channel = supabase
+      .channel(`import-jobs-${caseId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'import_jobs',
+          filter: `case_id=eq.${caseId}`,
+        },
+        (payload) => {
+          queryClient.invalidateQueries({ queryKey: ['import-jobs', caseId] });
+
+          if (payload.eventType === 'DELETE') return;
+
+          const now = Date.now();
+          if (now - lastDataRefreshRef.current < 3000) return;
+
+          lastDataRefreshRef.current = now;
+          queryClient.invalidateQueries({ queryKey: ['documents', caseId] });
+          queryClient.invalidateQueries({ queryKey: ['documents'] });
+          queryClient.invalidateQueries({ queryKey: ['timeline_events', caseId] });
+          queryClient.invalidateQueries({ queryKey: ['timeline-events'] });
+          queryClient.invalidateQueries({ queryKey: ['document-stats'] });
+        }
+      )
+      .subscribe((status) => {
+        setIsRealtimeConnected(status === 'SUBSCRIBED');
+      });
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [caseId, queryClient]);
 
   const toggleJob = (jobId: string) => {
     const newExpanded = new Set(expandedJobs);
@@ -139,7 +173,15 @@ export function ImportJobsViewer({ caseId }: ImportJobsViewerProps) {
       <CardHeader>
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle>Import Jobs</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              Import Jobs
+              {isRealtimeConnected && (
+                <span className="flex items-center gap-1 text-xs text-green-600 font-normal">
+                  <Radio className="h-3 w-3 animate-pulse" />
+                  Live
+                </span>
+              )}
+            </CardTitle>
             <CardDescription>Google Drive folder import progress</CardDescription>
           </div>
           <Button variant="ghost" size="sm" onClick={() => refetch()}>
@@ -160,16 +202,10 @@ export function ImportJobsViewer({ caseId }: ImportJobsViewerProps) {
                 <div className="rounded-lg border p-4 space-y-3">
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 space-y-1">
-                      <div className="flex items-center gap-2">
-                        <FolderOpen className="h-4 w-4 text-muted-foreground" />
-                        <span className="font-medium">{job.source_folder_name}</span>
-                        <Badge className={getStatusColor(job.status)}>
-                          <span className="flex items-center gap-1">
-                            {getStatusIcon(job.status)}
-                            {job.status}
-                          </span>
-                        </Badge>
-                      </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs">{job.status === 'pending' ? 'Analyzing' : job.status === 'processing' ? 'OCR\'ing' : job.status}</span>
+                      {job.status === 'processing' && <Loader2 className="h-3 w-3 animate-spin" />}
+                    </div>
                       <p className="text-sm text-muted-foreground">{job.source_folder_path}</p>
                     </div>
                     <CollapsibleTrigger asChild>

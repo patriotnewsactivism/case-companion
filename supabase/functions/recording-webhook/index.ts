@@ -121,7 +121,7 @@ serve(async (req) => {
         console.log(`Recording finished for room ${room}, processing...`);
         break;
 
-      case 'recording.ready':
+      case 'recording.ready': {
         // Recording is ready for download
         if (!download_link) {
           console.error('No download link provided in webhook');
@@ -172,6 +172,7 @@ serve(async (req) => {
           }
         }
         break;
+      }
 
       case 'recording.error':
         // Recording failed

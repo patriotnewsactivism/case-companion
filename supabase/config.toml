@@ -1,22 +1,127 @@
-project_id = "usyxikgqkcnlzobnqhtz"
+project_id = "jpzkumgndqsdwimbvjku"
 
+[db]
+port = 54323
+shadow_port = 54420
+
+# All authenticated-user functions require JWT
 [functions.create-video-room]
-verify_jwt = false
+verify_jwt = true
 
 [functions.join-video-room]
-verify_jwt = false
+verify_jwt = true
 
 [functions.ocr-document]
-verify_jwt = false
+verify_jwt = true
 
 [functions.import-google-drive]
-verify_jwt = false
+verify_jwt = true
 
+# External webhook from Daily.co — no JWT, uses its own signature verification
 [functions.recording-webhook]
 verify_jwt = false
 
 [functions.transcribe-media]
-verify_jwt = false
+verify_jwt = true
 
 [functions.transcribe-recording]
+verify_jwt = true
+
+[functions.trial-coach]
+verify_jwt = true
+
+[functions.chat]
+verify_jwt = true
+
+[functions.trial-simulation]
+verify_jwt = true
+
+[functions.settlement-analysis]
+verify_jwt = true
+
+[functions.export-document]
+verify_jwt = true
+
+[functions.conflict-check]
+verify_jwt = true
+
+# Voice pipeline
+[functions.deepgram-token]
+verify_jwt = true
+
+[functions.tts-generate]
+verify_jwt = true
+
+# Mock jury
+[functions.mock-jury]
+verify_jwt = true
+
+# Cross-document timeline synthesis
+[functions.synthesize-timeline]
+verify_jwt = true
+
+[functions.argument-analyzer]
+verify_jwt = true
+
+[functions.case-strategy]
+verify_jwt = true
+
+[functions.client-auth]
+verify_jwt = true
+
+[functions.cross-document-analysis]
+verify_jwt = true
+
+
+[functions.discovery-response]
+verify_jwt = true
+
+[functions.document-aware-chat]
+verify_jwt = true
+
+[functions.evidence-analysis]
+verify_jwt = true
+
+[functions.gemini-proxy]
+verify_jwt = true
+
+[functions.judicial-research]
+verify_jwt = true
+
+[functions.legal-research]
+verify_jwt = true
+
+# Internal queue processor — triggered by cron/pg_net, no user JWT
+[functions.ocr-queue-processor]
 verify_jwt = false
+
+[functions.privilege-log]
+verify_jwt = true
+
+[functions.process-queue]
+verify_jwt = true
+
+[functions.save-session]
+verify_jwt = true
+
+[functions.send-email]
+verify_jwt = true
+
+[functions.trial-assistant]
+verify_jwt = true
+
+[functions.upload-to-r2]
+verify_jwt = true
+
+[functions.voice-agent-call]
+verify_jwt = true
+
+[functions.witness-prep]
+verify_jwt = true
+
+[functions.invite-member]
+verify_jwt = true
+
+# Outbound request generation (public records / FOIA, discovery demands, preservation letters, subpoenas)
+[functions.generate-request]
+verify_jwt = true

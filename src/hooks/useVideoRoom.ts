@@ -62,8 +62,7 @@ export function useVideoRoom() {
   }, []);
 
   const joinRoom = useCallback(async (params: {
-    roomName: string;
-    roomId?: string;
+    roomId: string;
     userName?: string;
   }) => {
     setIsLoading(true);

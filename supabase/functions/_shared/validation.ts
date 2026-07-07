@@ -10,7 +10,7 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-
 const FOLDER_ID_REGEX = /^[a-zA-Z0-9_-]{10,100}$/;
 
 // Safe file path regex (no path traversal)
-const SAFE_PATH_REGEX = /^[a-zA-Z0-9_\-\/. ]+$/;
+const SAFE_PATH_REGEX = /^[a-zA-Z0-9_./ -]+$/;
 
 /**
  * Validate UUID format
@@ -93,7 +93,7 @@ export function validateMimeType(mimeType: string, allowedTypes?: string[]): str
   }
 
   // Basic MIME type validation
-  if (!/^[a-z]+\/[a-z0-9\-\+\.]+$/i.test(mimeType)) {
+  if (!/^[a-z]+\/[a-z0-9.+-]+$/i.test(mimeType)) {
     throw new Error('Invalid MIME type format');
   }
 
@@ -174,14 +174,16 @@ export function validateURL(url: string): string {
  * Validate integer within range
  */
 export function validateInteger(
-  value: any,
+  value: unknown,
   fieldName: string,
   min?: number,
   max?: number
 ): number {
-  const num = parseInt(value, 10);
+  const num = typeof value === 'number'
+    ? value
+    : Number.parseInt(String(value), 10);
 
-  if (isNaN(num)) {
+  if (Number.isNaN(num)) {
     throw new Error(`Invalid ${fieldName}: must be an integer`);
   }
 

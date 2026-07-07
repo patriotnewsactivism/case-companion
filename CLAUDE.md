@@ -112,8 +112,16 @@ Located in `supabase/functions/`:
 1. **`create-video-room`** - Creates Jitsi Meet room with JWT token
 2. **`join-video-room`** - Joins existing video room
 3. **`import-google-drive`** - Recursively imports folders from Google Drive to Supabase Storage
-4. **`ocr-document`** - OCR processing for PDF/images
+4. **`ocr-document`** - OCR processing with multi-tier fallback (NO Azure — not used in this project)
+   - **Primary**: Google Cloud Vision (1,000 pages/month free; requires `GOOGLE_CLOUD_VISION_CREDENTIALS`)
+   - **Fallback**: Google Gemini multi-model (free tier; cycles gemini-3-flash-preview → 2.5-flash → 2.5-flash-lite → 2.0-flash on 429/5xx)
+   - **Last Resort**: OCR.space (25,000/month free, but 3-page/1MB limit per file on free plan)
+   - Extracts text from PDFs (multi-page), images, and text files
+   - Performs AI legal analysis: summary, key facts, favorable/adverse findings, action items, entities
+   - Auto-generates timeline events from dates found in documents
+   - Handles Bates numbers, exhibits, redactions, tables, and marginalia
 5. **`transcribe-media`** - Calls OpenAI Whisper API for audio/video transcription
+6. **`trial-simulation`** - AI-powered trial simulation with coaching (cross-exam, depositions, etc.)
 
 All functions require JWT verification (`verify_jwt: true` in config.toml).
 
@@ -125,9 +133,20 @@ Required in `.env` (see `.env.example`):
 - `VITE_SUPABASE_URL` - Supabase API URL
 - `VITE_GOOGLE_CLIENT_ID` - Google OAuth client ID
 - `VITE_GOOGLE_API_KEY` - Google API key for Drive integration
-- `OPENAI_API_KEY` - For Whisper transcription (edge functions only)
 
-Current project ID: `plcvjadartxntnurhcua`
+**Supabase Secrets** (set via `npx supabase secrets set KEY=value`):
+- `GOOGLE_AI_API_KEY` - Gemini for OCR + AI analysis (free tier) ✅ CONFIGURED
+- `GEMINI_API_KEY` - Backup Gemini key ✅ CONFIGURED
+- `OPENROUTER_API_KEY` - Free open-weights models fallback ✅ CONFIGURED
+- `COHERE_API_KEY` - Large-context (256K) document analysis ✅ CONFIGURED
+- `OCR_SPACE_API_KEY` - OCR fallback (25,000/month free; 3-page/1MB per-file limit) ✅ CONFIGURED
+- `GOOGLE_CLOUD_VISION_CREDENTIALS` - Optional: GCP service-account JSON for Cloud Vision OCR (1,000 pages/month free; currently EMPTY)
+- `OPENAI_API_KEY` - Optional paid last resort (also enables Whisper transcription); set `OPENAI_MODEL` to choose the model
+
+**AI/OCR Policy — NO AZURE.** This project does not use any Microsoft Azure service.
+Free tiers first (Gemini → OpenRouter free models), paid providers only when explicitly configured.
+
+Current project ID: `jpzkumgndqsdwimbvjku`
 
 ## Common Development Workflows
 
@@ -165,9 +184,15 @@ Components are added to `src/components/ui/` with Tailwind styling.
 ### Document Processing Pipeline
 1. User uploads file or imports from Drive
 2. File stored in Supabase Storage `case-documents` bucket
-3. For PDFs/images: `ocr-document` function extracts text → stored in `documents.ocr_text`
-4. For audio/video: Storage trigger calls `transcribe-media` → Whisper API → stored in document record
-5. AI analysis fields (`summary`, `key_facts`, `favorable_findings`, etc.) populated separately
+3. **Automatic OCR trigger** for PDFs/images:
+   - `ocr-document` edge function called automatically
+   - Google Gemini 2.5 Flash extracts text → stored in `documents.ocr_text`
+   - AI analyzes text → generates `summary`, `key_facts`, `favorable_findings`, `adverse_findings`, `action_items`
+   - Timeline events auto-extracted from dates → inserted into `timeline_events` table
+   - Document marked as `ai_analyzed = true` when complete
+4. **Manual OCR trigger**: Click Scan icon (📄) on any document to reprocess
+5. **Batch OCR**: "Analyze All" button processes all unanalyzed documents in batches of 3
+6. For audio/video: Click Music icon (🎵) → `transcribe-media` → Whisper API → stored in `transcription_text`
 
 ## Styling Conventions
 
@@ -199,7 +224,7 @@ Components are added to `src/components/ui/` with Tailwind styling.
 ## Build & Deployment
 
 - **Build output:** `/dist` directory
-- **Deployment:** Via Lovable platform (see README.md)
+- **Deployment:** Via Vercel, Netlify, or any static hosting (see README.md)
 - **Environment:** Vite env vars must be prefixed with `VITE_`
 - **Production mode:** `npm run build` creates optimized bundles with code splitting
 - **Hot reload:** Dev server supports HMR for instant updates
