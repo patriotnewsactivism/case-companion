@@ -650,8 +650,19 @@ export default function CaseDetail() {
         body: JSON.stringify({ documentId, fileUrl }),
       });
 
-      if (error) {
-        throw error;
+      if (!response.ok) {
+        let message = `OCR request failed (HTTP ${response.status})`;
+        if (response.status === 504 || response.status === 502 || response.status === 503) {
+          message = "OCR timed out — this document may be too large or complex to process. Try again, or split large PDFs into smaller files.";
+        } else {
+          try {
+            const errBody = await response.json();
+            if (errBody?.error) message = errBody.error;
+          } catch {
+            // response body wasn't JSON — keep the generic status message
+          }
+        }
+        throw new Error(message);
       }
 
       const data = (await response.json()) as OcrFunctionResponse;
