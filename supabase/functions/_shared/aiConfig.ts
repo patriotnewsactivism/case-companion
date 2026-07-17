@@ -5,10 +5,11 @@
  * platform runs at $0 until there is revenue to justify paid models:
  *   0. AI_GATEWAY_URL     → Custom gateway            (override, if set)
  *   1. GOOGLE_AI_API_KEY  → Gemini flash (free tier)  (primary)
- *   2. GROQ_API_KEY       → Llama 3.3 70B (free tier, very fast)
- *   3. CEREBRAS_API_KEY   → Llama 3.3 70B (free tier, very fast)
- *   4. OPENROUTER_API_KEY → free open-weights models  (fallback, $0)
- *   5. OPENAI_API_KEY     → OPENAI_MODEL/gpt-4o-mini  (paid, last resort)
+ *   2. MISTRAL_API_KEY    → Mistral Large (free tier, 1B tokens/mo — biggest free allowance)
+ *   3. GROQ_API_KEY       → Llama 3.3 70B (free tier, very fast)
+ *   4. CEREBRAS_API_KEY   → Llama 3.3 70B (free tier, very fast)
+ *   5. OPENROUTER_API_KEY → free open-weights models  (fallback, $0)
+ *   6. OPENAI_API_KEY     → OPENAI_MODEL/gpt-4o-mini  (paid, last resort)
  *
  * Scaling cost up later requires no code change: set OPENAI_API_KEY (and
  * optionally OPENAI_MODEL) or attach billing to the Gemini key.
@@ -21,7 +22,7 @@ export interface AIProviderConfig {
   apiUrl: string;
   apiKey: string;
   model: string;
-  provider: 'gemini' | 'groq' | 'cerebras' | 'openai' | 'openrouter' | 'gateway';
+  provider: 'gemini' | 'mistral' | 'groq' | 'cerebras' | 'openai' | 'openrouter' | 'gateway';
   headers: Record<string, string>;
   maxTokens: number;
 }
@@ -69,6 +70,19 @@ function getGroqConfig(): AIProviderConfig | null {
     apiKey: key,
     model: Deno.env.get('GROQ_MODEL') || 'llama-3.3-70b-versatile',
     provider: 'groq',
+    maxTokens: 8192,
+    headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
+  };
+}
+
+function getMistralConfig(): AIProviderConfig | null {
+  const key = Deno.env.get('MISTRAL_API_KEY');
+  if (!key) return null;
+  return {
+    apiUrl: 'https://api.mistral.ai/v1/chat/completions',
+    apiKey: key,
+    model: Deno.env.get('MISTRAL_MODEL') || 'mistral-large-latest',
+    provider: 'mistral',
     maxTokens: 8192,
     headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
   };
@@ -125,6 +139,11 @@ export function getAIProvider(): AIProviderConfig {
     };
   }
 
+  // Mistral: huge free tier (1B tokens/mo) — checked right after Gemini so
+  // it absorbs traffic once Gemini's free-tier quota caps out.
+  const mistral = getMistralConfig();
+  if (mistral) return mistral;
+
   // Free tier before paid: Groq/Cerebras/OpenRouter cost $0, so they outrank
   // the paid OpenAI fallback until there are paying customers.
   const groq = getGroqConfig();
@@ -165,7 +184,7 @@ export function getAIProvider(): AIProviderConfig {
   }
 
   throw new Error(
-    '[aiConfig] No AI API key configured. Set at least one of: GOOGLE_AI_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY'
+    '[aiConfig] No AI API key configured. Set at least one of: GOOGLE_AI_API_KEY, MISTRAL_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY'
   );
 }
 
@@ -212,6 +231,11 @@ export function getAllAIProviders(): AIProviderConfig[] {
       },
     });
   }
+
+  // Mistral: huge free tier (1B tokens/mo) — checked right after Gemini so
+  // it absorbs traffic once Gemini's free-tier quota caps out.
+  const mistral = getMistralConfig();
+  if (mistral) providers.push(mistral);
 
   // Free tier before paid: Groq/Cerebras/OpenRouter cost $0, so they outrank
   // the paid OpenAI fallback until there are paying customers.
