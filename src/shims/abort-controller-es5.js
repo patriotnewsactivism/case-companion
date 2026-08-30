@@ -1,8 +1,18 @@
-const NativeAbortController = (typeof window === 'undefined' ? {} : window).AbortController;
-const NativeAbortSignal = (typeof window === 'undefined' ? {} : window).AbortSignal;
+const AbortControllerImpl = typeof globalThis.AbortController !== 'undefined'
+  ? globalThis.AbortController
+  : class AbortController {
+      constructor() {
+        this.signal = { aborted: false };
+      }
+      abort() {
+        this.signal.aborted = true;
+      }
+    };
 
-const AbortController = NativeAbortController;
-const AbortSignal = NativeAbortSignal;
+const AbortSignalImpl = typeof globalThis.AbortSignal !== 'undefined'
+  ? globalThis.AbortSignal
+  : class AbortSignal {};
 
-export default AbortController;
-export { AbortController, AbortSignal };
+export default AbortControllerImpl;
+export const AbortController = AbortControllerImpl;
+export const AbortSignal = AbortSignalImpl;
